@@ -1,0 +1,70 @@
+{
+  "metadata": {
+    "title": "balanz",
+    "description": "B2B documentation workspace"
+  },
+  "nav": {
+    "dashboard": "Dashboard",
+    "documents": "CFDI and XML",
+    "queries": "Queries",
+    "income": "Income and payments",
+    "reports": "Financial reports",
+    "certificates": "Digital certificates",
+    "users": "Users and roles",
+    "plans": "Plans and subscriptions",
+    "collaboration": "Collaboration",
+    "payroll": "Payroll XML"
+  },
+  "common": {
+    "section": "Section"
+  },
+  "topbar": {
+    "workspaceSummary": "Workspace summary",
+    "searchPlaceholder": "Search...",
+    "notifications": "Notifications",
+    "profile": "User profile",
+    "preferences": "Preferences",
+    "language": "Language",
+    "light": "Light",
+    "dark": "Dark",
+    "spanish": "Español",
+    "english": "English"
+  },
+  "sidebar": {
+    "expand": "Expand menu",
+    "collapse": "Collapse menu",
+    "system": "System operational"
+  },
+  "emptyState": {
+    "message": "There is no information to show yet."
+  },
+  "auth": {
+    "loginTitle": "Sign in",
+    "loginDescription": "Access your balanz workspace.",
+    "email": "Email address",
+    "emailPlaceholder": "you@company.com",
+    "password": "Password",
+    "passwordPlaceholder": "Enter your password",
+    "remember": "Remember me",
+    "forgotPassword": "Forgot your password?",
+    "submit": "Sign in",
+    "noAccount": "Don't have an account?",
+    "register": "Create account",
+    "registerTitle": "Create your account",
+    "registerDescription": "Set up your access to the balanz workspace.",
+    "fullName": "Full name",
+    "fullNamePlaceholder": "Your name",
+    "confirmPassword": "Confirm password",
+    "confirmPasswordPlaceholder": "Repeat your password",
+    "acceptTerms": "I accept the terms and conditions",
+    "registerSubmit": "Create account",
+    "hasAccount": "Already have an account?",
+    "login": "Sign in"
+  },
+  "notFound": {
+    "code": "Error 404",
+    "title": "Page not found",
+    "description": "The route you are looking for does not exist or is no longer available.",
+    "back": "Back to home"
+  }
+}

@@ -1,0 +1,70 @@
+{
+  "metadata": {
+    "title": "balanz",
+    "description": "Workspace de documentación B2B"
+  },
+  "nav": {
+    "dashboard": "Dashboard",
+    "documents": "CFDI y XML",
+    "queries": "Consultas",
+    "income": "Ingresos y pagos",
+    "reports": "Reportes financieros",
+    "certificates": "Certificados digitales",
+    "users": "Usuarios y roles",
+    "plans": "Planes y suscripciones",
+    "collaboration": "Colaboración",
+    "payroll": "XML de nóminas"
+  },
+  "common": {
+    "section": "Sección"
+  },
+  "topbar": {
+    "workspaceSummary": "Resumen del workspace",
+    "searchPlaceholder": "Buscar...",
+    "notifications": "Notificaciones",
+    "profile": "Perfil de usuario",
+    "preferences": "Preferencias",
+    "language": "Idioma",
+    "light": "Claro",
+    "dark": "Oscuro",
+    "spanish": "Español",
+    "english": "English"
+  },
+  "sidebar": {
+    "expand": "Expandir menú",
+    "collapse": "Colapsar menú",
+    "system": "Sistema operativo"
+  },
+  "emptyState": {
+    "message": "No hay información para mostrar todavía."
+  },
+  "auth": {
+    "loginTitle": "Inicia sesión",
+    "loginDescription": "Accede a tu espacio de trabajo de balanz.",
+    "email": "Correo electrónico",
+    "emailPlaceholder": "tu@empresa.com",
+    "password": "Contraseña",
+    "passwordPlaceholder": "Ingresa tu contraseña",
+    "remember": "Recordarme",
+    "forgotPassword": "¿Olvidaste tu contraseña?",
+    "submit": "Iniciar sesión",
+    "noAccount": "¿No tienes una cuenta?",
+    "register": "Crear cuenta",
+    "registerTitle": "Crea tu cuenta",
+    "registerDescription": "Configura tu acceso al workspace de balanz.",
+    "fullName": "Nombre completo",
+    "fullNamePlaceholder": "Tu nombre",
+    "confirmPassword": "Confirmar contraseña",
+    "confirmPasswordPlaceholder": "Repite tu contraseña",
+    "acceptTerms": "Acepto los términos y condiciones",
+    "registerSubmit": "Crear cuenta",
+    "hasAccount": "¿Ya tienes una cuenta?",
+    "login": "Iniciar sesión"
+  },
+  "notFound": {
+    "code": "Error 404",
+    "title": "Página no encontrada",
+    "description": "La ruta que buscas no existe o ya no está disponible.",
+    "back": "Volver al inicio"
+  }
+}
