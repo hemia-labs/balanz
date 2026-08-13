@@ -2,12 +2,11 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import * as path from 'path';
-import databaseConfig from '../config/database.config';
 
 @Module({
   imports: [
     TypeOrmModule.forRootAsync({
-      imports: [ConfigModule.forFeature(databaseConfig)],
+      imports: [ConfigModule],
       inject: [ConfigService],
       useFactory: (config: ConfigService) => ({
         type: 'postgres',
@@ -19,8 +18,8 @@ import databaseConfig from '../config/database.config';
         logging: config.get<boolean>('database.logging'),
         extra: { options: '-c timezone=America/Mexico_City' },
         entities: [
-          path.join(__dirname, '..', '**', '*.entity.ts'),
           path.join(__dirname, '..', '**', '*.entity.js'),
+          path.join(__dirname, '..', '**', '*.entity.ts'),
         ],
         synchronize: false,
       }),

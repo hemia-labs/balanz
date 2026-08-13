@@ -20,14 +20,14 @@ apps/api/
   data-source.ts                 # DataSource para el CLI de migraciones
   src/
     main.ts                      # bootstrap: ValidationPipe global + CORS, escucha PORT (3001)
-    app.module.ts                # módulo raíz (DatabaseModule/WidgetsModule comentados hasta tener DB)
+    app.module.ts                # módulo raíz
     config/
       database.config.ts         # config namespaced 'database' (registerAs)
     database/
       database.module.ts         # TypeOrmModule.forRootAsync, synchronize: false
       migrations/                # migraciones TypeORM
     modules/
-      widgets/                   # módulo dummy de ejemplo (controller, service, entity, dtos)
+      users/                     # módulo de usuarios (controller, service, entity, dtos)
 ```
 
 ## Variables de entorno
@@ -57,11 +57,11 @@ Sin DB el servidor levanta igual (responde en `/`). El módulo de datos está ap
 ## Activar la base de datos
 
 1. Completa `.env`.
-2. En `src/app.module.ts` descomenta los imports de `DatabaseModule` y `WidgetsModule`.
+2. En `src/app.module.ts` verifica los imports de `DatabaseModule` y `UsersModule`.
 3. Genera y corre la migración:
 
 ```bash
-bun run --cwd apps/api migration:generate src/database/migrations/CreateWidgets
+bun run --cwd apps/api migration:generate src/database/migrations/CreateUsers
 bun run --cwd apps/api migration:run
 ```
 
@@ -81,3 +81,6 @@ bun run --cwd apps/api migration:revert
 bun run --cwd apps/api test
 bun run --cwd apps/api build
 ```
+
+`GET /api/v1/users` acepta `search`, `status`, `page` y `limit` (1–100) y
+devuelve `{ items, meta: { page, limit, total, totalPages } }`.

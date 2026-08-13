@@ -1,12 +1,28 @@
 import { Module } from '@nestjs/common';
+import { ConfigModule } from '@nestjs/config';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
-// import { DatabaseModule } from './database/database.module';
-// import { WidgetsModule } from './modules/widgets/widgets.module';
+import appConfig from './config/app.config';
+import authConfig from './config/auth.config';
+import databaseConfig from './config/database.config';
+import { envVarsSchema } from './config/env.validation';
+import { AuthModule } from './common/auth/auth.module';
+import { DatabaseModule } from './database/database.module';
+import { UsersModule } from './modules/users/users.module';
 
 @Module({
-  // ponytail: DatabaseModule + WidgetsModule comentados hasta tener DB; descomentar juntos y setear DB_* en .env
-  imports: [/* DatabaseModule, WidgetsModule */],
+  imports: [
+    ConfigModule.forRoot({
+      isGlobal: true,
+      envFilePath: ['.env', '.env.local'],
+      load: [appConfig, databaseConfig, authConfig],
+      validationSchema: envVarsSchema,
+      validationOptions: { allowUnknown: true, abortEarly: true },
+    }),
+    AuthModule,
+    DatabaseModule,
+    UsersModule,
+  ],
   controllers: [AppController],
   providers: [AppService],
 })
