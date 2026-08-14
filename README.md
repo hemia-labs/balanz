@@ -1,45 +1,269 @@
-# nextjs-nestjs
+# Balanz
 
-Monorepo con **Next.js** (frontend) y **NestJS** (backend), gestionado con **bun workspaces**.
+Balanz es un monorepo para una plataforma de gestión contable y administrativa.
+Incluye un frontend web con Next.js y una API con NestJS, TypeORM y PostgreSQL.
 
-## Apps
+Actualmente el proyecto contiene:
 
-| App | Stack | Puerto | README |
-|-----|-------|--------|--------|
-| [`apps/web`](apps/web) | Next.js 16, React 19, Tailwind v4, shadcn | 3000 | [ver](apps/web/README.md) |
-| [`apps/api`](apps/api) | NestJS 11, TypeORM, PostgreSQL | 3001 | [ver](apps/api/README.md) |
-
-> La base de datos del backend viene **desactivada** hasta configurarla. Detalles en el README de `apps/api`.
+- Interfaz web con App Router, Tailwind CSS, componentes shadcn y soporte para español e inglés.
+- API REST con NestJS.
+- Módulo de usuarios con validación, permisos y persistencia en PostgreSQL.
+- Configuración de JWT, guards de autenticación y servicio de contraseñas.
+- Migraciones TypeORM y un runner preparado para seeds.
 
 ## Requisitos
 
-- [bun](https://bun.sh)
-- PostgreSQL (solo cuando actives la DB del backend)
+- [Bun](https://bun.sh)
+- PostgreSQL
+- Node.js compatible con las versiones usadas por Bun y las dependencias del proyecto.
 
-## Arranque
+## Instalación
+
+```bash
+npm install
+cp apps/api/.env.example apps/api/.env
+```
+
+Completa las variables de PostgreSQL y autenticación en `apps/api/.env` antes de
+iniciar la API o ejecutar migraciones.
+
+Con Bun:
 
 ```bash
 bun install
-
-bun run dev        # levanta web + api en paralelo
-bun run dev:web    # solo frontend (http://localhost:3000)
-bun run dev:api    # solo backend  (http://localhost:3001)
+cp apps/api/.env.example apps/api/.env
 ```
 
-## Build
+Los comandos siguientes muestran primero la variante con `npm` y después la
+variante equivalente con `bun`.
+
+## Estructura del proyecto
+
+```text
+balanz/
+├── apps/
+│   ├── web/                         # Frontend Next.js
+│   │   ├── src/app/                 # Rutas, layouts y páginas
+│   │   ├── src/components/           # Componentes de la aplicación y UI
+│   │   ├── src/dictionaries/         # Traducciones es/en
+│   │   └── public/                  # Recursos estáticos
+│   │
+│   └── api/                         # Backend NestJS
+│       ├── src/
+│       │   ├── common/              # Auth, guards, filtros y utilidades
+│       │   ├── config/              # Configuración y validación de entorno
+│       │   ├── database/
+│       │   │   ├── data-source.ts   # DataSource usado por TypeORM CLI
+│       │   │   ├── migrations/      # Cambios versionados del esquema
+│       │   │   └── seeds/           # Datos iniciales/reutilizables
+│       │   └── modules/users/        # Controller, service, DTOs y entidad
+│       └── test/                    # Tests unitarios y e2e
+│
+├── package.json                     # Workspaces y scripts globales
+└── bun.lock                         # Versiones bloqueadas
+```
+
+## Desarrollo
 
 ```bash
-bun run build      # build de todas las apps
+npm run dev
 ```
 
-## Estructura
+Con Bun:
 
-```
-nextjs-nestjs/
-  apps/
-    web/   # Next.js (App Router, Tailwind v4, shadcn) — ver apps/web/README.md
-    api/   # NestJS (TypeORM, PostgreSQL) — ver apps/api/README.md
-  package.json   # workspaces + scripts root
+```bash
+bun run dev
 ```
 
-Cada app documenta su stack, variables de entorno y comandos en su propio README.
+Inicia el frontend y la API en paralelo.
+
+```bash
+npm run dev:web
+```
+
+Con Bun:
+
+```bash
+bun run dev:web
+```
+
+Inicia únicamente el frontend en `http://localhost:3000`.
+
+```bash
+npm run dev:api
+```
+
+Con Bun:
+
+```bash
+bun run dev:api
+```
+
+Inicia únicamente la API en modo watch, normalmente en `http://localhost:3001`.
+
+También puedes ejecutar los comandos directamente dentro de una app:
+
+```bash
+npm --prefix apps/web run dev
+npm --prefix apps/api run start:dev
+```
+
+Con Bun:
+
+```bash
+bun run --cwd apps/web dev
+bun run --cwd apps/api start:dev
+```
+
+## Migraciones de base de datos
+
+La API usa `synchronize: false`; TypeORM no modifica automáticamente el esquema.
+Cada cambio en una entidad debe reflejarse en una migración.
+
+### Generar una migración
+
+Después de modificar una entidad, genera la migración desde la raíz del proyecto:
+
+```bash
+npm --prefix apps/api run migration:generate
+```
+
+Con Bun:
+
+```bash
+bun run --cwd apps/api migration:generate
+```
+
+Genera una migración con el nombre base `Migration` dentro de
+`apps/api/src/database/migrations`.
+
+Para usar un nombre personalizado, ejecuta TypeORM directamente:
+
+```bash
+npm --prefix apps/api run typeorm -- migration:generate src/database/migrations/AddUserPhone
+```
+
+Con Bun:
+
+```bash
+bun run --cwd apps/api typeorm migration:generate src/database/migrations/AddUserPhone
+```
+
+La ruta personalizada debe permanecer dentro de `src/database/migrations`.
+
+Compara las entidades con el esquema actual de PostgreSQL y crea un archivo con
+las instrucciones `up` y `down`. Revisa el archivo generado antes de aplicarlo.
+
+### Ejecutar las migraciones pendientes
+
+```bash
+npm --prefix apps/api run migration:run
+```
+
+Con Bun:
+
+```bash
+bun run --cwd apps/api migration:run
+```
+
+Aplica en PostgreSQL todas las migraciones que todavía no estén registradas como
+ejecutadas.
+
+### Revertir la última migración
+
+```bash
+npm --prefix apps/api run migration:revert
+```
+
+Con Bun:
+
+```bash
+bun run --cwd apps/api migration:revert
+```
+
+Ejecuta el método `down` de la última migración aplicada. Úsalo únicamente cuando
+quieras deshacer el cambio más reciente.
+
+### Verificar el estado de las migraciones
+
+```bash
+npm --prefix apps/api run typeorm -- migration:show
+```
+
+Con Bun:
+
+```bash
+bun run --cwd apps/api typeorm migration:show
+```
+
+Muestra qué migraciones ya fueron ejecutadas y cuáles están pendientes.
+
+## Seeds
+
+El runner de seeds está preparado en `apps/api/src/database/seeds/run-seeds.ts`.
+Cuando existan datos iniciales idempotentes, se agregan allí y se ejecutan con:
+
+```bash
+npm --prefix apps/api run seed:run
+```
+
+Con Bun:
+
+```bash
+bun run --cwd apps/api seed:run
+```
+
+## Build, pruebas y formato
+
+```bash
+npm run build
+```
+
+Con Bun:
+
+```bash
+bun run build
+```
+
+Compila todas las aplicaciones del monorepo.
+
+```bash
+npm --prefix apps/api run test
+```
+
+Con Bun:
+
+```bash
+bun run --cwd apps/api test
+```
+
+Ejecuta las pruebas unitarias de la API.
+
+```bash
+npm --prefix apps/api run test:e2e
+```
+
+Con Bun:
+
+```bash
+bun run --cwd apps/api test:e2e
+```
+
+Ejecuta las pruebas end-to-end de la API.
+
+```bash
+npm --prefix apps/api run format
+```
+
+Con Bun:
+
+```bash
+bun run --cwd apps/api format
+```
+
+Formatea los archivos TypeScript de la API con Prettier.
+
+Para más detalles específicos de cada aplicación, consulta:
+
+- [Documentación de la API](apps/api/README.md)
+- [Documentación del frontend](apps/web/README.md)

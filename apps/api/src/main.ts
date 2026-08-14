@@ -1,12 +1,16 @@
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import cookieParser from 'cookie-parser';
 import { AppModule } from './app.module';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
+import { getCorsOptions } from './config/app.config';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
   const config = app.get(ConfigService);
+
+  app.use(cookieParser());
 
   app.setGlobalPrefix(config.get<string>('app.globalPrefix') ?? 'api/v1');
   app.useGlobalPipes(
@@ -18,8 +22,9 @@ async function bootstrap() {
   );
   app.useGlobalFilters(new AllExceptionsFilter());
 
+  const nodeEnv = config.get<string>('app.nodeEnv') ?? 'development';
   const corsOrigins = config.get<string[]>('app.corsOrigins') ?? [];
-  app.enableCors({ origin: corsOrigins.length > 0 ? corsOrigins : true });
+  app.enableCors(getCorsOptions(nodeEnv, corsOrigins));
 
   await app.listen(config.get<number>('app.port') ?? 3001);
 }

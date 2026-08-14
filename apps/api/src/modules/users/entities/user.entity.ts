@@ -38,7 +38,7 @@ export class User {
   @Column({ name: 'email_verified_at', type: 'timestamptz', nullable: true })
   emailVerifiedAt?: Date | null;
 
-  @Column({ name: 'phone_e164', length: 16, nullable: true })
+  @Column({ name: 'phone_e164', type: 'varchar', length: 16, nullable: true })
   phoneE164?: string | null;
 
   @Column({ name: 'phone_verified_at', type: 'timestamptz', nullable: true })

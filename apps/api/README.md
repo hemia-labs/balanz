@@ -17,13 +17,13 @@ La base de datos viene **desactivada** hasta que la configures (ver abajo).
 
 ```
 apps/api/
-  data-source.ts                 # DataSource para el CLI de migraciones
   src/
     main.ts                      # bootstrap: ValidationPipe global + CORS, escucha PORT (3001)
     app.module.ts                # módulo raíz
     config/
       database.config.ts         # config namespaced 'database' (registerAs)
     database/
+      data-source.ts              # DataSource para el CLI de migraciones
       database.module.ts         # TypeOrmModule.forRootAsync, synchronize: false
       migrations/                # migraciones TypeORM
     modules/
@@ -43,6 +43,22 @@ DB_DATABASE=
 DB_LOGGING=false
 ```
 
+## Cookies
+
+La API registra `cookie-parser` y expone la configuración en el namespace
+`cookies`. Las cookies se configuran como `HttpOnly`:
+
+```env
+COOKIE_SECURE=false
+COOKIE_SAME_SITE=lax
+COOKIE_DOMAIN=
+```
+
+En producción `COOKIE_SECURE=true` es obligatorio. Usa `COOKIE_SAME_SITE=none`
+solo para cookies cross-site y siempre junto con `COOKIE_SECURE=true`. CORS usa
+`credentials: true`; el frontend debe enviar las peticiones con
+`credentials: 'include'`.
+
 `PORT` opcional (default `3001`). `.env` y `.env.local` están en `.gitignore`.
 
 ## Arranque
@@ -61,14 +77,17 @@ Sin DB el servidor levanta igual (responde en `/`). El módulo de datos está ap
 3. Genera y corre la migración:
 
 ```bash
-bun run --cwd apps/api migration:generate src/database/migrations/CreateUsers
+bun run --cwd apps/api migration:generate
 bun run --cwd apps/api migration:run
 ```
+
+El primer comando genera la migración con el nombre base `Migration` dentro de
+`src/database/migrations`.
 
 ## Migraciones
 
 ```bash
-bun run --cwd apps/api migration:generate src/database/migrations/<Nombre>
+bun run --cwd apps/api typeorm migration:generate src/database/migrations/<Nombre>
 bun run --cwd apps/api migration:run
 bun run --cwd apps/api migration:revert
 ```
