@@ -1,51 +1,50 @@
 "use client";
 
-import { Fragment } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { cn } from "@/lib/utils";
-import { nav, navGroups } from "@/lib/nav";
-import type { Dictionary, Locale } from "@/lib/i18n";
+import { useAccountingContext } from "@/components/accounting-context";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { appNavigation, clientNavGroups, navHref, organizationNavGroups } from "@/lib/nav";
+import { filterNavigation, isNavigationItemActive } from "@/lib/navigation-core";
+import { cn } from "@/lib/utils";
 
 export function AppNavigation({
-  locale,
-  dictionary,
   collapsed = false,
   onNavigate,
 }: {
-  locale: Locale;
-  dictionary: Dictionary;
   collapsed?: boolean;
   onNavigate?: () => void;
 }) {
   const pathname = usePathname();
+  const { capabilities, client, context, organization } = useAccountingContext();
+  const groups = context === "client" ? clientNavGroups : organizationNavGroups;
+  const items = filterNavigation(
+    appNavigation.map((item) => ({
+      ...item,
+      href: navHref(item, "es", organization.id, client?.id),
+    })),
+    context,
+    capabilities
+  );
 
   return (
-    <nav aria-label={dictionary.sidebar.mainNavigation} className="space-y-5">
-      {navGroups.map((group) => {
-        const items = nav.filter((item) => item.group === group.key);
-
+    <nav aria-label="Navegación principal" className="space-y-5">
+      {groups.map((group) => {
+        const groupedItems = items.filter((item) => item.group === group);
+        if (groupedItems.length === 0) return null;
         return (
-          <div key={group.key}>
+          <div key={group}>
             {!collapsed ? (
-              <p className="mb-2 px-3 text-caption font-semibold text-sidebar-foreground/55">
-                {dictionary.navGroups[group.key]}
-              </p>
+              <p className="mb-2 px-3 text-caption font-semibold text-sidebar-foreground/55">{group}</p>
             ) : (
               <div aria-hidden="true" className="mx-3 mb-2 border-t border-sidebar-border" />
             )}
             <div className="space-y-1">
-              {items.map(({ href, labelKey, icon: Icon }) => {
-                const label = dictionary.nav[labelKey];
-                const localizedHref = "/" + locale + (href === "/" ? "" : href);
-                const active =
-                  href === "/"
-                    ? pathname === "/" + locale || pathname === "/" + locale + "/"
-                    : pathname.startsWith(localizedHref);
+              {groupedItems.map(({ href, id, icon: Icon, label }) => {
+                const active = isNavigationItemActive(pathname, href);
                 const link = (
                   <Link
-                    href={localizedHref}
+                    href={href}
                     onClick={onNavigate}
                     aria-current={active ? "page" : undefined}
                     className={cn(
@@ -60,16 +59,13 @@ export function AppNavigation({
                     <span className={cn(collapsed && "sr-only")}>{label}</span>
                   </Link>
                 );
-
                 return collapsed ? (
-                  <Tooltip key={href}>
+                  <Tooltip key={id}>
                     <TooltipTrigger delay={500} render={link} />
-                    <TooltipContent side="right" sideOffset={8}>
-                      {label}
-                    </TooltipContent>
+                    <TooltipContent side="right" sideOffset={8}>{label}</TooltipContent>
                   </Tooltip>
                 ) : (
-                  <Fragment key={href}>{link}</Fragment>
+                  <div key={id}>{link}</div>
                 );
               })}
             </div>
@@ -79,4 +75,3 @@ export function AppNavigation({
     </nav>
   );
 }
-

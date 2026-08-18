@@ -2,6 +2,8 @@
 
 Antes de cambiar UI, UX, estilos, componentes, layout, responsive, iconografía, gráficas o microcopy, lee y aplica ../../docs/design/ACCOUNTING_UI_DESIGN_AGENT.md.
 
+Antes de cambiar navegación, rutas, sidebars, layouts, contextos de despacho/cliente o pantallas contables, lee también ../../docs/product/ACCOUNTING_INFORMATION_ARCHITECTURE.md.
+
 - Ese documento es normativo para apps/web.
 - No introduzcas colores, radios, sombras ni espaciados arbitrarios.
 - Revisa las dependencias visuales existentes antes de agregar otra.

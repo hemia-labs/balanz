@@ -1,13 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
-import { defaultLocale, isLocale, locales } from "@/lib/i18n";
-
-function getPreferredLocale(request: NextRequest) {
-  const language = request.headers.get("accept-language")?.split(",")[0]?.split("-")[0]?.toLowerCase();
-  return language && isLocale(language) ? language : defaultLocale;
-}
+import { defaultLocale, locales } from "@/lib/i18n";
 
 export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
+  if (pathname === "/en" || pathname.startsWith("/en/")) {
+    const url = request.nextUrl.clone();
+    url.pathname = `/${defaultLocale}${pathname.slice(3)}`;
+    return NextResponse.redirect(url);
+  }
   const hasLocale = locales.some(
     (locale) => pathname === `/${locale}` || pathname.startsWith(`/${locale}/`)
   );
@@ -15,7 +15,7 @@ export function proxy(request: NextRequest) {
   if (hasLocale) return NextResponse.next();
 
   const url = request.nextUrl.clone();
-  url.pathname = `/${getPreferredLocale(request)}${pathname === "/" ? "" : pathname}`;
+  url.pathname = `/${defaultLocale}${pathname === "/" ? "" : pathname}`;
   return NextResponse.redirect(url);
 }
 

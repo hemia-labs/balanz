@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { AuthFrame } from "@/components/auth-frame";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -14,6 +15,7 @@ export function RegisterForm({
   dictionary: Dictionary;
 }) {
   const { auth } = dictionary;
+  const router = useRouter();
 
   return (
     <AuthFrame
@@ -36,7 +38,7 @@ export function RegisterForm({
         </p>
       }
     >
-      <form onSubmit={(event) => event.preventDefault()} className="space-y-5">
+      <form onSubmit={(event) => { event.preventDefault(); router.push("/es/onboarding"); }} className="space-y-5">
         <div className="space-y-2">
           <label htmlFor="full-name" className="block text-body-sm font-semibold">
             {auth.fullName}
@@ -116,6 +118,7 @@ export function RegisterForm({
         <Button type="submit" className="w-full">
           {auth.registerSubmit}
         </Button>
+        <p className="text-center text-caption text-muted-foreground">Registro demostrativo: los datos no se persisten.</p>
       </form>
     </AuthFrame>
   );
