@@ -20,7 +20,13 @@ export default async function PrivateLayout({
       <AppSidebar locale={lang} dictionary={dictionary} />
       <div className="flex min-w-0 flex-1 flex-col">
         <AppTopbar locale={lang} dictionary={dictionary} />
-        <main className="flex-1 p-6 lg:p-8">{children}</main>
+        <main
+          id="main-content"
+          tabIndex={-1}
+          className="flex-1 px-4 py-6 focus:outline-none sm:px-6 sm:py-8 lg:px-8"
+        >
+          <div className="mx-auto w-full max-w-content">{children}</div>
+        </main>
       </div>
     </div>
   );

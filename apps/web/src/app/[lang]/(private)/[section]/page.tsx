@@ -1,7 +1,8 @@
 import { notFound } from "next/navigation";
 import { EmptyState } from "@/components/empty-state";
+import { PageHeader } from "@/components/page-header";
 import { getDictionary, isLocale, locales } from "@/lib/i18n";
-import { labelFor, nav } from "@/lib/nav";
+import { nav } from "@/lib/nav";
 
 export function generateStaticParams() {
   return locales.flatMap((lang) =>
@@ -19,13 +20,22 @@ export default async function Section({
 }) {
   const { lang, section } = await params;
   if (!isLocale(lang)) notFound();
-  if (!nav.some(({ href }) => href === `/${section}`)) notFound();
+  const item = nav.find(({ href }) => href === "/" + section);
+  if (!item) notFound();
 
   const dictionary = getDictionary(lang);
   return (
-    <EmptyState
-      title={labelFor(`/${section}`, dictionary, lang)}
-      message={dictionary.emptyState.message}
-    />
+    <div className="space-y-6">
+      <PageHeader
+        title={dictionary.nav[item.labelKey]}
+        description={dictionary.sectionDescriptions[item.labelKey]}
+      />
+      <EmptyState
+        icon={item.icon}
+        eyebrow={dictionary.common.emptyLabel}
+        title={dictionary.emptyStates[item.labelKey].title}
+        message={dictionary.emptyStates[item.labelKey].message}
+      />
+    </div>
   );
 }
