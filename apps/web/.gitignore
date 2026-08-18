@@ -12,6 +12,7 @@
 
 # testing
 /coverage
+/.test-dist
 
 # next.js
 /.next/
@@ -39,6 +40,5 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
-AGENTS.md
 CLAUDE.md
 *.lock

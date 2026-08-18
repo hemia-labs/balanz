@@ -1,10 +1,13 @@
 {
   "metadata": {
-    "title": "balanz",
-    "description": "Workspace de documentación B2B"
+    "title": "balanz por Hemia",
+    "description": "Sistema contable para despachos y equipos administrativos"
+  },
+  "accessibility": {
+    "skipToContent": "Saltar al contenido principal"
   },
   "nav": {
-    "dashboard": "Dashboard",
+    "dashboard": "Panel",
     "documents": "CFDI y XML",
     "queries": "Consultas",
     "income": "Ingresos y pagos",
@@ -15,15 +18,24 @@
     "collaboration": "Colaboración",
     "payroll": "XML de nóminas"
   },
+  "navGroups": {
+    "operation": "Operación",
+    "analysis": "Análisis",
+    "administration": "Administración"
+  },
   "common": {
-    "section": "Sección"
+    "section": "Sección",
+    "overview": "Resumen",
+    "emptyLabel": "Sin información disponible"
   },
   "topbar": {
-    "workspaceSummary": "Resumen del workspace",
-    "searchPlaceholder": "Buscar...",
+    "productLabel": "Sistema contable",
+    "productContext": "Operación de Hemia",
+    "searchLabel": "Buscar en el sistema",
+    "searchPlaceholder": "Buscar folio, RFC o documento",
     "notifications": "Notificaciones",
-    "profile": "Perfil de usuario",
-    "preferences": "Preferencias",
+    "profile": "Preferencias de usuario",
+    "preferences": "Apariencia",
     "language": "Idioma",
     "light": "Claro",
     "dark": "Oscuro",
@@ -31,29 +43,89 @@
     "english": "English"
   },
   "sidebar": {
-    "expand": "Expandir menú",
-    "collapse": "Colapsar menú",
-    "system": "Sistema operativo"
+    "open": "Abrir navegación",
+    "close": "Cerrar navegación",
+    "expand": "Expandir navegación",
+    "collapse": "Colapsar navegación",
+    "mainNavigation": "Navegación principal",
+    "productLabel": "Balanz · Hemia México"
   },
-  "emptyState": {
-    "message": "No hay información para mostrar todavía."
+  "sectionDescriptions": {
+    "dashboard": "Consulta el estado general de la operación contable cuando haya información disponible.",
+    "documents": "Revisa los CFDI y archivos XML disponibles en el sistema.",
+    "queries": "Localiza información contable con los criterios que habilite el sistema.",
+    "income": "Consulta ingresos y pagos registrados en un mismo contexto operativo.",
+    "reports": "Revisa reportes financieros y sus periodos de información.",
+    "certificates": "Consulta los certificados digitales asociados a la operación.",
+    "users": "Revisa las personas usuarias y los roles configurados.",
+    "plans": "Consulta la información disponible del plan y la suscripción.",
+    "collaboration": "Revisa la actividad compartida entre integrantes del equipo.",
+    "payroll": "Consulta los archivos XML de nómina disponibles."
+  },
+  "emptyStates": {
+    "dashboard": {
+      "title": "El panel aún no tiene información",
+      "message": "La actividad y los pendientes aparecerán aquí cuando el sistema reciba datos contables."
+    },
+    "documents": {
+      "title": "No hay CFDI ni archivos XML disponibles",
+      "message": "Los documentos aparecerán en esta sección cuando estén disponibles en el sistema."
+    },
+    "queries": {
+      "title": "No hay resultados para consultar",
+      "message": "Esta sección mostrará la información que coincida con los criterios disponibles."
+    },
+    "income": {
+      "title": "No hay ingresos ni pagos disponibles",
+      "message": "Los movimientos aparecerán aquí cuando el sistema cuente con información."
+    },
+    "reports": {
+      "title": "No hay reportes financieros disponibles",
+      "message": "Los reportes aparecerán con su periodo y opciones de descarga cuando el sistema los genere."
+    },
+    "certificates": {
+      "title": "No hay certificados digitales disponibles",
+      "message": "Los certificados asociados aparecerán aquí cuando estén configurados."
+    },
+    "users": {
+      "title": "No hay usuarios ni roles disponibles",
+      "message": "Las personas usuarias y sus roles aparecerán aquí cuando estén configurados."
+    },
+    "plans": {
+      "title": "No hay información del plan disponible",
+      "message": "Los datos de la suscripción aparecerán aquí cuando el sistema los proporcione."
+    },
+    "collaboration": {
+      "title": "No hay actividad de colaboración",
+      "message": "La actividad del equipo aparecerá aquí cuando exista información compartida."
+    },
+    "payroll": {
+      "title": "No hay XML de nómina disponibles",
+      "message": "Los archivos de nómina aparecerán aquí cuando estén disponibles en el sistema."
+    }
   },
   "auth": {
+    "accessEyebrow": "Acceso al sistema",
+    "systemTitle": "Contabilidad clara para el trabajo diario",
+    "systemDescription": "Balanz organiza el acceso a la información contable de tu espacio de trabajo.",
+    "requiredHint": "Todos los campos son obligatorios.",
     "loginTitle": "Inicia sesión",
-    "loginDescription": "Accede a tu espacio de trabajo de balanz.",
+    "loginDescription": "Ingresa tus datos para continuar.",
     "email": "Correo electrónico",
-    "emailPlaceholder": "tu@empresa.com",
+    "emailPlaceholder": "nombre@empresa.com",
+    "emailHelp": "Usa el correo asociado a tu cuenta.",
     "password": "Contraseña",
     "passwordPlaceholder": "Ingresa tu contraseña",
-    "remember": "Recordarme",
-    "forgotPassword": "¿Olvidaste tu contraseña?",
+    "passwordHelp": "La contraseña distingue entre mayúsculas y minúsculas.",
+    "remember": "Mantener mi sesión",
+    "forgotPassword": "Recuperar contraseña",
     "submit": "Iniciar sesión",
-    "noAccount": "¿No tienes una cuenta?",
+    "noAccount": "¿Aún no tienes una cuenta?",
     "register": "Crear cuenta",
     "registerTitle": "Crea tu cuenta",
-    "registerDescription": "Configura tu acceso al workspace de balanz.",
+    "registerDescription": "Configura tus datos de acceso.",
     "fullName": "Nombre completo",
-    "fullNamePlaceholder": "Tu nombre",
+    "fullNamePlaceholder": "Nombre y apellidos",
     "confirmPassword": "Confirmar contraseña",
     "confirmPasswordPlaceholder": "Repite tu contraseña",
     "acceptTerms": "Acepto los términos y condiciones",
@@ -65,6 +137,6 @@
     "code": "Error 404",
     "title": "Página no encontrada",
     "description": "La ruta que buscas no existe o ya no está disponible.",
-    "back": "Volver al inicio"
+    "back": "Volver al panel"
   }
 }
