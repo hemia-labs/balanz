@@ -1,10 +1,13 @@
 {
   "metadata": {
-    "title": "balanz",
-    "description": "B2B documentation workspace"
+    "title": "balanz by Hemia",
+    "description": "Accounting system for firms and administrative teams"
+  },
+  "accessibility": {
+    "skipToContent": "Skip to main content"
   },
   "nav": {
-    "dashboard": "Dashboard",
+    "dashboard": "Overview",
     "documents": "CFDI and XML",
     "queries": "Queries",
     "income": "Income and payments",
@@ -15,15 +18,24 @@
     "collaboration": "Collaboration",
     "payroll": "Payroll XML"
   },
+  "navGroups": {
+    "operation": "Operations",
+    "analysis": "Analysis",
+    "administration": "Administration"
+  },
   "common": {
-    "section": "Section"
+    "section": "Section",
+    "overview": "Overview",
+    "emptyLabel": "No information available"
   },
   "topbar": {
-    "workspaceSummary": "Workspace summary",
-    "searchPlaceholder": "Search...",
+    "productLabel": "Accounting system",
+    "productContext": "Hemia operations",
+    "searchLabel": "Search the system",
+    "searchPlaceholder": "Search folio, RFC, or document",
     "notifications": "Notifications",
-    "profile": "User profile",
-    "preferences": "Preferences",
+    "profile": "User preferences",
+    "preferences": "Appearance",
     "language": "Language",
     "light": "Light",
     "dark": "Dark",
@@ -31,29 +43,89 @@
     "english": "English"
   },
   "sidebar": {
-    "expand": "Expand menu",
-    "collapse": "Collapse menu",
-    "system": "System operational"
+    "open": "Open navigation",
+    "close": "Close navigation",
+    "expand": "Expand navigation",
+    "collapse": "Collapse navigation",
+    "mainNavigation": "Main navigation",
+    "productLabel": "Balanz · Hemia Mexico"
   },
-  "emptyState": {
-    "message": "There is no information to show yet."
+  "sectionDescriptions": {
+    "dashboard": "Review the overall status of accounting operations when information is available.",
+    "documents": "Review the CFDI and XML files available in the system.",
+    "queries": "Find accounting information using criteria enabled by the system.",
+    "income": "Review income and payments in one operational context.",
+    "reports": "Review financial reports and their reporting periods.",
+    "certificates": "Review the digital certificates associated with operations.",
+    "users": "Review configured users and roles.",
+    "plans": "Review available plan and subscription information.",
+    "collaboration": "Review shared activity across team members.",
+    "payroll": "Review available payroll XML files."
+  },
+  "emptyStates": {
+    "dashboard": {
+      "title": "The overview has no information yet",
+      "message": "Activity and pending items will appear here when the system receives accounting data."
+    },
+    "documents": {
+      "title": "No CFDI or XML files are available",
+      "message": "Documents will appear in this section when they are available in the system."
+    },
+    "queries": {
+      "title": "There are no results to review",
+      "message": "This section will show information that matches available criteria."
+    },
+    "income": {
+      "title": "No income or payments are available",
+      "message": "Transactions will appear here when the system has information."
+    },
+    "reports": {
+      "title": "No financial reports are available",
+      "message": "Reports will appear with their period and download options when the system generates them."
+    },
+    "certificates": {
+      "title": "No digital certificates are available",
+      "message": "Associated certificates will appear here when configured."
+    },
+    "users": {
+      "title": "No users or roles are available",
+      "message": "Users and their roles will appear here when configured."
+    },
+    "plans": {
+      "title": "No plan information is available",
+      "message": "Subscription details will appear here when the system provides them."
+    },
+    "collaboration": {
+      "title": "There is no collaboration activity",
+      "message": "Team activity will appear here when shared information exists."
+    },
+    "payroll": {
+      "title": "No payroll XML files are available",
+      "message": "Payroll files will appear here when available in the system."
+    }
   },
   "auth": {
+    "accessEyebrow": "System access",
+    "systemTitle": "Clear accounting for daily work",
+    "systemDescription": "Balanz organizes access to the accounting information in your workspace.",
+    "requiredHint": "All fields are required.",
     "loginTitle": "Sign in",
-    "loginDescription": "Access your balanz workspace.",
+    "loginDescription": "Enter your details to continue.",
     "email": "Email address",
-    "emailPlaceholder": "you@company.com",
+    "emailPlaceholder": "name@company.com",
+    "emailHelp": "Use the email address linked to your account.",
     "password": "Password",
     "passwordPlaceholder": "Enter your password",
-    "remember": "Remember me",
-    "forgotPassword": "Forgot your password?",
+    "passwordHelp": "The password is case-sensitive.",
+    "remember": "Keep me signed in",
+    "forgotPassword": "Recover password",
     "submit": "Sign in",
-    "noAccount": "Don't have an account?",
+    "noAccount": "Don’t have an account yet?",
     "register": "Create account",
     "registerTitle": "Create your account",
-    "registerDescription": "Set up your access to the balanz workspace.",
+    "registerDescription": "Set up your access details.",
     "fullName": "Full name",
-    "fullNamePlaceholder": "Your name",
+    "fullNamePlaceholder": "First and last name",
     "confirmPassword": "Confirm password",
     "confirmPasswordPlaceholder": "Repeat your password",
     "acceptTerms": "I accept the terms and conditions",
@@ -65,6 +137,6 @@
     "code": "Error 404",
     "title": "Page not found",
     "description": "The route you are looking for does not exist or is no longer available.",
-    "back": "Back to home"
+    "back": "Back to overview"
   }
 }

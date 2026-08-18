@@ -1,20 +1,8 @@
-import { EmptyState } from "@/components/empty-state";
-import { getDictionary, isLocale } from "@/lib/i18n";
-import { notFound } from "next/navigation";
+import { redirect } from "next/navigation";
+import { demoOrganizationId } from "@/lib/demo-data";
 
-export default async function Home({
-  params,
-}: {
-  params: Promise<{ lang: string }>;
-}) {
+export default async function EntryPage({ params }: { params: Promise<{ lang: string }> }) {
   const { lang } = await params;
-  if (!isLocale(lang)) notFound();
-
-  const dictionary = getDictionary(lang);
-  return (
-    <EmptyState
-      title={dictionary.nav.dashboard}
-      message={dictionary.emptyState.message}
-    />
-  );
+  if (lang !== "es") redirect(`/es/despachos/${demoOrganizationId}/inicio`);
+  redirect(`/es/despachos/${demoOrganizationId}/inicio`);
 }

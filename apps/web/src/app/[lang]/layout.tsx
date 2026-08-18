@@ -43,6 +43,7 @@ export default async function LocaleLayout({
 }>) {
   const { lang } = await params;
   if (!isLocale(lang)) notFound();
+  const dictionary = getDictionary(lang);
 
   return (
     <html
@@ -52,6 +53,9 @@ export default async function LocaleLayout({
     >
       <body className="flex min-h-screen w-full">
         <ThemeInitializer />
+        <a href="#main-content" className="skip-link">
+          {dictionary.accessibility.skipToContent}
+        </a>
         {children}
       </body>
     </html>

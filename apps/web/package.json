@@ -6,7 +6,9 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "typecheck": "tsc --noEmit",
+    "test": "tsc -p tsconfig.tests.json && node --test .test-dist/navigation.test.js"
   },
   "dependencies": {
     "@base-ui/react": "^1.5.0",

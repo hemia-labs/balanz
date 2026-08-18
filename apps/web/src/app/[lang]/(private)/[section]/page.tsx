@@ -1,31 +1,15 @@
-import { notFound } from "next/navigation";
-import { EmptyState } from "@/components/empty-state";
-import { getDictionary, isLocale, locales } from "@/lib/i18n";
-import { labelFor, nav } from "@/lib/nav";
+import { notFound, redirect } from "next/navigation";
+import { PersonalScreen } from "@/components/personal-screen";
+import { demoOrganizationId } from "@/lib/demo-data";
+import { resolveLegacyDestination } from "@/lib/navigation-core";
 
-export function generateStaticParams() {
-  return locales.flatMap((lang) =>
-    nav.filter(({ href }) => href !== "/").map(({ href }) => ({
-      lang,
-      section: href.slice(1),
-    }))
-  );
-}
+const personalSections = new Set(["perfil", "seguridad", "preferencias", "ayuda"]);
 
-export default async function Section({
-  params,
-}: {
-  params: Promise<{ lang: string; section: string }>;
-}) {
+export default async function LegacyOrPersonalPage({ params }: { params: Promise<{ lang: string; section: string }> }) {
   const { lang, section } = await params;
-  if (!isLocale(lang)) notFound();
-  if (!nav.some(({ href }) => href === `/${section}`)) notFound();
-
-  const dictionary = getDictionary(lang);
-  return (
-    <EmptyState
-      title={labelFor(`/${section}`, dictionary, lang)}
-      message={dictionary.emptyState.message}
-    />
-  );
+  if (lang !== "es") redirect(`/es/${section}`);
+  if (personalSections.has(section)) return <PersonalScreen section={section} />;
+  const destination = resolveLegacyDestination(section);
+  if (!destination) notFound();
+  redirect(`/es/despachos/${demoOrganizationId}/${destination}?origen=${encodeURIComponent(section)}`);
 }

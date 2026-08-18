@@ -11,7 +11,7 @@ Frontend del monorepo `nextjs-nestjs`. Plantilla Next.js (App Router) con Tailwi
 - **shadcn** (estilo `base-nova`, sobre **@base-ui/react**) — componentes en `src/components/ui`.
 - **lucide-react** — iconos.
 - **class-variance-authority**, **clsx**, **tailwind-merge** — variantes y merge de clases.
-- **TypeScript**, **ESLint**. Diseño **light-only**.
+- **TypeScript**, **ESLint**. Temas claro y oscuro mediante tokens semánticos.
 - Gestor de paquetes: **bun**.
 
 ## Estructura
