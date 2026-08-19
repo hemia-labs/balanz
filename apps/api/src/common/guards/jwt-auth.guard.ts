@@ -1,13 +1,14 @@
 import {
   CanActivate,
   ExecutionContext,
+  Inject,
   Injectable,
   UnauthorizedException,
 } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { Request } from 'express';
 import { AuthenticatedUser } from '../auth/authenticated-user';
+import { JWT_SECRETS, type JwtSecrets } from '../auth/types/jwt.types';
 
 /**
  * Autenticación por JWT (Bearer). Verifica el token y adjunta el payload en
@@ -17,7 +18,7 @@ import { AuthenticatedUser } from '../auth/authenticated-user';
 export class JwtAuthGuard implements CanActivate {
   constructor(
     private readonly jwt: JwtService,
-    private readonly config: ConfigService,
+    @Inject(JWT_SECRETS) private readonly secrets: JwtSecrets,
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
@@ -30,7 +31,7 @@ export class JwtAuthGuard implements CanActivate {
 
     try {
       const payload = await this.jwt.verifyAsync<AuthenticatedUser>(token, {
-        secret: this.config.get<string>('auth.jwtSecret'),
+        secret: this.secrets.jwt_secret,
       });
       request.user = payload;
       return true;
