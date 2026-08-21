@@ -97,6 +97,98 @@ export const envVarsSchema = Joi.object({
     otherwise: Joi.string().min(16).required(),
   }),
   JWT_REFRESH_EXPIRES_IN: Joi.string().default('7d'),
+  EMAIL_VERIFICATION_TTL_MINUTES: Joi.number()
+    .integer()
+    .min(15)
+    .max(60)
+    .default(30),
+  TRIAL_DURATION_DAYS: Joi.number().integer().positive().default(30),
+
+  // Redis session cache. When Secrets are enabled these values are read from
+  // cache/redis, except for the local feature flag and operational settings.
+  REDIS_ENABLED: Joi.boolean().truthy('true').falsy('false').default(true),
+  REDIS_HOST: Joi.string().trim().allow('').optional(),
+  REDIS_PORT: Joi.number().port().default(6379),
+  REDIS_PASSWORD: Joi.when('SECRETS_ENABLED', {
+    is: true,
+    then: Joi.string().allow('').optional(),
+    otherwise: Joi.string().allow('').default(''),
+  }),
+  REDIS_DB: Joi.number().integer().min(0).max(15).default(0),
+  REDIS_KEY_PREFIX: Joi.string().trim().min(1).default('balanz:'),
+  REDIS_CONNECT_TIMEOUT_MS: Joi.number().integer().min(1).default(1000),
+  AUTH_SESSION_ACTIVITY_PERSIST_INTERVAL_SECONDS: Joi.number()
+    .integer()
+    .min(1)
+    .max(86_400)
+    .default(300),
+
+  // Email. SMTP_* sólo se usa como fallback cuando Secrets está deshabilitado.
+  SMTP_HOST: Joi.string().trim().min(1).default('localhost'),
+  SMTP_PORT: Joi.number().port().default(1025),
+  SMTP_SECURE: Joi.boolean().truthy('true').falsy('false').default(false),
+  SMTP_USER: Joi.string().trim().min(1).default('noreply@localhost'),
+  SMTP_PASSWORD: Joi.string().allow('').default(''),
+  EMAIL_APP_NAME: Joi.string().trim().min(1).default('Balanz'),
+  EMAIL_APP_SUBTITLE: Joi.string().trim().min(1).default('Contable'),
+  EMAIL_VERIFICATION_SUBJECT: Joi.string()
+    .trim()
+    .min(1)
+    .default('Verifica tu correo'),
+  EMAIL_SUPPORT_EMAIL: Joi.string().email().default('soporte@balanz.mx'),
+  EMAIL_HELP_URL: Joi.string().uri().default('https://app.balanz.mx/ayuda'),
+  EMAIL_PRIVACY_URL: Joi.string()
+    .uri()
+    .default('https://app.balanz.mx/privacidad'),
+  EMAIL_TERMS_URL: Joi.string().uri().default('https://app.balanz.mx/terminos'),
+  EMAIL_APP_URL: Joi.when('NODE_ENV', {
+    is: 'production',
+    then: Joi.string()
+      .uri({ scheme: ['https'] })
+      .required(),
+    otherwise: Joi.string()
+      .uri({ scheme: ['http', 'https'] })
+      .default('http://localhost:3000'),
+  }),
+  EMAIL_ASSETS_BASE_URL: Joi.string()
+    .uri({ scheme: ['http', 'https'] })
+    .default('https://cdn.hemia.dev'),
+  EMAIL_RECOVERY_DELAY_MS: Joi.number().integer().min(1_000).default(30_000),
+  EMAIL_WORKER_SWEEP_MS: Joi.number().integer().min(10_000).default(60_000),
+  EMAIL_WORKER_BATCH_SIZE: Joi.number().integer().min(1).max(100).default(20),
+  EMAIL_MAX_ATTEMPTS: Joi.number().integer().min(1).max(20).default(5),
+  EMAIL_RETRY_BASE_MS: Joi.number().integer().min(1_000).default(60_000),
+
+  AUTH_SESSION_COOKIE_NAME: Joi.string()
+    .trim()
+    .pattern(/^[A-Za-z0-9_-]+$/)
+    .default('balanz_session'),
+  AUTH_SESSION_TTL_SECONDS: Joi.number()
+    .integer()
+    .min(300)
+    .max(2_592_000)
+    .default(28_800),
+  MFA_PROVIDER: Joi.string().valid('stub').default('stub'),
+  MFA_STUB_CODE: Joi.string()
+    .pattern(/^\d{6}$/)
+    .default('000000'),
+  AUTH_VERIFICATION_RESEND_LIMIT: Joi.number()
+    .integer()
+    .min(1)
+    .max(20)
+    .default(3),
+  AUTH_VERIFICATION_RESEND_WINDOW_SECONDS: Joi.number()
+    .integer()
+    .min(60)
+    .max(86_400)
+    .default(900),
+  AUTH_MFA_VERIFY_LIMIT: Joi.number().integer().min(1).max(20).default(5),
+  AUTH_MFA_VERIFY_WINDOW_SECONDS: Joi.number()
+    .integer()
+    .min(60)
+    .max(86_400)
+    .default(300),
+
   COOKIE_SECURE: Joi.boolean()
     .truthy('true')
     .falsy('false')

@@ -1,0 +1,40 @@
+import type { AuthSession } from './entities/auth-session.entity';
+
+export interface SessionCreationInput {
+  userId: string;
+  organizationId?: string | null;
+  membershipId?: string | null;
+  mfaVerifiedAt?: Date | null;
+  ipAddress?: string | null;
+  userAgent?: string | null;
+}
+
+export interface SessionTokenPair {
+  session: AuthSession;
+  rawToken: string;
+}
+
+export interface SessionRotationResult {
+  rawToken: string;
+  previousTokenHash: string;
+}
+
+export interface ResolvedSession {
+  session: AuthSession;
+  context: SessionAuthorizationContext;
+  tokenHash: string;
+  cacheHit: boolean;
+}
+
+export interface SessionAuthorizationContext {
+  userId: string;
+  sessionId: string;
+  organizationId: string | null;
+  membershipId: string | null;
+  role: string | null;
+  permissions: string[];
+  assignedAccountIds: string[];
+  mfaVerifiedAt: Date | null;
+  expiresAt: Date;
+  tenantActive: boolean;
+}

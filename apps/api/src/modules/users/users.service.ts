@@ -1,6 +1,6 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, Optional } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { ILike, Repository } from 'typeorm';
+import { EntityManager, ILike, Repository } from 'typeorm';
 import { FindUsersDto } from './dtos/find-users.dto';
 import { CreateUserDto } from './dtos/create-user.dto';
 import { UpdateUserDto } from './dtos/update-user.dto';
@@ -9,6 +9,17 @@ import { UsersPageResponseDto } from './dtos/users-page-response.dto';
 import { User } from './entities/user.entity';
 import { UserMapper } from './mappers/user.mapper';
 import { PasswordService } from '../../common/auth/password.service';
+import { SessionsService } from '../sessions/sessions.service';
+
+export interface RegistrationUserInput {
+  firstName: string;
+  lastName: string;
+  email: string;
+  passwordHash: string;
+  phoneE164?: string;
+  locale: string;
+  timezone: string;
+}
 
 @Injectable()
 export class UsersService {
@@ -16,6 +27,7 @@ export class UsersService {
     @InjectRepository(User)
     private readonly repository: Repository<User>,
     private readonly passwords: PasswordService,
+    @Optional() private readonly sessions?: SessionsService,
   ) {}
 
   async findAll(query: FindUsersDto): Promise<UsersPageResponseDto> {
@@ -60,20 +72,34 @@ export class UsersService {
     return UserMapper.toDTO(await this.repository.save(user));
   }
 
+  createForRegistration(
+    manager: EntityManager,
+    input: RegistrationUserInput,
+  ): Promise<User> {
+    const repository = manager.getRepository(User);
+    return repository.save(repository.create(input));
+  }
+
   async update(id: string, dto: UpdateUserDto): Promise<UserResponseDto> {
     const user = await this.ensureExists(id);
+    const previousStatus = user.status;
     const { password, ...changes } = dto;
     Object.assign(user, {
       ...changes,
       ...(changes.email && { email: changes.email.trim().toLowerCase() }),
     });
     if (password) user.passwordHash = await this.passwords.hash(password);
-    return UserMapper.toDTO(await this.repository.save(user));
+    const saved = await this.repository.save(user);
+    if (previousStatus !== saved.status) {
+      await this.sessions?.invalidateByUser(saved.id);
+    }
+    return UserMapper.toDTO(saved);
   }
 
   async remove(id: string): Promise<void> {
     await this.ensureExists(id);
     await this.repository.softDelete(id);
+    await this.sessions?.invalidateByUser(id);
   }
 
   private async ensureExists(id: string): Promise<User> {

@@ -1,0 +1,168 @@
+@baseUrl = http://localhost:3001/api/v1
+@token = replace-with-a-jwt-with-users-permissions
+@userId = 00000000-0000-0000-0000-000000000000
+@organizationId = 00000000-0000-0000-0000-000000000000
+@verificationToken = replace-with-email-verification-token
+@sessionCookie = replace-with-balanz-session-cookie
+
+### Health / smoke check
+GET {{baseUrl}}/
+Accept: text/plain
+
+### Register organization owner
+# Required body fields: firstName, lastName, email, password, organizationName,
+# slug, subscriptionType.
+# Optional body fields: phoneE164, locale, timezone, legalName, billingEmail,
+# organizationTimezone.
+POST {{baseUrl}}/auth/register
+Content-Type: application/json
+
+{
+  "firstName": "Ana",
+  "lastName": "López",
+  "email": "ana@example.test",
+  "password": "Secret123!",
+  "phoneE164": "+525512345678",
+  "locale": "es-MX",
+  "timezone": "America/Mexico_City",
+  "organizationName": "Despacho López",
+  "legalName": "Despacho López, S.C.",
+  "slug": "despacho-lopez",
+  "billingEmail": "facturacion@example.test",
+  "organizationTimezone": "America/Mexico_City",
+  "subscriptionType": "starter"
+}
+
+### Resend email verification
+# Response: 202. It is intentionally generic to prevent account enumeration.
+# Required body field: email.
+POST {{baseUrl}}/auth/email/verification/resend
+Content-Type: application/json
+
+{
+  "email": "ana@example.test"
+}
+
+### Confirm email verification
+# The response sets the HttpOnly balanz_session cookie for onboarding.
+# Required body field: token.
+POST {{baseUrl}}/auth/email/verification/confirm
+Content-Type: application/json
+
+{
+  "token": "{{verificationToken}}"
+}
+
+### Get onboarding status
+# Required: Cookie from email confirmation.
+# No body. Tenant is not active yet.
+GET {{baseUrl}}/auth/onboarding
+Cookie: balanz_session={{sessionCookie}}
+Accept: application/json
+
+### Start MFA setup
+# Required: onboarding session cookie.
+# No body.
+POST {{baseUrl}}/auth/mfa/setup
+Cookie: balanz_session={{sessionCookie}}
+Accept: application/json
+
+### Verify MFA and activate tenant
+# The response rotates the session cookie and activates the initial membership.
+# Required: onboarding session cookie and body field code.
+POST {{baseUrl}}/auth/mfa/verify
+Cookie: balanz_session={{sessionCookie}}
+Content-Type: application/json
+
+{
+  "code": "000000"
+}
+
+### Get current session
+# Required: active session cookie.
+# No body.
+GET {{baseUrl}}/auth/session
+Cookie: balanz_session={{sessionCookie}}
+Accept: application/json
+
+### List current user's active organizations
+# Required: active session cookie.
+# No body.
+GET {{baseUrl}}/me/organizations
+Cookie: balanz_session={{sessionCookie}}
+Accept: application/json
+
+### Get current tenant authorization
+# Required: active session cookie with MFA and active tenant.
+# No body.
+GET {{baseUrl}}/me/authorization
+Cookie: balanz_session={{sessionCookie}}
+Accept: application/json
+
+### Change active organization
+# Required: active session cookie with MFA and body field organizationId.
+# The organizationId must belong to an active membership of the current user.
+PATCH {{baseUrl}}/auth/session/organization
+Cookie: balanz_session={{sessionCookie}}
+Content-Type: application/json
+
+{
+  "organizationId": "{{organizationId}}"
+}
+
+### Logout current session
+# Required: active session cookie.
+# No body.
+DELETE {{baseUrl}}/auth/session
+Cookie: balanz_session={{sessionCookie}}
+
+### List users
+# Required: JWT Authorization header with users.view.
+# Optional query params: search, status, page (default 1), limit (default 20, max 100).
+GET {{baseUrl}}/users?search=ana&status=active&page=1&limit=20
+Authorization: Bearer {{token}}
+Accept: application/json
+
+### Get one user
+# Required: JWT Authorization header with users.view and path param userId.
+GET {{baseUrl}}/users/{{userId}}
+Authorization: Bearer {{token}}
+Accept: application/json
+
+### Create user
+# Required: JWT Authorization header with users.create.
+# Required body fields: firstName, lastName, email, password.
+# Optional body fields: phoneE164, locale, timezone.
+POST {{baseUrl}}/users
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "firstName": "Ana",
+  "lastName": "López",
+  "email": "ana@example.test",
+  "password": "Secret123!",
+  "phoneE164": "+525512345678",
+  "locale": "es-MX",
+  "timezone": "America/Mexico_City"
+}
+
+### Update user
+# Required: JWT Authorization header with users.edit and path param userId.
+# Optional body fields: firstName, lastName, email, password, phoneE164,
+# locale, timezone, status.
+PUT {{baseUrl}}/users/{{userId}}
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "firstName": "Ana María",
+  "status": "active",
+  "timezone": "America/Mexico_City"
+}
+
+### Delete user
+# Required: JWT Authorization header with users.delete and path param userId.
+# No body.
+DELETE {{baseUrl}}/users/{{userId}}
+Authorization: Bearer {{token}}

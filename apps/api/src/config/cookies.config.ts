@@ -8,4 +8,5 @@ export default registerAs('cookies', () => ({
   sameSite: (process.env.COOKIE_SAME_SITE || 'lax') as CookieSameSite,
   domain: process.env.COOKIE_DOMAIN || undefined,
   path: '/',
+  sessionName: process.env.AUTH_SESSION_COOKIE_NAME || 'balanz_session',
 }));
