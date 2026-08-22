@@ -1,19 +1,22 @@
 "use client";
 
 import { Building2, Check, ChevronsUpDown } from "lucide-react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
+import { useState } from "react";
 import { useAccountingContext } from "@/components/accounting-context";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem,
   DropdownMenuSeparator, DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { demoData } from "@/lib/demo-data";
 import { roleLabels } from "@/lib/permissions";
 
 export function WorkspaceSwitcher({ compact = false }: { compact?: boolean }) {
   const router = useRouter();
-  const { organization, membership } = useAccountingContext();
+  const pathname = usePathname();
+  const { organization, membership, organizations, changeOrganization } = useAccountingContext();
+  const [error, setError] = useState<string | null>(null);
+  const locale = pathname.split("/").filter(Boolean)[0] ?? "es";
 
   if (compact) {
     return (
@@ -39,19 +42,24 @@ export function WorkspaceSwitcher({ compact = false }: { compact?: boolean }) {
       </DropdownMenuTrigger>
       <DropdownMenuContent side="right" align="start" className="w-72">
         <div className="px-2 py-1.5 text-caption font-semibold text-muted-foreground">Cambiar despacho</div>
+        {error ? <p role="alert" aria-live="polite" className="px-2 py-1.5 text-caption text-destructive">{error}</p> : null}
         <DropdownMenuSeparator />
-        {demoData.memberships.map((item) => {
-          const option = demoData.organizations.find((candidate) => candidate.id === item.organizationId);
-          if (!option) return null;
+        {organizations.map((option) => {
           return (
             <DropdownMenuItem
               key={option.id}
-              onClick={() => router.push(`/es/despachos/${option.id}/inicio`)}
+              onClick={() => {
+                if (option.id === organization.id) return;
+                setError(null);
+                void changeOrganization(option.id)
+                  .then(() => router.push(`/${locale}/despachos/${option.id}/inicio`))
+                  .catch((cause) => setError(cause instanceof Error ? cause.message : "No se pudo cambiar de organización."));
+              }}
             >
               <Building2 className="size-4" />
               <span className="min-w-0 flex-1">
                 <span className="block truncate font-semibold">{option.name}</span>
-                <span className="block text-caption text-muted-foreground">{roleLabels[item.role]}</span>
+                <span className="block text-caption text-muted-foreground">{option.role}</span>
               </span>
               {option.id === organization.id ? <Check className="size-4" aria-label="Despacho actual" /> : null}
             </DropdownMenuItem>

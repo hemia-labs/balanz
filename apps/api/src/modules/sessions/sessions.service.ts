@@ -14,7 +14,10 @@ import type {
   SessionTokenPair,
 } from './session.types';
 import { SessionCacheService } from '../redis/session-cache.service';
-import type { CachedSessionEntry } from '../redis/session-cache.service';
+import type {
+  CachedSessionEntry,
+  SessionCacheScope,
+} from '../redis/session-cache.service';
 
 interface CookieConfig {
   httpOnly: boolean;
@@ -59,6 +62,7 @@ export class SessionsService {
         membershipId: input.membershipId ?? null,
         status: AuthSessionStatus.ACTIVE,
         mfaVerifiedAt: input.mfaVerifiedAt ?? null,
+        requiresMfa: input.requiresMfa ?? false,
         expiresAt: new Date(now.getTime() + this.sessionTtlMs()),
         lastActivityAt: now,
         ipAddress: input.ipAddress ?? null,
@@ -161,7 +165,19 @@ export class SessionsService {
         revokedAt: new Date(),
       },
     );
-    await this.cache.deleteSession(sessionId, session?.sessionTokenHash);
+    const scope: SessionCacheScope | undefined = session
+      ? {
+          userId: session.userId,
+          organizationId: session.organizationId ?? null,
+          membershipId: session.membershipId ?? null,
+        }
+      : undefined;
+    await this.cache.deleteSession(
+      sessionId,
+      session?.sessionTokenHash,
+      undefined,
+      scope,
+    );
   }
 
   async cacheSession(
@@ -196,6 +212,26 @@ export class SessionsService {
   }
 
   async invalidateByUser(userId: string): Promise<void> {
+    await this.cache.invalidateByUser(userId);
+  }
+
+  async revokeOtherSessions(
+    userId: string,
+    exceptSessionId: string,
+    reason: string,
+  ): Promise<void> {
+    await this.repository
+      .createQueryBuilder()
+      .update(AuthSession)
+      .set({
+        status: AuthSessionStatus.REVOKED,
+        revokedReason: reason.slice(0, 100),
+        revokedAt: new Date(),
+      })
+      .where('user_id = :userId', { userId })
+      .andWhere('id <> :exceptSessionId', { exceptSessionId })
+      .andWhere('status = :status', { status: AuthSessionStatus.ACTIVE })
+      .execute();
     await this.cache.invalidateByUser(userId);
   }
 
@@ -257,13 +293,15 @@ export class SessionsService {
     context: SessionAuthorizationContext,
   ): CachedSessionEntry {
     return {
-      version: 1,
+      version: 2,
       sessionId: session.id,
       userId: session.userId,
       organizationId: session.organizationId ?? null,
       membershipId: session.membershipId ?? null,
       status: session.status,
       mfaVerifiedAt: session.mfaVerifiedAt?.toISOString() ?? null,
+      requiresMfa: session.requiresMfa,
+      mfaStatus: context.mfaStatus,
       expiresAt: session.expiresAt.toISOString(),
       lastActivityAt: session.lastActivityAt.toISOString(),
       tenantActive: context.tenantActive,
@@ -282,9 +320,10 @@ export class SessionsService {
       membershipId: entry.membershipId,
       status: entry.status,
       mfaVerifiedAt: entry.mfaVerifiedAt ? new Date(entry.mfaVerifiedAt) : null,
+      requiresMfa: entry.requiresMfa,
       expiresAt: new Date(entry.expiresAt),
       lastActivityAt: new Date(entry.lastActivityAt),
-    } as AuthSession;
+    } as unknown as AuthSession;
   }
 
   private contextFromCache(
@@ -299,6 +338,8 @@ export class SessionsService {
       permissions: entry.permissions,
       assignedAccountIds: entry.assignedAccountIds,
       mfaVerifiedAt: entry.mfaVerifiedAt ? new Date(entry.mfaVerifiedAt) : null,
+      requiresMfa: entry.requiresMfa,
+      mfaStatus: entry.mfaStatus,
       expiresAt: new Date(entry.expiresAt),
       tenantActive: entry.tenantActive,
     };

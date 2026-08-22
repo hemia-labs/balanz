@@ -6,16 +6,27 @@ import { AuthFrame } from "@/components/auth-frame";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import type { Dictionary, Locale } from "@/lib/i18n";
+import { apiErrorMessage } from "@/lib/api-client";
+import { completeMfa, login } from "@/features/auth/api";
+import { safeInternalReturnTo } from "@/lib/navigation-security";
+import { useState } from "react";
 
 export function LoginForm({
   locale,
   dictionary,
+  returnTo,
 }: {
   locale: Locale;
   dictionary: Dictionary;
+  returnTo?: string;
 }) {
   const { auth } = dictionary;
   const router = useRouter();
+  const [requiresMfa, setRequiresMfa] = useState(false);
+  const [code, setCode] = useState("");
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  const destination = safeInternalReturnTo(returnTo);
 
   return (
     <AuthFrame
@@ -38,7 +49,26 @@ export function LoginForm({
         </p>
       }
     >
-      <form onSubmit={(event) => { event.preventDefault(); router.push("/es/seleccionar-despacho"); }} className="space-y-5">
+      <form onSubmit={async (event) => {
+        event.preventDefault();
+        setBusy(true);
+        setError("");
+        const form = new FormData(event.currentTarget);
+        try {
+          if (requiresMfa) {
+            await completeMfa(code);
+            router.push(destination ?? `/${locale}/select-organization`);
+          } else {
+            const result = await login({ email: String(form.get("email") ?? ""), password: String(form.get("password") ?? "") });
+            if (result.requiresMfa) setRequiresMfa(true);
+            else router.push(destination ?? `/${locale}/select-organization`);
+          }
+        } catch (cause) {
+          setError(apiErrorMessage(cause, "No se pudo iniciar sesión."));
+        } finally {
+          setBusy(false);
+        }
+      }} className="space-y-5" aria-describedby={error ? "login-error" : undefined}>
         <div className="space-y-2">
           <label htmlFor="email" className="block text-body-sm font-semibold">
             {auth.email}
@@ -75,6 +105,12 @@ export function LoginForm({
           </p>
         </div>
 
+        {requiresMfa && <div className="space-y-2">
+          <label htmlFor="login-mfa-code" className="block text-body-sm font-semibold">Código MFA</label>
+          <Input id="login-mfa-code" name="mfaCode" inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6}" maxLength={6} value={code} onChange={(event) => setCode(event.target.value)} required />
+          <p className="text-caption text-muted-foreground">Abre tu aplicación de autenticación para obtener el código.</p>
+        </div>}
+
         <div className="flex flex-col gap-2 text-body-sm sm:flex-row sm:items-center sm:justify-between">
           <label className="flex min-h-10 items-center gap-2 text-muted-foreground">
             <input
@@ -88,14 +124,14 @@ export function LoginForm({
             href={"/" + locale + "/forgot-password"}
             className="inline-flex min-h-10 items-center font-semibold text-primary underline-offset-4 hover:underline"
           >
-            {auth.forgotPassword}
+          {auth.forgotPassword}
           </Link>
         </div>
 
-        <Button type="submit" className="w-full">
-          {auth.submit}
+        <Button type="submit" className="w-full" disabled={busy}>
+          {requiresMfa ? "Verificar código" : auth.submit}
         </Button>
-        <p className="text-center text-caption text-muted-foreground">Acceso demostrativo: no valida ni guarda credenciales.</p>
+        {error && <p id="login-error" role="alert" aria-live="polite" className="text-center text-body-sm text-destructive">{error}</p>}
       </form>
     </AuthFrame>
   );

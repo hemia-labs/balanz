@@ -13,7 +13,7 @@ export class AuthMapper {
       subscriptionType: result.subscriptionType,
       subscriptionStatus: result.subscriptionStatus,
       nextStep: result.nextStep,
-      mfaRequired: true,
+      mfaRequired: false,
       tenantActive: result.tenantActive,
     };
   }

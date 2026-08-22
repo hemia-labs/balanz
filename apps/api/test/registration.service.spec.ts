@@ -114,7 +114,7 @@ describe('AuthService', () => {
       subscriptionType: 'trial',
       subscriptionStatus: 'pending',
       nextStep: 'verify_email',
-      mfaRequired: true,
+      mfaRequired: false,
       tenantActive: false,
     });
     expect(users.createForRegistration).toHaveBeenCalledWith(

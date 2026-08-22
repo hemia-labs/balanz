@@ -1,7 +1,6 @@
 import {
   BadRequestException,
   ConflictException,
-  Inject,
   HttpException,
   HttpStatus,
   Injectable,
@@ -12,6 +11,8 @@ import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { DataSource, IsNull, QueryFailedError } from 'typeorm';
 import { PasswordService } from '../../common/auth/password.service';
 import { RegisterDto } from './dtos/register.dto';
+import { LoginDto } from './dtos/login.dto';
+import { DisableMfaDto } from './dtos/disable-mfa.dto';
 import { RegisterResponseDto } from './dtos/register-response.dto';
 import { EmailService } from '../email/email.service';
 import { EmailVerificationToken } from './entities/email-verification-token.entity';
@@ -44,7 +45,8 @@ import { SessionsService } from '../sessions/sessions.service';
 import { AuthorizationService } from '../sessions/authorization.service';
 import type { SessionAuthorizationContext } from '../sessions/session.types';
 import { AuthRateLimitService } from './rate-limit.service';
-import { MFA_PROVIDER, type MfaProviderPort } from './ports/mfa-provider.port';
+import { TotpService } from './totp.service';
+import { MfaEncryptionService } from './mfa-encryption.service';
 import {
   AuthSession,
   AuthSessionStatus,
@@ -74,7 +76,8 @@ export class AuthService {
     private readonly sessions: SessionsService,
     private readonly authorization: AuthorizationService,
     private readonly rateLimits: AuthRateLimitService,
-    @Inject(MFA_PROVIDER) private readonly mfa: MfaProviderPort,
+    private readonly totp: TotpService,
+    private readonly mfaEncryption: MfaEncryptionService,
   ) {}
 
   async register(input: RegisterDto): Promise<RegisterResponseDto> {
@@ -171,7 +174,7 @@ export class AuthService {
               subscriptionType: normalized.subscriptionType,
               subscriptionStatus: SubscriptionStatus.PENDING,
               nextStep: 'verify_email',
-              mfaRequired: true,
+              mfaRequired: false,
               tenantActive: false,
             },
             outboxId: outbox.id,
@@ -351,6 +354,9 @@ export class AuthService {
         await userRepository.save(user);
         verificationToken.usedAt = now;
         await tokenRepository.save(verificationToken);
+        membership.status = MembershipStatus.ACTIVE;
+        membership.joinedAt = membership.joinedAt ?? now;
+        await manager.getRepository(Membership).save(membership);
 
         let trialStartedAt = subscription.trialStartedAt ?? now;
         let trialEndsAt = subscription.trialEndsAt;
@@ -382,6 +388,7 @@ export class AuthService {
           organizationId: organization.id,
           membershipId: membership.id,
           mfaVerifiedAt: null,
+          requiresMfa: false,
           ipAddress: input.ipAddress,
           userAgent: input.userAgent,
         });
@@ -407,7 +414,8 @@ export class AuthService {
               startedAt: trialStartedAt,
               endsAt: trialEndsAt!,
             },
-            nextStep: 'complete_mfa' as const,
+            nextStep: 'ready' as const,
+            mfaStatus: 'disabled' as const,
           },
           rawSessionToken: session.rawToken,
           session: session.session,
@@ -427,38 +435,99 @@ export class AuthService {
     };
   }
 
+  async login(
+    input: LoginDto,
+    ipAddress: string,
+    userAgent?: string,
+  ): Promise<{
+    rawSessionToken: string;
+    requiresMfa: boolean;
+    context: SessionAuthorizationContext;
+  }> {
+    const email = input.email.trim().toLowerCase();
+    const allowed = await this.rateLimits.consume(
+      'login-ip',
+      `${email}:${ipAddress}`,
+      10,
+      300,
+    );
+    if (!allowed)
+      throw new HttpException(
+        'Too many login attempts',
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
+
+    const user = await this.dataSource
+      .getRepository(User)
+      .createQueryBuilder('user')
+      .addSelect('user.passwordHash')
+      .where('user.email = :email', { email })
+      .getOne();
+    if (!user || user.status !== UserStatus.ACTIVE || !user.emailVerifiedAt) {
+      throw new UnauthorizedException('Invalid credentials');
+    }
+    if (!(await this.passwords.verify(input.password, user.passwordHash))) {
+      throw new UnauthorizedException('Invalid credentials');
+    }
+
+    const factor = await this.dataSource.getRepository(AuthFactor).findOne({
+      where: { userId: user.id, status: AuthFactorStatus.ACTIVE },
+    });
+    const requiresMfa = Boolean(factor);
+    const pair = await this.sessions.create({
+      userId: user.id,
+      organizationId: null,
+      membershipId: null,
+      requiresMfa,
+      mfaVerifiedAt: null,
+      ipAddress,
+      userAgent,
+    });
+    await this.audit.recordDirect({
+      organizationId: null,
+      actorType: AuditActorType.USER,
+      actorUserId: user.id,
+      actorMembershipId: null,
+      action: 'auth.session.created',
+      decision: AuditDecision.ALLOW,
+      objectType: 'auth_session',
+      objectId: pair.session.id,
+      correlationId: randomUUID(),
+      metadata: { schemaVersion: 2, requiresMfa },
+    });
+    return {
+      rawSessionToken: pair.rawToken,
+      requiresMfa,
+      context: await this.authorization.resolve(pair.session),
+    };
+  }
+
   async onboarding(
     session: AuthSession,
     cachedContext?: SessionAuthorizationContext,
   ): Promise<Record<string, unknown>> {
     const context =
       cachedContext ?? (await this.authorization.resolve(session));
-    if (!context.organizationId) {
+    if (!context.organizationId)
       throw new UnauthorizedException('Onboarding session required');
-    }
     const [user, subscription, membership] = await Promise.all([
       this.dataSource
         .getRepository(User)
         .findOne({ where: { id: session.userId } }),
-      this.dataSource.getRepository(Subscription).findOne({
-        where: { organizationId: context.organizationId },
-      }),
+      this.dataSource
+        .getRepository(Subscription)
+        .findOne({ where: { organizationId: context.organizationId } }),
       this.dataSource.getRepository(Membership).findOne({
         where: { id: session.membershipId!, userId: session.userId },
       }),
     ]);
-    if (!user || !subscription || !membership) {
+    if (!user || !subscription || !membership)
       throw new UnauthorizedException('Onboarding session required');
-    }
-
     const nextStep = !user.emailVerifiedAt
       ? 'verify_email'
-      : !session.mfaVerifiedAt
-        ? 'complete_mfa'
-        : membership.status !== MembershipStatus.ACTIVE
-          ? 'activate_membership'
-          : 'ready';
-
+      : membership.status !== MembershipStatus.ACTIVE
+        ? 'activate_membership'
+        : 'ready';
     return {
       subscriptionType: subscription.subscriptionType,
       trial: subscription.trialStartedAt
@@ -469,6 +538,7 @@ export class AuthService {
           }
         : { status: subscription.status },
       nextStep,
+      mfaStatus: context.mfaStatus,
     };
   }
 
@@ -477,67 +547,68 @@ export class AuthService {
     cachedContext?: SessionAuthorizationContext,
   ): Promise<{
     factorId: string;
-    factorType: string;
+    secret: string;
+    otpauthUri: string;
     status: AuthFactorStatus;
-    nextStep: 'complete_mfa';
   }> {
     const context =
       cachedContext ?? (await this.authorization.resolve(session));
-    if (
-      !context.organizationId ||
-      !context.membershipId ||
-      session.mfaVerifiedAt
-    ) {
-      throw new UnauthorizedException('MFA setup requires onboarding');
-    }
-
-    const existing = await this.dataSource.getRepository(AuthFactor).findOne({
-      where: { userId: session.userId, status: AuthFactorStatus.PENDING },
+    const user = await this.dataSource
+      .getRepository(User)
+      .findOne({ where: { id: session.userId } });
+    if (!user?.emailVerifiedAt)
+      throw new UnauthorizedException('Verified email required');
+    const current = await this.dataSource.getRepository(AuthFactor).findOne({
+      where: [
+        { userId: session.userId, status: AuthFactorStatus.ACTIVE },
+        { userId: session.userId, status: AuthFactorStatus.PENDING },
+      ],
+      order: { createdAt: 'DESC' },
     });
-    if (existing) {
-      return {
-        factorId: existing.id,
-        factorType: existing.factorType,
-        status: existing.status,
-        nextStep: 'complete_mfa',
-      };
-    }
+    if (current?.status === AuthFactorStatus.ACTIVE)
+      throw new ConflictException('MFA is already active');
 
-    const setup = await this.mfa.setup(session.userId);
-    const factor = await this.dataSource.transaction(async (manager) => {
-      const saved = await manager.getRepository(AuthFactor).save(
-        manager.getRepository(AuthFactor).create({
-          userId: session.userId,
-          provider: this.mfaProviderName(),
-          providerFactorRef: setup.providerReference,
-          factorType: setup.factorType,
-          status: AuthFactorStatus.PENDING,
-          verifiedAt: null,
-          lastUsedAt: null,
-          revokedAt: null,
-        }),
+    let factor = current;
+    let secret: string;
+    let otpauthUri: string;
+    if (factor) {
+      secret = await this.mfaEncryption.decrypt(factor.secretEncrypted);
+      otpauthUri = (await this.totp.setup(user.email)).otpauthUri.replace(
+        /secret=[^&]+/,
+        `secret=${secret}`,
       );
-      await this.audit.record(manager, {
-        organizationId: context.organizationId,
-        actorType: AuditActorType.USER,
-        actorUserId: session.userId,
-        actorMembershipId: context.membershipId,
-        action: 'auth.mfa.started',
-        decision: AuditDecision.ALLOW,
-        objectType: 'auth_factor',
-        objectId: saved.id,
-        correlationId: randomUUID(),
-        metadata: { schemaVersion: 1 },
+    } else {
+      const setup = await this.totp.setup(user.email);
+      secret = setup.secret;
+      otpauthUri = setup.otpauthUri;
+      factor = await this.dataSource.transaction(async (manager) => {
+        const saved = await manager.getRepository(AuthFactor).save(
+          manager.getRepository(AuthFactor).create({
+            userId: session.userId,
+            secretEncrypted: await this.mfaEncryption.encrypt(secret),
+            status: AuthFactorStatus.PENDING,
+            verifiedAt: null,
+            lastUsedAt: null,
+            lastUsedCounter: null,
+            revokedAt: null,
+          }),
+        );
+        await this.audit.record(manager, {
+          organizationId: context.organizationId,
+          actorType: AuditActorType.USER,
+          actorUserId: session.userId,
+          actorMembershipId: context.membershipId,
+          action: 'auth.mfa.started',
+          decision: AuditDecision.ALLOW,
+          objectType: 'auth_factor',
+          objectId: saved.id,
+          correlationId: randomUUID(),
+          metadata: { schemaVersion: 2, factorType: 'totp' },
+        });
+        return saved;
       });
-      return saved;
-    });
-
-    return {
-      factorId: factor.id,
-      factorType: factor.factorType,
-      status: factor.status,
-      nextStep: 'complete_mfa',
-    };
+    }
+    return { factorId: factor.id, secret, otpauthUri, status: factor.status };
   }
 
   async verifyMfa(
@@ -548,55 +619,81 @@ export class AuthService {
     rawSessionToken: string;
     context: SessionAuthorizationContext;
   }> {
+    return this.completeMfa(session, code, ipAddress, true);
+  }
+
+  async completeLoginMfa(
+    session: AuthSession,
+    code: string,
+    ipAddress: string,
+  ): Promise<{
+    rawSessionToken: string;
+    context: SessionAuthorizationContext;
+  }> {
+    return this.completeMfa(session, code, ipAddress, false);
+  }
+
+  private async completeMfa(
+    session: AuthSession,
+    code: string,
+    ipAddress: string,
+    enrolling: boolean,
+  ): Promise<{
+    rawSessionToken: string;
+    context: SessionAuthorizationContext;
+  }> {
     const allowed = await this.rateLimits.consume(
       'mfa-session-ip',
       `${session.id}:${ipAddress}`,
       this.rateLimits.mfaVerifyLimit(),
       this.rateLimits.mfaVerifyWindowSeconds(),
     );
-    if (!allowed) {
+    if (!allowed)
       throw new HttpException(
         'Too many MFA attempts',
         HttpStatus.TOO_MANY_REQUESTS,
       );
-    }
-
-    const factor = await this.dataSource.getRepository(AuthFactor).findOne({
-      where: { userId: session.userId, status: AuthFactorStatus.PENDING },
-    });
-    if (!factor || !(await this.mfa.verify(factor.providerFactorRef, code))) {
-      throw new BadRequestException('Invalid MFA code');
-    }
 
     const result = await this.dataSource.transaction(async (manager) => {
+      const factorRepository = manager.getRepository(AuthFactor);
+      const factor = await factorRepository.findOne({
+        where: {
+          userId: session.userId,
+          status: enrolling
+            ? AuthFactorStatus.PENDING
+            : AuthFactorStatus.ACTIVE,
+        },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!factor) throw new BadRequestException('Invalid MFA code');
+      const secret = await this.mfaEncryption.decrypt(factor.secretEncrypted);
+      const verified = await this.totp.verify(
+        secret,
+        code,
+        factor.lastUsedCounter,
+      );
+      if (!verified.valid || verified.timeStep === undefined)
+        throw new BadRequestException('Invalid MFA code');
+
       const sessionRepository = manager.getRepository(AuthSession);
       const lockedSession = await sessionRepository.findOne({
         where: { id: session.id, userId: session.userId },
         lock: { mode: 'pessimistic_write' },
       });
-      if (!lockedSession || lockedSession.status !== AuthSessionStatus.ACTIVE) {
+      if (!lockedSession || lockedSession.status !== AuthSessionStatus.ACTIVE)
         throw new UnauthorizedException('Invalid session');
-      }
-      const membership = await manager.getRepository(Membership).findOne({
-        where: {
-          id: lockedSession.membershipId!,
-          organizationId: lockedSession.organizationId!,
-          userId: lockedSession.userId,
-          status: MembershipStatus.PENDING,
-        },
-        lock: { mode: 'pessimistic_write' },
-      });
-      if (!membership) throw new UnauthorizedException('MFA setup required');
-
+      if (
+        !enrolling &&
+        (!lockedSession.requiresMfa || lockedSession.mfaVerifiedAt)
+      )
+        throw new UnauthorizedException('MFA is not pending');
       const now = new Date();
-      factor.status = AuthFactorStatus.ACTIVE;
-      factor.verifiedAt = now;
+      factor.status = enrolling ? AuthFactorStatus.ACTIVE : factor.status;
+      factor.verifiedAt = factor.verifiedAt ?? now;
       factor.lastUsedAt = now;
-      await manager.getRepository(AuthFactor).save(factor);
-      membership.status = MembershipStatus.ACTIVE;
-      membership.mfaCompletedAt = now;
-      membership.joinedAt = membership.joinedAt ?? now;
-      await manager.getRepository(Membership).save(membership);
+      factor.lastUsedCounter = String(verified.timeStep);
+      await factorRepository.save(factor);
+      lockedSession.requiresMfa = true;
       lockedSession.mfaVerifiedAt = now;
       lockedSession.lastActivityAt = now;
       await sessionRepository.save(lockedSession);
@@ -608,17 +705,21 @@ export class AuthService {
         organizationId: lockedSession.organizationId,
         actorType: AuditActorType.USER,
         actorUserId: lockedSession.userId,
-        actorMembershipId: membership.id,
+        actorMembershipId: lockedSession.membershipId,
         action: 'auth.mfa.verified',
         decision: AuditDecision.ALLOW,
         objectType: 'auth_session',
         objectId: lockedSession.id,
         correlationId: randomUUID(),
-        metadata: { schemaVersion: 1 },
+        metadata: { schemaVersion: 2, enrolling },
       });
       return { rotation, session: lockedSession };
     });
-
+    await this.sessions.revokeOtherSessions(
+      session.userId,
+      session.id,
+      'mfa_verified_elsewhere',
+    );
     result.session.sessionTokenHash = this.sessions.hashToken(
       result.rotation.rawToken,
     );
@@ -629,10 +730,104 @@ export class AuthService {
       result.rotation.previousTokenHash,
       context,
     );
-    return {
-      rawSessionToken: result.rotation.rawToken,
+    return { rawSessionToken: result.rotation.rawToken, context };
+  }
+
+  async disableMfa(
+    session: AuthSession,
+    input: DisableMfaDto,
+    ipAddress = 'unknown',
+  ): Promise<{
+    rawSessionToken: string;
+    context: SessionAuthorizationContext;
+  }> {
+    const allowed = await this.rateLimits.consume(
+      'mfa-disable-session-ip',
+      `${session.id}:${ipAddress}`,
+      this.rateLimits.mfaVerifyLimit(),
+      this.rateLimits.mfaVerifyWindowSeconds(),
+    );
+    if (!allowed)
+      throw new HttpException(
+        'Too many MFA attempts',
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
+    const user = await this.dataSource
+      .getRepository(User)
+      .createQueryBuilder('user')
+      .addSelect('user.passwordHash')
+      .where('user.id = :id', { id: session.userId })
+      .getOne();
+    if (
+      !user ||
+      !(await this.passwords.verify(input.password, user.passwordHash))
+    )
+      throw new UnauthorizedException('Invalid credentials');
+    const result = await this.dataSource.transaction(async (manager) => {
+      const factorRepository = manager.getRepository(AuthFactor);
+      const factor = await factorRepository.findOne({
+        where: { userId: session.userId, status: AuthFactorStatus.ACTIVE },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!factor) throw new BadRequestException('MFA is not active');
+      const secret = await this.mfaEncryption.decrypt(factor.secretEncrypted);
+      const verified = await this.totp.verify(
+        secret,
+        input.code,
+        factor.lastUsedCounter,
+      );
+      if (!verified.valid || verified.timeStep === undefined)
+        throw new BadRequestException('Invalid MFA code');
+      const now = new Date();
+      factor.status = AuthFactorStatus.REVOKED;
+      factor.revokedAt = now;
+      factor.lastUsedAt = now;
+      factor.lastUsedCounter = String(verified.timeStep);
+      await factorRepository.save(factor);
+      const sessionRepository = manager.getRepository(AuthSession);
+      const lockedSession = await sessionRepository.findOne({
+        where: { id: session.id, userId: session.userId },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!lockedSession) throw new UnauthorizedException('Invalid session');
+      lockedSession.requiresMfa = false;
+      lockedSession.mfaVerifiedAt = null;
+      lockedSession.lastActivityAt = now;
+      await sessionRepository.save(lockedSession);
+      const rotation = await this.sessions.rotateForManager(
+        manager,
+        lockedSession.id,
+      );
+      await this.audit.record(manager, {
+        organizationId: lockedSession.organizationId,
+        actorType: AuditActorType.USER,
+        actorUserId: lockedSession.userId,
+        actorMembershipId: lockedSession.membershipId,
+        action: 'auth.mfa.revoked',
+        decision: AuditDecision.ALLOW,
+        objectType: 'auth_factor',
+        objectId: factor.id,
+        correlationId: randomUUID(),
+        metadata: { schemaVersion: 2 },
+      });
+      return { rotation, session: lockedSession };
+    });
+    await this.sessions.revokeOtherSessions(
+      session.userId,
+      session.id,
+      'mfa_disabled_elsewhere',
+    );
+    result.session.sessionTokenHash = this.sessions.hashToken(
+      result.rotation.rawToken,
+    );
+    const context = await this.authorization.resolve(result.session);
+    await this.sessions.cacheRotated(
+      result.session,
+      result.rotation.rawToken,
+      result.rotation.previousTokenHash,
       context,
-    };
+    );
+    return { rawSessionToken: result.rotation.rawToken, context };
   }
 
   sessionDetails(
@@ -741,10 +936,6 @@ export class AuthService {
 
   private trialDurationDays(): number {
     return this.config.get<number>('auth.trialDurationDays') ?? 30;
-  }
-
-  private mfaProviderName(): string {
-    return this.config.get<string>('auth.mfaProvider', 'stub');
   }
 
   private hashToken(token: string): string {

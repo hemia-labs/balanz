@@ -12,6 +12,7 @@ export function AuthFrame({
   requiredHint,
   children,
   footer,
+  contentClassName,
 }: {
   locale: Locale;
   eyebrow: string;
@@ -22,6 +23,7 @@ export function AuthFrame({
   requiredHint: string;
   children: ReactNode;
   footer: ReactNode;
+  contentClassName?: string;
 }) {
   return (
     <main
@@ -39,7 +41,7 @@ export function AuthFrame({
         <p className="text-caption text-sidebar-foreground/55">Hemia · México</p>
       </section>
       <section className="flex items-center justify-center px-4 py-10 sm:px-6 lg:px-10">
-        <div className="w-full max-w-md">
+        <div className={`w-full ${contentClassName ?? "max-w-md"}`}>
           <div className="mb-8 lg:hidden">
             <BrandMark locale={locale} />
           </div>

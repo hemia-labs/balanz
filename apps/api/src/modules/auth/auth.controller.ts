@@ -25,6 +25,8 @@ import { RegisterDto } from './dtos/register.dto';
 import { ResendVerificationDto } from './dtos/resend-verification.dto';
 import { VerifyEmailDto } from './dtos/verify-email.dto';
 import { VerifyMfaDto } from './dtos/verify-mfa.dto';
+import { LoginDto } from './dtos/login.dto';
+import { DisableMfaDto } from './dtos/disable-mfa.dto';
 import type { SessionAuthorizationContext } from '../sessions/session.types';
 
 @Controller('auth')
@@ -37,6 +39,42 @@ export class AuthController {
   @Post('register')
   register(@Body() input: RegisterDto) {
     return this.auth.register(input);
+  }
+
+  @Post('login')
+  async login(
+    @Body() input: LoginDto,
+    @Req() request: Request,
+    @Res({ passthrough: true }) response: Response,
+  ) {
+    const result = await this.auth.login(
+      input,
+      this.clientIp(request),
+      request.get('user-agent') ?? undefined,
+    );
+    this.sessions.setCookie(response, result.rawSessionToken);
+    return {
+      requiresMfa: result.requiresMfa,
+      tenantActive: result.context.tenantActive,
+      mfaStatus: result.context.mfaStatus,
+    };
+  }
+
+  @Post('login/mfa')
+  @UseGuards(SessionGuard)
+  async loginMfa(
+    @CurrentSession() session: AuthSession,
+    @Body() input: VerifyMfaDto,
+    @Req() request: Request,
+    @Res({ passthrough: true }) response: Response,
+  ) {
+    const result = await this.auth.completeLoginMfa(
+      session,
+      input.code,
+      this.clientIp(request),
+    );
+    this.sessions.setCookie(response, result.rawSessionToken);
+    return result.context;
   }
 
   @Post('email/verification/resend')
@@ -74,18 +112,20 @@ export class AuthController {
     return this.auth.onboarding(session, context);
   }
 
-  @Post('mfa/setup')
-  @UseGuards(SessionGuard, OnboardingGuard)
-  setupMfa(
+  @Post('mfa/totp/setup')
+  @UseGuards(SessionGuard)
+  async setupTotp(
     @CurrentSession() session: AuthSession,
     @CurrentAuthorization() context: SessionAuthorizationContext,
+    @Res({ passthrough: true }) response: Response,
   ) {
+    response.setHeader('Cache-Control', 'no-store');
     return this.auth.setupMfa(session, context);
   }
 
-  @Post('mfa/verify')
-  @UseGuards(SessionGuard, OnboardingGuard)
-  async verifyMfa(
+  @Post('mfa/totp/verify')
+  @UseGuards(SessionGuard)
+  async verifyTotp(
     @CurrentSession() session: AuthSession,
     @Body() input: VerifyMfaDto,
     @Req() request: Request,
@@ -94,6 +134,23 @@ export class AuthController {
     const result = await this.auth.verifyMfa(
       session,
       input.code,
+      this.clientIp(request),
+    );
+    this.sessions.setCookie(response, result.rawSessionToken);
+    return result.context;
+  }
+
+  @Post('mfa/totp/disable')
+  @UseGuards(SessionGuard)
+  async disableTotp(
+    @CurrentSession() session: AuthSession,
+    @Body() input: DisableMfaDto,
+    @Req() request: Request,
+    @Res({ passthrough: true }) response: Response,
+  ) {
+    const result = await this.auth.disableMfa(
+      session,
+      input,
       this.clientIp(request),
     );
     this.sessions.setCookie(response, result.rawSessionToken);
@@ -118,7 +175,8 @@ export class AuthController {
   }
 
   @Patch('session/organization')
-  @UseGuards(SessionGuard, TenantAccessGuard)
+  // Selecting the first tenant is valid when the session has no active tenant yet.
+  @UseGuards(SessionGuard)
   changeOrganization(
     @CurrentSession() session: AuthSession,
     @Body() input: ChangeOrganizationDto,

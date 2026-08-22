@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { CircleUserRound, HelpCircle, LogOut, Moon, Settings2, ShieldCheck, Sun, UserRound, Workflow } from "lucide-react";
 import { useAccountingContext } from "@/components/accounting-context";
@@ -17,6 +17,7 @@ import {
   DropdownMenuSeparator, DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { roleLabels } from "@/lib/permissions";
+import { logout } from "@/features/auth/api";
 
 type ThemePreference = "system" | "light" | "dark";
 const useThemeEffect = typeof window === "undefined" ? useEffect : useLayoutEffect;
@@ -27,27 +28,43 @@ function getThemePreference(): ThemePreference {
   return stored === "light" || stored === "dark" ? stored : "system";
 }
 
-function ConfirmLogout() {
+function ConfirmLogout({
+  open,
+  onOpenChange,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const router = useRouter();
+  const pathname = usePathname();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const locale = pathname.split("/").filter(Boolean)[0] ?? "es";
+
+  useEffect(() => {
+    const dialog = dialogRef.current;
+    if (!dialog) return;
+    if (open && !dialog.open) dialog.showModal();
+    if (!open && dialog.open) dialog.close();
+  }, [open]);
+
   return (
-    <>
-      <DropdownMenuItem variant="destructive" onClick={() => dialogRef.current?.showModal()}>
-        <LogOut className="size-4" /> Cerrar sesión
-      </DropdownMenuItem>
-      <dialog ref={dialogRef} aria-labelledby="logout-title" className="m-auto w-[calc(100%-2rem)] max-w-md rounded-lg border border-border bg-card p-0 text-card-foreground shadow-overlay">
-        <div className="p-5"><h2 id="logout-title" className="text-heading-sm font-emphasis">Cerrar sesión</h2><p className="mt-2 text-body text-muted-foreground">La demostración volverá a la pantalla de acceso. No existe una sesión de backend que cerrar.</p></div>
-        <div className="flex justify-end gap-2 border-t border-border p-4"><Button variant="outline" onClick={() => dialogRef.current?.close()}>Cancelar</Button><Button variant="destructive" onClick={() => { dialogRef.current?.close(); router.push("/es/login"); }}>Cerrar demostración</Button></div>
+    <dialog ref={dialogRef} onClose={() => onOpenChange(false)} aria-labelledby="logout-title" className="m-auto w-[calc(100%-2rem)] max-w-md rounded-lg border border-border bg-card p-0 text-card-foreground shadow-overlay">
+        <div className="p-5"><h2 id="logout-title" className="text-heading-sm font-emphasis">Cerrar sesión</h2><p className="mt-2 text-body text-muted-foreground">Se cerrará la sesión activa en este navegador.</p>{error ? <p role="alert" aria-live="polite" className="mt-2 text-body-sm text-destructive">{error}</p> : null}</div>
+        <div className="flex justify-end gap-2 border-t border-border p-4"><Button variant="outline" onClick={() => onOpenChange(false)} disabled={busy}>Cancelar</Button><Button variant="destructive" disabled={busy} onClick={() => { setBusy(true); setError(null); void logout().then(() => { onOpenChange(false); router.push(`/${locale}/login`); }).catch(() => { setError("No se pudo cerrar la sesión. Intenta de nuevo."); setBusy(false); }); }}>{busy ? "Cerrando…" : "Cerrar sesión"}</Button></div>
       </dialog>
-    </>
   );
 }
 
 export function AppTopbar() {
   const router = useRouter();
   const context = useAccountingContext();
-  const { account, client, organization, membership } = context;
+  const { account, client, organization, membership, isDemo } = context;
+  const pathname = usePathname();
+  const locale = pathname.split("/").filter(Boolean)[0] ?? "es";
   const [theme, setTheme] = useState<ThemePreference>(getThemePreference);
+  const [logoutOpen, setLogoutOpen] = useState(false);
 
   useThemeEffect(() => {
     const resolved = theme === "system"
@@ -63,7 +80,7 @@ export function AppTopbar() {
     }
   }, [theme]);
 
-  const processesHref = `/es/despachos/${organization.id}/procesos`;
+  const processesHref = `/${locale}/despachos/${organization.id}/procesos`;
   return (
     <header className="sticky top-0 z-10 flex h-topbar shrink-0 items-center gap-2 border-b border-border bg-card px-3 sm:px-4 lg:px-6">
       <MobileNavigation />
@@ -72,7 +89,7 @@ export function AppTopbar() {
         <p className="hidden text-caption text-muted-foreground sm:block">{client ? `${client.rfc} · ${client.currentPeriod}` : roleLabels[membership.role]}</p>
       </div>
       <ContextBreadcrumbs />
-      <Badge variant="outline" className="hidden xl:inline-flex">Datos demo</Badge>
+      {isDemo ? <Badge variant="outline" className="hidden xl:inline-flex">Datos demo</Badge> : null}
       <div className="ml-auto flex items-center gap-1">
         <ContextSearch />
         <Button render={<Link href={processesHref} />} variant="ghost" size="icon" aria-label="Procesos: uno activo y uno con errores">
@@ -91,10 +108,10 @@ export function AppTopbar() {
               </DropdownMenuLabel>
             </DropdownMenuGroup>
             <DropdownMenuSeparator />
-            <DropdownMenuItem onClick={() => router.push("/es/perfil")}><CircleUserRound className="size-4" /> Mi perfil</DropdownMenuItem>
-            <DropdownMenuItem onClick={() => router.push("/es/seguridad")}><ShieldCheck className="size-4" /> Seguridad y MFA</DropdownMenuItem>
-            <DropdownMenuItem onClick={() => router.push("/es/preferencias")}><Settings2 className="size-4" /> Preferencias</DropdownMenuItem>
-            <DropdownMenuItem onClick={() => router.push("/es/ayuda")}><HelpCircle className="size-4" /> Ayuda y soporte</DropdownMenuItem>
+            <DropdownMenuItem onClick={() => router.push(`/${locale}/perfil`)}><CircleUserRound className="size-4" /> Mi perfil</DropdownMenuItem>
+            <DropdownMenuItem onClick={() => router.push(`/${locale}/seguridad`)}><ShieldCheck className="size-4" /> Seguridad y MFA</DropdownMenuItem>
+            <DropdownMenuItem onClick={() => router.push(`/${locale}/preferencias`)}><Settings2 className="size-4" /> Preferencias</DropdownMenuItem>
+            <DropdownMenuItem onClick={() => router.push(`/${locale}/ayuda`)}><HelpCircle className="size-4" /> Ayuda y soporte</DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuGroup>
               <DropdownMenuLabel>Apariencia</DropdownMenuLabel>
@@ -105,10 +122,13 @@ export function AppTopbar() {
               </DropdownMenuRadioGroup>
             </DropdownMenuGroup>
             <DropdownMenuSeparator />
-            <ConfirmLogout />
+            <DropdownMenuItem variant="destructive" onClick={() => setLogoutOpen(true)}>
+              <LogOut className="size-4" /> Cerrar sesión
+            </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
+      <ConfirmLogout open={logoutOpen} onOpenChange={setLogoutOpen} />
     </header>
   );
 }

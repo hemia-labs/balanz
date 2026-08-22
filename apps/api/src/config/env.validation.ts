@@ -168,10 +168,11 @@ export const envVarsSchema = Joi.object({
     .min(300)
     .max(2_592_000)
     .default(28_800),
-  MFA_PROVIDER: Joi.string().valid('stub').default('stub'),
-  MFA_STUB_CODE: Joi.string()
-    .pattern(/^\d{6}$/)
-    .default('000000'),
+  MFA_ENCRYPTION_KEY: Joi.when('SECRETS_ENABLED', {
+    is: true,
+    then: Joi.string().base64().length(44).optional(),
+    otherwise: Joi.string().base64().length(44).optional(),
+  }),
   AUTH_VERIFICATION_RESEND_LIMIT: Joi.number()
     .integer()
     .min(1)

@@ -2,6 +2,7 @@ import {
   ForbiddenException,
   Injectable,
   NotFoundException,
+  Optional,
   UnauthorizedException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -17,6 +18,10 @@ import {
 import { User, UserStatus } from '../users/entities/user.entity';
 import { AuthSession, AuthSessionStatus } from './entities/auth-session.entity';
 import type { SessionAuthorizationContext } from './session.types';
+import {
+  AuthFactor,
+  AuthFactorStatus,
+} from '../auth/entities/auth-factor.entity';
 
 const OWNER_PERMISSIONS = [
   'organization.view',
@@ -44,6 +49,31 @@ const OWNER_PERMISSIONS = [
   'support.authorize',
 ];
 
+export const MFA_SENSITIVE_PERMISSIONS = new Set([
+  'organization.manage',
+  'organization.transfer',
+  'organization.cancel',
+  'members.manage',
+  'permissions.manage',
+  'billing.manage',
+  'clients.assign',
+  'fiscal_entities.manage',
+  'credentials.manage',
+  'sat.download',
+  'cfdi.download',
+  'payroll.export',
+  'exceptions.accept',
+  'checklist.configure',
+  'periods.takeover',
+  'periods.close',
+  'periods.reopen',
+  'exports.generate',
+  'exports.download',
+  'exports.bulk',
+  'support.authorize',
+  'retention.manage',
+]);
+
 @Injectable()
 export class AuthorizationService {
   constructor(
@@ -53,17 +83,37 @@ export class AuthorizationService {
     private readonly organizations: Repository<Organization>,
     @InjectRepository(Membership)
     private readonly memberships: Repository<Membership>,
+    @Optional()
+    @InjectRepository(AuthFactor)
+    private readonly factors: Repository<AuthFactor>,
     private readonly dataSource: DataSource,
   ) {}
 
   async resolve(session: AuthSession): Promise<SessionAuthorizationContext> {
-    const user = await this.users.findOne({ where: { id: session.userId } });
+    const [user, factor] = await Promise.all([
+      this.users.findOne({ where: { id: session.userId } }),
+      this.factors && typeof this.factors.findOne === 'function'
+        ? this.factors.findOne({
+            where: [
+              { userId: session.userId, status: AuthFactorStatus.ACTIVE },
+              { userId: session.userId, status: AuthFactorStatus.PENDING },
+            ],
+            order: { createdAt: 'DESC' },
+          })
+        : Promise.resolve(null),
+    ]);
     if (!user || user.status !== UserStatus.ACTIVE) {
       throw new UnauthorizedException('Inactive user');
     }
 
     let role: string | null = null;
     let tenantActive = false;
+    const mfaStatus =
+      factor?.status === AuthFactorStatus.ACTIVE
+        ? 'active'
+        : factor?.status === AuthFactorStatus.PENDING
+          ? 'pending'
+          : 'disabled';
     if (session.organizationId && session.membershipId) {
       const [organization, membership] = await Promise.all([
         this.organizations.findOne({
@@ -87,7 +137,7 @@ export class AuthorizationService {
         membership.status === MembershipStatus.ACTIVE &&
         session.status === AuthSessionStatus.ACTIVE &&
         session.expiresAt.getTime() > Date.now() &&
-        session.mfaVerifiedAt != null;
+        (!session.requiresMfa || session.mfaVerifiedAt != null);
     }
 
     return {
@@ -99,6 +149,8 @@ export class AuthorizationService {
       permissions: role === 'owner' ? [...OWNER_PERMISSIONS] : [],
       assignedAccountIds: [],
       mfaVerifiedAt: session.mfaVerifiedAt ?? null,
+      requiresMfa: session.requiresMfa,
+      mfaStatus,
       expiresAt: session.expiresAt,
       tenantActive,
     };
@@ -112,6 +164,16 @@ export class AuthorizationService {
       throw new ForbiddenException('Active tenant required');
     }
     return context;
+  }
+
+  requireMfa(session: AuthSession, permission: string): void {
+    if (!MFA_SENSITIVE_PERMISSIONS.has(permission)) return;
+    if (session.requiresMfa && !session.mfaVerifiedAt) {
+      throw new UnauthorizedException('MFA_REQUIRED');
+    }
+    if (!session.requiresMfa) {
+      throw new ForbiddenException('MFA_SETUP_REQUIRED');
+    }
   }
 
   async listOrganizations(userId: string): Promise<
@@ -173,7 +235,10 @@ export class AuthorizationService {
       if (!session || session.status !== AuthSessionStatus.ACTIVE) {
         throw new UnauthorizedException('Invalid session');
       }
-      if (session.expiresAt.getTime() <= Date.now() || !session.mfaVerifiedAt) {
+      if (
+        session.expiresAt.getTime() <= Date.now() ||
+        (session.requiresMfa && !session.mfaVerifiedAt)
+      ) {
         throw new UnauthorizedException('Verified session required');
       }
 

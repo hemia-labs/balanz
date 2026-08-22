@@ -4,19 +4,27 @@ import type { RedisClient } from './redis.module';
 import { REDIS_CLIENT } from './redis.tokens';
 
 export interface CachedSessionEntry {
-  version: 1;
+  version: 2;
   sessionId: string;
   userId: string;
   organizationId: string | null;
   membershipId: string | null;
   status: 'active' | 'expired' | 'revoked';
   mfaVerifiedAt: string | null;
+  requiresMfa: boolean;
+  mfaStatus: 'disabled' | 'pending' | 'active';
   expiresAt: string;
   lastActivityAt: string;
   tenantActive: boolean;
   role: string | null;
   permissions: string[];
   assignedAccountIds: string[];
+}
+
+export interface SessionCacheScope {
+  userId?: string;
+  organizationId?: string | null;
+  membershipId?: string | null;
 }
 
 export interface CacheLookup<T> {
@@ -156,6 +164,7 @@ export class SessionCacheService {
     sessionId: string,
     tokenHash?: string,
     entry?: CachedSessionEntry,
+    scope?: SessionCacheScope,
   ): Promise<boolean> {
     if (!this.canUse()) return false;
 
@@ -167,24 +176,20 @@ export class SessionCacheService {
         (resolvedTokenHash
           ? await this.get(resolvedTokenHash).then((result) => result.value)
           : null);
+      const userId = resolvedEntry?.userId ?? scope?.userId;
+      const organizationId =
+        resolvedEntry?.organizationId ?? scope?.organizationId;
+      const membershipId = resolvedEntry?.membershipId ?? scope?.membershipId;
       const multi = this.client!.multi();
       if (resolvedTokenHash) multi.del(this.tokenKey(resolvedTokenHash));
       multi.del(this.sessionIdKey(sessionId));
       multi.del(this.activityKey(sessionId));
-      if (resolvedEntry) {
-        multi.sRem(this.userIndexKey(resolvedEntry.userId), sessionId);
-        if (resolvedEntry.organizationId) {
-          multi.sRem(
-            this.organizationIndexKey(resolvedEntry.organizationId),
-            sessionId,
-          );
-        }
-        if (resolvedEntry.membershipId) {
-          multi.sRem(
-            this.membershipIndexKey(resolvedEntry.membershipId),
-            sessionId,
-          );
-        }
+      if (userId) multi.sRem(this.userIndexKey(userId), sessionId);
+      if (organizationId) {
+        multi.sRem(this.organizationIndexKey(organizationId), sessionId);
+      }
+      if (membershipId) {
+        multi.sRem(this.membershipIndexKey(membershipId), sessionId);
       }
       await multi.exec();
       return true;
@@ -231,7 +236,7 @@ export class SessionCacheService {
     if (!value || typeof value !== 'object') return false;
     const entry = value as Partial<CachedSessionEntry>;
     return (
-      entry.version === 1 &&
+      entry.version === 2 &&
       typeof entry.sessionId === 'string' &&
       typeof entry.userId === 'string' &&
       (entry.organizationId === null ||
@@ -242,6 +247,10 @@ export class SessionCacheService {
         entry.status === 'revoked') &&
       (entry.mfaVerifiedAt === null ||
         typeof entry.mfaVerifiedAt === 'string') &&
+      typeof entry.requiresMfa === 'boolean' &&
+      (entry.mfaStatus === 'disabled' ||
+        entry.mfaStatus === 'pending' ||
+        entry.mfaStatus === 'active') &&
       typeof entry.expiresAt === 'string' &&
       typeof entry.lastActivityAt === 'string' &&
       typeof entry.tenantActive === 'boolean' &&

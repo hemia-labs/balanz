@@ -14,7 +14,7 @@ export interface RegistrationResult {
   subscriptionType: string;
   subscriptionStatus: SubscriptionStatus.PENDING;
   nextStep: 'verify_email';
-  mfaRequired: true;
+  mfaRequired: false;
   tenantActive: false;
 }
 
@@ -26,5 +26,6 @@ export interface EmailVerificationResult {
     startedAt: Date;
     endsAt: Date;
   };
-  nextStep: 'complete_mfa';
+  nextStep: 'ready';
+  mfaStatus: 'disabled';
 }

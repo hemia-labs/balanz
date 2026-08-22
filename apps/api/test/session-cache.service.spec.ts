@@ -85,6 +85,41 @@ describe('SessionCacheService', () => {
     });
   });
 
+  it('cleans scope indexes even when the cached session entry is missing', async () => {
+    const multi = makeMulti();
+    const client = {
+      isReady: true,
+      get: jest.fn().mockResolvedValue(null),
+      multi: jest.fn(() => multi),
+    };
+    const config = {
+      get: jest.fn().mockReturnValue('test:'),
+    } as unknown as ConfigService;
+    const service = new SessionCacheService(client as never, config);
+
+    await expect(
+      service.deleteSession('session-1', 'hash-1', undefined, {
+        userId: 'user-1',
+        organizationId: 'org-1',
+        membershipId: 'membership-1',
+      }),
+    ).resolves.toBe(true);
+
+    expect(multi.del).toHaveBeenCalledWith('test:auth:session:token:hash-1');
+    expect(multi.sRem).toHaveBeenCalledWith(
+      'test:auth:session:index:user:user-1',
+      'session-1',
+    );
+    expect(multi.sRem).toHaveBeenCalledWith(
+      'test:auth:session:index:organization:org-1',
+      'session-1',
+    );
+    expect(multi.sRem).toHaveBeenCalledWith(
+      'test:auth:session:index:membership:membership-1',
+      'session-1',
+    );
+  });
+
   it('uses NX and the configured activity window for persistence throttling', async () => {
     const client = {
       isReady: true,

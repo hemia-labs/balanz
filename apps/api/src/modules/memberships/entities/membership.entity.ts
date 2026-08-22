@@ -37,9 +37,6 @@ export class Membership {
   @Column({ type: 'enum', enum: MembershipRole })
   role: MembershipRole;
 
-  @Column({ name: 'mfa_completed_at', type: 'timestamptz', nullable: true })
-  mfaCompletedAt?: Date | null;
-
   @Column({ type: 'enum', enum: MembershipStatus })
   status: MembershipStatus;
 

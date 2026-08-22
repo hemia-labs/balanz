@@ -43,6 +43,24 @@ Content-Type: application/json
   "email": "ana@example.test"
 }
 
+### Login (TOTP only when the user has an active factor)
+POST {{baseUrl}}/auth/login
+Content-Type: application/json
+
+{
+  "email": "ana@example.test",
+  "password": "Secret123!"
+}
+
+### Complete preliminary login with TOTP
+POST {{baseUrl}}/auth/login/mfa
+Cookie: balanz_session={{sessionCookie}}
+Content-Type: application/json
+
+{
+  "code": "123456"
+}
+
 ### Confirm email verification
 # The response sets the HttpOnly balanz_session cookie for onboarding.
 # Required body field: token.
@@ -55,22 +73,22 @@ Content-Type: application/json
 
 ### Get onboarding status
 # Required: Cookie from email confirmation.
-# No body. Tenant is not active yet.
+# No body. MFA is optional; the response includes mfaStatus.
 GET {{baseUrl}}/auth/onboarding
 Cookie: balanz_session={{sessionCookie}}
 Accept: application/json
 
-### Start MFA setup
-# Required: onboarding session cookie.
+### Start optional local TOTP setup
+# Required: verified session cookie.
 # No body.
-POST {{baseUrl}}/auth/mfa/setup
+POST {{baseUrl}}/auth/mfa/totp/setup
 Cookie: balanz_session={{sessionCookie}}
 Accept: application/json
+Cache-Control: no-store
 
-### Verify MFA and activate tenant
-# The response rotates the session cookie and activates the initial membership.
-# Required: onboarding session cookie and body field code.
-POST {{baseUrl}}/auth/mfa/verify
+### Verify TOTP and activate MFA
+# The response rotates the session cookie and revokes other sessions.
+POST {{baseUrl}}/auth/mfa/totp/verify
 Cookie: balanz_session={{sessionCookie}}
 Content-Type: application/json
 

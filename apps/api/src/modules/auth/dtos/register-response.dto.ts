@@ -8,6 +8,6 @@ export class RegisterResponseDto {
   subscriptionType: string;
   subscriptionStatus: string;
   nextStep: 'verify_email';
-  mfaRequired: true;
+  mfaRequired: false;
   tenantActive: false;
 }

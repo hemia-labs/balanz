@@ -1,12 +1,14 @@
 "use client";
 
-import { createContext, useContext, useEffect, useMemo } from "react";
+import { createContext, useContext, useMemo } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
-import type { Capability, DemoAccount, DemoClient, DemoMembership, DemoOrganization } from "@/lib/accounting-types";
-import { clientById, clientsFor, demoData, demoOrganizationId, membershipFor, organizationById } from "@/lib/demo-data";
+import { useSession } from "@/features/session/session-provider";
+import type { OrganizationSummary } from "@/features/session/types";
+import { capabilities, type Capability, type DemoAccount, type DemoClient, type DemoMembership, type DemoOrganization } from "@/lib/accounting-types";
+import { clientById, clientsFor, membershipFor, organizationById } from "@/lib/demo-data";
 
 interface AccountingContextValue {
-  locale: "es";
+  locale: string;
   account: DemoAccount;
   organization: DemoOrganization;
   membership: DemoMembership;
@@ -14,10 +16,13 @@ interface AccountingContextValue {
   client?: DemoClient;
   capabilities: Capability[];
   context: "organization" | "client";
-  isDemo: true;
+  isDemo: boolean;
+  organizations: OrganizationSummary[];
+  changeOrganization: (organizationId: string) => Promise<void>;
 }
 
 const AccountingContext = createContext<AccountingContextValue | null>(null);
+const demoMode = process.env.NEXT_PUBLIC_DEMO_MODE === "true";
 
 function routeIdentifier(pathname: string, segment: string) {
   const parts = pathname.split("/").filter(Boolean);
@@ -25,31 +30,51 @@ function routeIdentifier(pathname: string, segment: string) {
   return index >= 0 ? parts[index + 1] : undefined;
 }
 
+function mapRole(role: string | null | undefined): DemoMembership["role"] {
+  if (role === "titular" || role === "administrador" || role === "responsable") return role;
+  return "colaborador";
+}
+
 export function AccountingContextProvider({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  const { session, authorization, organizations, switchTenant } = useSession();
+
   const value = useMemo(() => {
-    const organizationId = routeIdentifier(pathname, "despachos") ?? searchParams.get("organizacion") ?? demoOrganizationId;
-    const organization = organizationById(organizationId) ?? demoData.organizations[0];
-    const membership = membershipFor(organization.id) ?? demoData.memberships[0];
+    const locale = pathname.split("/").filter(Boolean)[0] ?? "es";
+    const organizationId = session?.organizationId ?? routeIdentifier(pathname, "despachos") ?? searchParams.get("organizacion") ?? "";
+    const apiOrganization = organizations.find((item) => item.id === organizationId);
+    const demoOrganization = demoMode ? organizationById(organizationId) : undefined;
+    const isDemo = Boolean(demoOrganization && !apiOrganization);
+    const organization: DemoOrganization = apiOrganization
+      ? { id: apiOrganization.id, name: apiOrganization.name, shortName: apiOrganization.name }
+      : demoOrganization
+        ? { ...demoOrganization }
+        : { id: organizationId, name: "Organización activa", shortName: "Organización activa" };
+    const allowed = authorization?.permissions ?? (isDemo ? membershipFor(organization.id)?.capabilities ?? [] : []);
+    const resolvedCapabilities = capabilities.filter((item) => allowed.includes(item)) as Capability[];
+    const membership: DemoMembership = {
+      organizationId: organization.id,
+      role: mapRole(authorization?.role ?? session?.role ?? (isDemo ? membershipFor(organization.id)?.role : undefined)),
+      capabilities: resolvedCapabilities,
+      assignedClientIds: authorization?.assignedAccountIds ?? (isDemo ? membershipFor(organization.id)?.assignedClientIds ?? [] : []),
+    };
     const clientId = routeIdentifier(pathname, "clientes");
-    const client = clientId ? clientById(organization.id, clientId) : undefined;
+    const client = isDemo && clientId ? clientById(organization.id, clientId) : undefined;
     return {
-      locale: "es" as const,
-      account: demoData.account,
+      locale,
+      account: { id: session?.userId ?? "", name: "Cuenta global", email: "" },
       organization,
       membership,
-      clients: clientsFor(organization.id),
+      clients: isDemo ? clientsFor(organization.id) : [],
       client,
-      capabilities: membership.capabilities,
+      capabilities: resolvedCapabilities,
       context: client ? ("client" as const) : ("organization" as const),
-      isDemo: true as const,
+      isDemo,
+      organizations,
+      changeOrganization: switchTenant,
     };
-  }, [pathname, searchParams]);
-
-  useEffect(() => {
-    localStorage.setItem("last-demo-organization", value.organization.id);
-  }, [value.organization.id]);
+  }, [authorization, organizations, pathname, searchParams, session, switchTenant]);
 
   return <AccountingContext.Provider value={value}>{children}</AccountingContext.Provider>;
 }

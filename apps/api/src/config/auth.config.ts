@@ -12,8 +12,7 @@ export default registerAs('auth', () => ({
   sessionTtlSeconds: Number(process.env.AUTH_SESSION_TTL_SECONDS) || 28_800,
   sessionActivityPersistIntervalSeconds:
     Number(process.env.AUTH_SESSION_ACTIVITY_PERSIST_INTERVAL_SECONDS) || 300,
-  mfaProvider: process.env.MFA_PROVIDER || 'stub',
-  mfaStubCode: process.env.MFA_STUB_CODE || '000000',
+  mfaEncryptionKey: process.env.MFA_ENCRYPTION_KEY,
   verificationResendLimit:
     Number(process.env.AUTH_VERIFICATION_RESEND_LIMIT) || 3,
   verificationResendWindowSeconds:

@@ -3,27 +3,29 @@
 import Link from "next/link";
 import { Search, X } from "lucide-react";
 import { useId, useMemo, useRef, useState } from "react";
+import { usePathname } from "next/navigation";
 import { useAccountingContext } from "@/components/accounting-context";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { demoData } from "@/lib/demo-data";
 
 export function ContextSearch() {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const titleId = useId();
   const [query, setQuery] = useState("");
-  const { client, clients, organization } = useAccountingContext();
+  const pathname = usePathname();
+  const { client, clients, organization, isDemo } = useAccountingContext();
+  const locale = pathname.split("/").filter(Boolean)[0] ?? "es";
   const placeholder = client
     ? `Buscar CFDI, UUID, RFC o folio en ${client.name}`
     : "Buscar cliente, RFC, UUID o folio";
   const results = useMemo(() => {
     const normalized = query.trim().toLowerCase();
-    if (!normalized) return { clients: clients.slice(0, 3), cfdi: demoData.cfdi.filter((item) => !client || item.clientId === client.id).slice(0, 3) };
+    if (!normalized) return { clients: clients.slice(0, 3), cfdi: [] };
     return {
       clients: clients.filter((item) => `${item.name} ${item.rfc}`.toLowerCase().includes(normalized)).slice(0, 4),
-      cfdi: demoData.cfdi.filter((item) => (!client || item.clientId === client.id) && `${item.uuid} ${item.rfc} ${item.name}`.toLowerCase().includes(normalized)).slice(0, 4),
+      cfdi: [],
     };
-  }, [client, clients, query]);
+  }, [clients, query]);
   return (
     <>
       <Button type="button" variant="outline" className="hidden w-80 justify-start font-normal text-muted-foreground lg:flex" onClick={() => dialogRef.current?.showModal()}>
@@ -39,19 +41,14 @@ export function ContextSearch() {
         <div className="max-h-[60vh] overflow-y-auto p-3">
           <p className="px-3 py-2 text-caption font-semibold text-muted-foreground">Clientes autorizados</p>
           {results.clients.map((item) => (
-            <Link key={item.id} href={`/es/despachos/${organization.id}/clientes/${item.id}/resumen`} onClick={() => dialogRef.current?.close()} className="flex min-h-12 items-center justify-between rounded-md px-3 py-2 hover:bg-muted">
+            <Link key={item.id} href={`/${locale}/despachos/${organization.id}/clientes/${item.id}/resumen`} onClick={() => dialogRef.current?.close()} className="flex min-h-12 items-center justify-between rounded-md px-3 py-2 hover:bg-muted">
               <span><span className="block font-semibold">{item.name}</span><span className="identifier text-caption text-muted-foreground">{item.rfc}</span></span><span className="text-caption text-muted-foreground">Cliente</span>
             </Link>
           ))}
-          <p className="mt-2 px-3 py-2 text-caption font-semibold text-muted-foreground">CFDI demostrativos</p>
-          {results.cfdi.map((item) => (
-            <Link key={item.uuid} href={`/es/despachos/${organization.id}/clientes/${item.clientId}/cfdi/${item.uuid}`} onClick={() => dialogRef.current?.close()} className="flex min-h-12 items-center justify-between rounded-md px-3 py-2 hover:bg-muted">
-              <span><span className="identifier block font-semibold">{item.uuid}</span><span className="text-caption text-muted-foreground">{item.name}</span></span><span className="text-caption text-muted-foreground">{item.type}</span>
-            </Link>
-          ))}
-          {results.clients.length + results.cfdi.length === 0 ? <p className="px-3 py-8 text-center text-body-sm text-muted-foreground">No hay resultados demo para esta búsqueda.</p> : null}
+          {isDemo ? <p className="mt-2 px-3 py-2 text-caption font-semibold text-muted-foreground">CFDI demostrativos</p> : null}
+          {results.clients.length + results.cfdi.length === 0 ? <p className="px-3 py-8 text-center text-body-sm text-muted-foreground">No hay resultados disponibles para esta búsqueda.</p> : null}
         </div>
-        <p className="border-t border-border px-5 py-3 text-caption text-muted-foreground">Búsqueda local sobre fixtures autorizados. Integración de backend pendiente.</p>
+        <p className="border-t border-border px-5 py-3 text-caption text-muted-foreground">La búsqueda muestra únicamente datos disponibles para el tenant activo.</p>
       </dialog>
     </>
   );

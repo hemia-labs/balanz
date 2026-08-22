@@ -5,6 +5,7 @@ export interface SessionCreationInput {
   organizationId?: string | null;
   membershipId?: string | null;
   mfaVerifiedAt?: Date | null;
+  requiresMfa?: boolean;
   ipAddress?: string | null;
   userAgent?: string | null;
 }
@@ -35,6 +36,8 @@ export interface SessionAuthorizationContext {
   permissions: string[];
   assignedAccountIds: string[];
   mfaVerifiedAt: Date | null;
+  requiresMfa: boolean;
+  mfaStatus: 'disabled' | 'pending' | 'active';
   expiresAt: Date;
   tenantActive: boolean;
 }

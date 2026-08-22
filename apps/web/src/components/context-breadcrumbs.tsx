@@ -4,7 +4,6 @@ import Link from "next/link";
 import { ChevronRight } from "lucide-react";
 import { usePathname } from "next/navigation";
 import { useAccountingContext } from "@/components/accounting-context";
-import { demoData } from "@/lib/demo-data";
 import { clientBase, organizationBase } from "@/lib/nav";
 
 interface BreadcrumbItem {
@@ -41,7 +40,7 @@ function readableLabel(segment: string) {
 }
 
 function monthLabel(slug: string) {
-  return demoData.periods.find((period) => period.slug === slug)?.month ?? `Período ${slug}`;
+  return `Período ${slug}`;
 }
 
 function buildClientTrail(relative: string[], clientHref: string): BreadcrumbItem[] {
@@ -102,14 +101,15 @@ function buildClientTrail(relative: string[], clientHref: string): BreadcrumbIte
 export function ContextBreadcrumbs() {
   const pathname = usePathname();
   const { client, organization } = useAccountingContext();
+  const locale = pathname.split("/").filter(Boolean)[0] ?? "es";
   const parts = pathname.split("/").filter(Boolean);
   const organizationIndex = parts.indexOf("despachos");
   const organizationSection = organizationIndex >= 0 ? parts[organizationIndex + 2] : undefined;
-  const organizationHref = `${organizationBase("es", organization.id)}/inicio`;
+  const organizationHref = `${organizationBase(locale, organization.id)}/inicio`;
   const items: BreadcrumbItem[] = [{ label: organization.shortName, href: organizationHref }];
 
   if (client) {
-    const clientHref = clientBase("es", organization.id, client.id);
+    const clientHref = clientBase(locale, organization.id, client.id);
     const clientIndex = parts.indexOf("clientes");
     const relative = clientIndex >= 0 ? parts.slice(clientIndex + 2) : [];
     items.push({ label: client.name, href: `${clientHref}/resumen` });

@@ -13,10 +13,11 @@ export enum AuthFactorStatus {
   REVOKED = 'revoked',
 }
 
-@Index('uq_auth_factors_provider_ref', ['provider', 'providerFactorRef'], {
-  unique: true,
-})
 @Index('idx_auth_factors_user_status', ['userId', 'status'])
+@Index('uq_auth_factors_user_current', ['userId'], {
+  unique: true,
+  where: "status IN ('pending', 'active')",
+})
 @Entity('auth_factors')
 export class AuthFactor {
   @PrimaryGeneratedColumn('uuid')
@@ -25,14 +26,8 @@ export class AuthFactor {
   @Column({ name: 'user_id', type: 'uuid' })
   userId: string;
 
-  @Column({ length: 40 })
-  provider: string;
-
-  @Column({ name: 'provider_factor_ref', length: 255 })
-  providerFactorRef: string;
-
-  @Column({ name: 'factor_type', length: 24 })
-  factorType: string;
+  @Column({ name: 'secret_encrypted', type: 'text' })
+  secretEncrypted: string;
 
   @Column({ type: 'enum', enum: AuthFactorStatus })
   status: AuthFactorStatus;
@@ -42,6 +37,9 @@ export class AuthFactor {
 
   @Column({ name: 'last_used_at', type: 'timestamptz', nullable: true })
   lastUsedAt?: Date | null;
+
+  @Column({ name: 'last_used_counter', type: 'bigint', nullable: true })
+  lastUsedCounter?: string | null;
 
   @Column({ name: 'revoked_at', type: 'timestamptz', nullable: true })
   revokedAt?: Date | null;

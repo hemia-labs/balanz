@@ -1,6 +1,5 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { ConfigService } from '@nestjs/config';
 import { UsersModule } from '../users/users.module';
 import { EmailModule } from '../email/email.module';
 import { MembershipsModule } from '../memberships/memberships.module';
@@ -13,10 +12,11 @@ import { AuthRateLimit } from './entities/auth-rate-limit.entity';
 import { AuthService } from './auth.service';
 import { AuditModule } from '../audit/audit.module';
 import { AuthRateLimitService } from './rate-limit.service';
-import { StubMfaProvider } from './stub-mfa.provider';
-import { MFA_PROVIDER } from './ports/mfa-provider.port';
 import { AuthController } from './auth.controller';
 import { MeController } from './me.controller';
+import { SecretsModule } from '../secrets/secrets.module';
+import { TotpService } from './totp.service';
+import { MfaEncryptionService } from './mfa-encryption.service';
 
 @Module({
   imports: [
@@ -32,22 +32,14 @@ import { MeController } from './me.controller';
     SubscriptionsModule,
     SessionsModule,
     EmailModule,
+    SecretsModule,
   ],
   controllers: [AuthController, MeController],
   providers: [
     AuthService,
     AuthRateLimitService,
-    {
-      provide: MFA_PROVIDER,
-      inject: [ConfigService],
-      useFactory: (config: ConfigService) => {
-        const provider = config.get<string>('auth.mfaProvider', 'stub');
-        if (provider !== 'stub') {
-          throw new Error(`Unsupported MFA provider: ${provider}`);
-        }
-        return new StubMfaProvider(config);
-      },
-    },
+    TotpService,
+    MfaEncryptionService,
   ],
   exports: [AuthService],
 })

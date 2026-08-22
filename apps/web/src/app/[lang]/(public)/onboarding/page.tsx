@@ -1,12 +1,69 @@
-import Link from "next/link";
-import { Building2, CheckCircle2 } from "lucide-react";
-import { BrandMark } from "@/components/brand-mark";
-import { FeaturePendingNotice, Field, Surface } from "@/components/product-patterns";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { demoOrganizationId } from "@/lib/demo-data";
+"use client";
 
+import { useEffect, useState } from "react";
+import { useParams, useRouter } from "next/navigation";
+import { BrandMark } from "@/components/brand-mark";
+import { MfaSettings } from "@/components/mfa-settings";
+import { Surface } from "@/components/product-patterns";
+import { Button } from "@/components/ui/button";
+import { ApiError } from "@/lib/api-client";
+import { getOnboarding } from "@/features/auth/api";
+import type { OnboardingResponse } from "@/features/session/types";
+
+function date(value?: string) {
+  return value ? value.slice(0, 10) : "—";
+}
 export default function OnboardingPage() {
-  const steps = ["Completar datos del despacho", "Crear primer cliente", "Asignar responsable", "Crear ejercicio", "Registrar e.firma o hacerlo después"];
-  return <main id="main-content" className="min-h-screen w-full bg-background px-4 py-8"><div className="mx-auto max-w-form space-y-6"><BrandMark locale="es" /><header className="border-l-2 border-brand-mark pl-4"><p className="text-caption font-semibold text-accent-foreground">Primer despacho</p><h1 className="text-heading-lg font-bold">Crea tu despacho</h1><p className="mt-1 text-body text-muted-foreground">Serás Titular de la organización. No se contratará ni asignará un plan automáticamente.</p></header><FeaturePendingNotice>El backend de despachos y contratación aún no existe. Este formulario no persiste información.</FeaturePendingNotice><Surface className="p-5"><div className="grid gap-5 sm:grid-cols-2"><Field label="Nombre del despacho"><Input placeholder="Estudio contable" /></Field><Field label="Zona horaria"><Input value="America/Mexico_City" readOnly /></Field></div><div className="mt-6"><h2 className="text-heading-sm font-emphasis">Pasos posteriores</h2><ol className="mt-3 space-y-2">{steps.map((step, index) => <li key={step} className="flex items-center gap-3 rounded-md border border-border px-4 py-3"><span className="grid size-6 place-items-center rounded-full bg-secondary text-caption font-bold text-secondary-foreground">{index + 1}</span>{step}</li>)}</ol></div><div className="mt-6 flex flex-wrap justify-end gap-2"><Button render={<Link href="/es/login" />} variant="outline">Volver</Button><Button render={<Link href={`/es/despachos/${demoOrganizationId}/inicio`} />}><Building2 />Abrir demostración</Button></div></Surface><p className="flex items-center gap-2 text-caption text-muted-foreground"><CheckCircle2 className="size-4" />Los datos mostrados en la demostración son ficticios.</p></div></main>;
+  const params = useParams<{ lang: string }>();
+  const router = useRouter();
+  const locale = params.lang ?? "es";
+  const [data, setData] = useState<OnboardingResponse | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [showMfa, setShowMfa] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    const controller = new AbortController();
+    getOnboarding(controller.signal)
+      .then((response) => active && setData(response))
+      .catch((requestError) => {
+        if (!active) return;
+        if (requestError instanceof ApiError && requestError.status === 401) {
+          router.replace(`/${locale}/login`);
+          return;
+        }
+        setError(requestError instanceof ApiError ? requestError.message : "No se pudo restaurar el onboarding.");
+      });
+    return () => { active = false; controller.abort(); };
+  }, [locale, router]);
+
+  if (error) return <main className="grid min-h-screen place-items-center px-4"><p role="alert" className="text-body-sm text-destructive">{error}</p></main>;
+  if (!data) return <main className="grid min-h-screen place-items-center px-4 text-body-sm text-muted-foreground">Cargando onboarding…</main>;
+
+  return (
+    <main id="main-content" className="min-h-screen w-full bg-background px-4 py-8">
+      <div className="mx-auto max-w-form space-y-6">
+        <BrandMark locale={locale as "es"} />
+        <header className="border-l-2 border-brand-mark pl-4">
+          <p className="text-caption font-semibold text-accent-foreground">Organización lista</p>
+          <h1 className="text-heading-lg font-bold">Completa tu onboarding</h1>
+          <p className="mt-1 text-body text-muted-foreground">Eres Titular. Puedes continuar sin MFA y configurarlo después para acciones sensibles.</p>
+        </header>
+        <Surface className="space-y-5 p-5">
+          <dl className="grid gap-4 sm:grid-cols-2">
+            <div><dt className="text-caption text-muted-foreground">Suscripción</dt><dd className="font-semibold">{data.subscriptionType}</dd></div>
+            <div><dt className="text-caption text-muted-foreground">Estado del trial</dt><dd className="font-semibold">{data.trial.status}</dd></div>
+            <div><dt className="text-caption text-muted-foreground">Inicio</dt><dd>{date(data.trial.startedAt)}</dd></div>
+            <div><dt className="text-caption text-muted-foreground">Fin</dt><dd>{date(data.trial.endsAt)}</dd></div>
+          </dl>
+          <p className="rounded-md border border-border bg-muted/30 p-3 text-body-sm">Siguiente paso: {data.nextStep}. El acceso fiscal permanecerá bloqueado hasta que corresponda.</p>
+          <div className="flex flex-wrap gap-2">
+            <Button onClick={() => router.push(`/${locale}`)}>Continuar a la aplicación</Button>
+            <Button variant="outline" onClick={() => setShowMfa((value) => !value)}>{showMfa ? "Ocultar MFA" : "Configurar MFA"}</Button>
+          </div>
+          {showMfa ? <div className="border-t border-border pt-5"><MfaSettings compact /></div> : null}
+        </Surface>
+      </div>
+    </main>
+  );
 }

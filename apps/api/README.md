@@ -129,8 +129,11 @@ La API expone el flujo de alta bajo `/api/v1/auth`:
 - `POST /auth/email/verification/resend`
 - `POST /auth/email/verification/confirm`
 - `GET /auth/onboarding`
-- `POST /auth/mfa/setup`
-- `POST /auth/mfa/verify`
+- `POST /auth/login`
+- `POST /auth/login/mfa`
+- `POST /auth/mfa/totp/setup`
+- `POST /auth/mfa/totp/verify`
+- `POST /auth/mfa/totp/disable`
 - `GET|DELETE /auth/session`
 - `PATCH /auth/session/organization`
 - `GET /me/organizations`
@@ -140,9 +143,13 @@ La sesión usa una cookie `HttpOnly` con token opaco persistido como hash en
 `auth_sessions`. Redis cachea la sesión y el contexto de autorización usando el
 hash como llave; el TTL nunca extiende `expires_at`. `last_activity_at` se
 persiste en PostgreSQL como máximo una vez cada cinco minutos por sesión.
-El proveedor MFA disponible en esta fase es un stub exclusivo
-para desarrollo y pruebas (`MFA_PROVIDER=stub`); producción debe conectar un
-proveedor real antes de arrancar.
+MFA es opcional y se implementa localmente con TOTP RFC 6238 (issuer `Balanz`,
+SHA-1, seis dígitos, período de 30 segundos y tolerancia de ±30 segundos).
+El secreto se cifra con AES-256-GCM y la llave del mecanismo de secretos;
+`MFA_ENCRYPTION_KEY` sólo es fallback local. No hay proveedor externo,
+recovery codes ni recuperación autoservicio. Las acciones P0 críticas y de
+extracción aplican la política centralizada `MFA_SETUP_REQUIRED` /
+`MFA_REQUIRED`.
 
 `GET /api/v1/users` acepta `search`, `status`, `page` y `limit` (1–100) y
 devuelve `{ items, meta: { page, limit, total, totalPages } }`.

@@ -2,12 +2,14 @@
 
 import { Building, Check, ChevronsUpDown } from "lucide-react";
 import { useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
 import { useAccountingContext } from "@/components/accounting-context";
 import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 
 export function ClientSwitcher({ compact = false }: { compact?: boolean }) {
   const router = useRouter();
+  const pathname = usePathname();
   const { client, clients, organization } = useAccountingContext();
   if (!client) return null;
 
@@ -35,7 +37,7 @@ export function ClientSwitcher({ compact = false }: { compact?: boolean }) {
         {clients.map((option) => (
           <DropdownMenuItem
             key={option.id}
-            onClick={() => router.push(`/es/despachos/${organization.id}/clientes/${option.id}/resumen`)}
+            onClick={() => router.push(`/${pathname.split("/").filter(Boolean)[0] ?? "es"}/despachos/${organization.id}/clientes/${option.id}/resumen`)}
           >
             <Building className="size-4" />
             <span className="min-w-0 flex-1">

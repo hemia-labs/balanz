@@ -20,7 +20,6 @@ export class MembershipsService {
         userId,
         role: MembershipRole.OWNER,
         status: MembershipStatus.PENDING,
-        mfaCompletedAt: null,
       }),
     );
   }
