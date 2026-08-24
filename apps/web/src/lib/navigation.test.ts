@@ -14,28 +14,28 @@ const membership: DemoMembership = {
 
 test("filtra navegación por contexto y capacidad", () => {
   const items = [
-    { id: "inicio", context: "organization" as const, href: "/inicio", capability: "organization.view" as const },
-    { id: "equipo", context: "organization" as const, href: "/equipo", capability: "team.view" as const },
+    { id: "home", context: "organization" as const, href: "/home", capability: "organization.view" as const },
+    { id: "team", context: "organization" as const, href: "/team", capability: "team.view" as const },
     { id: "cfdi", context: "client" as const, href: "/cfdi", capability: "clients.view" as const },
   ];
-  assert.deepEqual(filterNavigation(items, "organization", membership.capabilities).map((item) => item.id), ["inicio"]);
+  assert.deepEqual(filterNavigation(items, "organization", membership.capabilities).map((item) => item.id), ["home"]);
   assert.deepEqual(filterNavigation(items, "client", membership.capabilities).map((item) => item.id), ["cfdi"]);
 });
 
 test("identifica la ruta activa sin confundir prefijos parciales", () => {
-  assert.equal(isNavigationItemActive("/es/despachos/demo/clientes", "/es/despachos/demo/clientes"), true);
-  assert.equal(isNavigationItemActive("/es/despachos/demo/clientes/uno", "/es/despachos/demo/clientes"), true);
-  assert.equal(isNavigationItemActive("/es/despachos/demo/clientes-archivados", "/es/despachos/demo/clientes"), false);
+  assert.equal(isNavigationItemActive("/es/organizations/demo/clients", "/es/organizations/demo/clients"), true);
+  assert.equal(isNavigationItemActive("/es/organizations/demo/clients/uno", "/es/organizations/demo/clients"), true);
+  assert.equal(isNavigationItemActive("/es/organizations/demo/clients-archived", "/es/organizations/demo/clients"), false);
 });
 
 test("resuelve rutas canónicas, pestañas y capacidades", () => {
-  const period = resolveProductRoute("demo", ["clientes", "cliente", "ejercicios", "2026", "periodos", "08", "nomina"]);
+  const period = resolveProductRoute("demo", ["clients", "cliente", "fiscal-years", "2026", "periods", "08", "payroll"]);
   assert.equal(period?.screen, "period");
   assert.equal(period?.capability, "payroll.view");
-  const diot = resolveProductRoute("demo", ["clientes", "cliente", "obligaciones", "diot", "2026", "08", "validaciones"]);
+  const diot = resolveProductRoute("demo", ["clients", "cliente", "obligations", "diot", "2026", "08", "validations"]);
   assert.equal(diot?.screen, "diot-period");
-  assert.equal(diot?.tab, "validaciones");
-  assert.equal(resolveProductRoute("demo", ["clientes", "cliente", "ejercicios", "2026", "periodos", "08", "inexistente"]), null);
+  assert.equal(diot?.tab, "validations");
+  assert.equal(resolveProductRoute("demo", ["clients", "cliente", "fiscal-years", "2026", "periods", "08", "inexistente"]), null);
 });
 
 test("aplica capacidades y asignación explícita de cliente", () => {
@@ -46,7 +46,7 @@ test("aplica capacidades y asignación explícita de cliente", () => {
 });
 
 test("mantiene destinos seguros para rutas heredadas", () => {
-  assert.equal(resolveLegacyDestination("users"), "equipo");
-  assert.equal(resolveLegacyDestination("plans"), "configuracion/plan-facturacion");
+  assert.equal(resolveLegacyDestination("users"), "team");
+  assert.equal(resolveLegacyDestination("plans"), "settings/billing-plan");
   assert.equal(resolveLegacyDestination("desconocida"), undefined);
 });

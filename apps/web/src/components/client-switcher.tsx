@@ -37,7 +37,7 @@ export function ClientSwitcher({ compact = false }: { compact?: boolean }) {
         {clients.map((option) => (
           <DropdownMenuItem
             key={option.id}
-            onClick={() => router.push(`/${pathname.split("/").filter(Boolean)[0] ?? "es"}/despachos/${organization.id}/clientes/${option.id}/resumen`)}
+            onClick={() => router.push(`/${pathname.split("/").filter(Boolean)[0] ?? "es"}/organizations/${organization.slug}/clients/${option.id}/overview`)}
           >
             <Building className="size-4" />
             <span className="min-w-0 flex-1">

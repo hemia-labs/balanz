@@ -58,12 +58,17 @@ export function EmailVerification({ locale = "es" }: { locale?: string }) {
       setState("success");
       setToken(null);
       sessionStorage.removeItem("balanz_pending_registration");
+      router.replace(`/${locale}/onboarding`);
     } catch (error) {
       if (isAbortError(error)) return;
       setState("error");
       setMessage(error instanceof ApiError ? error.message : "El enlace no pudo confirmarse.");
     }
   }
+
+  useEffect(() => {
+    if (token) void confirm();
+  }, [token]);
 
   async function resend() {
     if (!pending.email || cooldown > 0) return;

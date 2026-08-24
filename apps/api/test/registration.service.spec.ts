@@ -57,21 +57,13 @@ describe('AuthService', () => {
     const subscriptions = {
       createPending: jest.fn().mockResolvedValue({ id: 'subscription-1' }),
     } as unknown as SubscriptionsService;
-    let enqueuedInput: Record<string, unknown> | undefined;
-    const enqueueVerification = jest.fn(
-      (_manager: unknown, input: Record<string, unknown>) => {
-        enqueuedInput = input;
-        return Promise.resolve({ id: 'outbox-1' });
-      },
-    );
     let deliveryInput: { token: string } | undefined;
-    const deliverVerification = jest.fn((input: { token: string }) => {
+    const sendVerification = jest.fn((input: { token: string }) => {
       deliveryInput = input;
       return Promise.resolve();
     });
     const email = {
-      enqueueVerification,
-      deliverVerification,
+      sendVerification,
     } as unknown as EmailService;
     let auditInput: AuditEventInput | undefined;
     const audit = {
@@ -82,6 +74,11 @@ describe('AuthService', () => {
         },
       ),
     } as unknown as AuditService;
+    const rateLimits = {
+      consume: jest.fn().mockResolvedValue(true),
+      registerLimit: jest.fn().mockReturnValue(3),
+      registerWindowSeconds: jest.fn().mockReturnValue(900),
+    };
     const service = new AuthService(
       dataSource,
       passwords,
@@ -92,6 +89,11 @@ describe('AuthService', () => {
       subscriptions,
       email,
       audit,
+      {} as never,
+      {} as never,
+      rateLimits as never,
+      {} as never,
+      {} as never,
     );
 
     const result = await service.register({
@@ -149,12 +151,10 @@ describe('AuthService', () => {
       createHash('sha256').update(deliveryInput.token).digest('hex'),
     );
     expect(result).not.toHaveProperty('verificationToken');
-    expect(enqueuedInput).not.toHaveProperty('token');
-    expect(email.enqueueVerification).toHaveBeenCalledWith(manager, {
-      userId: 'user-1',
-      tokenId: 'token-1',
+    expect(email.sendVerification).toHaveBeenCalledWith({
       email: 'ana@example.test',
       firstName: 'Ana',
+      token: deliveryInput.token,
     });
     if (!auditInput) throw new Error('Registration audit was not recorded');
     expect(auditInput).toMatchObject({
@@ -182,6 +182,11 @@ describe('AuthService', () => {
         .fn()
         .mockRejectedValue(new QueryFailedError('INSERT', [], duplicate)),
     } as unknown as DataSource;
+    const rateLimits = {
+      consume: jest.fn().mockResolvedValue(true),
+      registerLimit: jest.fn().mockReturnValue(3),
+      registerWindowSeconds: jest.fn().mockReturnValue(900),
+    };
     const service = new AuthService(
       dataSource,
       {
@@ -194,6 +199,11 @@ describe('AuthService', () => {
       {} as SubscriptionsService,
       {} as EmailService,
       {} as AuditService,
+      {} as never,
+      {} as never,
+      rateLimits as never,
+      {} as never,
+      {} as never,
     );
 
     await expect(

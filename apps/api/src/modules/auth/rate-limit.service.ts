@@ -62,6 +62,28 @@ export class AuthRateLimitService {
     return this.config.get<number>('auth.verificationResendWindowSeconds', 900);
   }
 
+  registerLimit(): number {
+    return this.config.get<number>('auth.verificationRegisterLimit', 3);
+  }
+
+  registerWindowSeconds(): number {
+    return this.config.get<number>(
+      'auth.verificationRegisterWindowSeconds',
+      900,
+    );
+  }
+
+  confirmLimit(): number {
+    return this.config.get<number>('auth.verificationConfirmLimit', 5);
+  }
+
+  confirmWindowSeconds(): number {
+    return this.config.get<number>(
+      'auth.verificationConfirmWindowSeconds',
+      300,
+    );
+  }
+
   mfaVerifyLimit(): number {
     return this.config.get<number>('auth.mfaVerifyLimit', 5);
   }

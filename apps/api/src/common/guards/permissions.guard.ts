@@ -13,7 +13,7 @@ import { MFA_SENSITIVE_PERMISSIONS } from '../../modules/sessions/authorization.
 
 /**
  * Autorización por permisos. Debe correr DESPUÉS de un guard de autenticación
- * (JwtAuthGuard) que haya poblado `request.user`.
+ * (SessionGuard) que haya poblado `request.authSession` y `request.tenantContext`.
  */
 @Injectable()
 export class PermissionsGuard implements CanActivate {

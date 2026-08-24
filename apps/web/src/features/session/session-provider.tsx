@@ -39,13 +39,19 @@ function statusForError(error: ApiError): SessionState {
 export function SessionProvider({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  const search = searchParams.toString();
   const router = useRouter();
+  const navigationRef = useRef({ pathname, search });
   const requestVersion = useRef(0);
   const [status, setStatus] = useState<SessionState>("checking");
   const [session, setSession] = useState<SessionContext | null>(null);
   const [authorization, setAuthorization] = useState<AuthorizationContext | null>(null);
   const [organizations, setOrganizations] = useState<OrganizationSummary[]>([]);
   const [error, setError] = useState<ApiError | null>(null);
+
+  useEffect(() => {
+    navigationRef.current = { pathname, search };
+  }, [pathname, search]);
 
   const loadSession = useCallback(async (signal?: AbortSignal) => {
     const version = ++requestVersion.current;
@@ -60,7 +66,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       if (!current.tenantActive || !current.organizationId) {
         setAuthorization(null);
         setStatus("tenant_required");
-        router.replace(`/${localeFromPath(pathname)}/select-organization`);
+        router.replace(`/${localeFromPath(navigationRef.current.pathname)}/select-organization`);
         return;
       }
       const permissions = await getAuthorization(signal);
@@ -78,11 +84,12 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       const nextStatus = statusForError(requestError);
       setStatus(nextStatus);
       if (nextStatus === "unauthenticated") {
-        const returnTo = safeReturnTo(pathname, searchParams.toString() ? `?${searchParams.toString()}` : "");
-        router.replace(`/${localeFromPath(pathname)}/login?returnTo=${encodeURIComponent(returnTo)}`);
+        const { pathname: currentPathname, search } = navigationRef.current;
+        const returnTo = safeReturnTo(currentPathname, search ? `?${search}` : "");
+        router.replace(`/${localeFromPath(currentPathname)}/login?returnTo=${encodeURIComponent(returnTo)}`);
       }
     }
-  }, [pathname, router, searchParams]);
+  }, [router]);
 
   useEffect(() => {
     const controller = new AbortController();

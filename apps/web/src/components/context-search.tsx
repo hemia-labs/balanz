@@ -41,7 +41,7 @@ export function ContextSearch() {
         <div className="max-h-[60vh] overflow-y-auto p-3">
           <p className="px-3 py-2 text-caption font-semibold text-muted-foreground">Clientes autorizados</p>
           {results.clients.map((item) => (
-            <Link key={item.id} href={`/${locale}/despachos/${organization.id}/clientes/${item.id}/resumen`} onClick={() => dialogRef.current?.close()} className="flex min-h-12 items-center justify-between rounded-md px-3 py-2 hover:bg-muted">
+            <Link key={item.id} href={`/${locale}/organizations/${organization.slug}/clients/${item.id}/overview`} onClick={() => dialogRef.current?.close()} className="flex min-h-12 items-center justify-between rounded-md px-3 py-2 hover:bg-muted">
               <span><span className="block font-semibold">{item.name}</span><span className="identifier text-caption text-muted-foreground">{item.rfc}</span></span><span className="text-caption text-muted-foreground">Cliente</span>
             </Link>
           ))}

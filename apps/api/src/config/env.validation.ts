@@ -102,6 +102,19 @@ export const envVarsSchema = Joi.object({
     .min(15)
     .max(60)
     .default(30),
+  AUTH_VERIFICATION_REGISTER_LIMIT: Joi.number()
+    .integer()
+    .positive()
+    .default(3),
+  AUTH_VERIFICATION_REGISTER_WINDOW_SECONDS: Joi.number()
+    .integer()
+    .positive()
+    .default(900),
+  AUTH_VERIFICATION_CONFIRM_LIMIT: Joi.number().integer().positive().default(5),
+  AUTH_VERIFICATION_CONFIRM_WINDOW_SECONDS: Joi.number()
+    .integer()
+    .positive()
+    .default(300),
   TRIAL_DURATION_DAYS: Joi.number().integer().positive().default(30),
 
   // Redis session cache. When Secrets are enabled these values are read from
@@ -123,24 +136,55 @@ export const envVarsSchema = Joi.object({
     .max(86_400)
     .default(300),
 
-  // Email. SMTP_* sólo se usa como fallback cuando Secrets está deshabilitado.
-  SMTP_HOST: Joi.string().trim().min(1).default('localhost'),
-  SMTP_PORT: Joi.number().port().default(1025),
-  SMTP_SECURE: Joi.boolean().truthy('true').falsy('false').default(false),
-  SMTP_USER: Joi.string().trim().min(1).default('noreply@localhost'),
-  SMTP_PASSWORD: Joi.string().allow('').default(''),
-  EMAIL_APP_NAME: Joi.string().trim().min(1).default('Balanz'),
-  EMAIL_APP_SUBTITLE: Joi.string().trim().min(1).default('Contable'),
-  EMAIL_VERIFICATION_SUBJECT: Joi.string()
+  // Email (SESv2). AWS_REGION sólo se usa sin Vault; las demás credenciales
+  // se resuelven con la cadena estándar del SDK.
+  AWS_REGION: Joi.string().trim().min(1).default('us-east-2'),
+  EMAIL_PROJECT: Joi.string()
+    .trim()
+    .pattern(/^[a-z0-9]+(?:-[a-z0-9]+)*$/)
+    .default('cfdios'),
+  EMAIL_ENVIRONMENT: Joi.string()
+    .valid('dev', 'qa', 'staging', 'prod')
+    .default('dev'),
+  EMAIL_FROM_NAME: Joi.string().trim().min(1).default('CFDIOS'),
+  EMAIL_FROM_AUTH: Joi.string().email().default('auth@cfdios.hemia.dev'),
+  EMAIL_FROM_NOTIFICATIONS: Joi.string()
+    .email()
+    .default('notifications@cfdios.hemia.dev'),
+  EMAIL_REPLY_TO: Joi.string().email().default('support@hemia.dev'),
+  EMAIL_CONFIGURATION_SET_AUTH: Joi.string()
     .trim()
     .min(1)
-    .default('Verifica tu correo'),
+    .default('hemia-dev-auth'),
+  EMAIL_CONFIGURATION_SET_TRANSACTIONAL: Joi.string()
+    .trim()
+    .min(1)
+    .default('hemia-dev-transactional'),
+  EMAIL_VERIFICATION_TEMPLATE: Joi.string()
+    .trim()
+    .pattern(/^[a-z0-9]+(?:-[a-z0-9]+)*$/)
+    .default('cfdios-dev-email-verification'),
+  EMAIL_WELCOME_TEMPLATE: Joi.string()
+    .trim()
+    .pattern(/^[a-z0-9]+(?:-[a-z0-9]+)*$/)
+    .default('cfdios-dev-welcome'),
+  EMAIL_MFA_ENABLED_TEMPLATE: Joi.string()
+    .trim()
+    .pattern(/^[a-z0-9]+(?:-[a-z0-9]+)*$/)
+    .default('cfdios-dev-mfa-enabled'),
+  EMAIL_MFA_DISABLED_TEMPLATE: Joi.string()
+    .trim()
+    .pattern(/^[a-z0-9]+(?:-[a-z0-9]+)*$/)
+    .default('cfdios-dev-mfa-disabled'),
+  EMAIL_APP_NAME: Joi.string().trim().min(1).default('Balanz'),
+  EMAIL_APP_SUBTITLE: Joi.string().trim().min(1).default('Contable'),
   EMAIL_SUPPORT_EMAIL: Joi.string().email().default('soporte@balanz.mx'),
   EMAIL_HELP_URL: Joi.string().uri().default('https://app.balanz.mx/ayuda'),
   EMAIL_PRIVACY_URL: Joi.string()
     .uri()
     .default('https://app.balanz.mx/privacidad'),
   EMAIL_TERMS_URL: Joi.string().uri().default('https://app.balanz.mx/terminos'),
+  EMAIL_COMPANY_ADDRESS: Joi.string().trim().allow('').default(''),
   EMAIL_APP_URL: Joi.when('NODE_ENV', {
     is: 'production',
     then: Joi.string()
@@ -153,11 +197,6 @@ export const envVarsSchema = Joi.object({
   EMAIL_ASSETS_BASE_URL: Joi.string()
     .uri({ scheme: ['http', 'https'] })
     .default('https://cdn.hemia.dev'),
-  EMAIL_RECOVERY_DELAY_MS: Joi.number().integer().min(1_000).default(30_000),
-  EMAIL_WORKER_SWEEP_MS: Joi.number().integer().min(10_000).default(60_000),
-  EMAIL_WORKER_BATCH_SIZE: Joi.number().integer().min(1).max(100).default(20),
-  EMAIL_MAX_ATTEMPTS: Joi.number().integer().min(1).max(20).default(5),
-  EMAIL_RETRY_BASE_MS: Joi.number().integer().min(1_000).default(60_000),
 
   AUTH_SESSION_COOKIE_NAME: Joi.string()
     .trim()
@@ -189,6 +228,12 @@ export const envVarsSchema = Joi.object({
     .min(60)
     .max(86_400)
     .default(300),
+  AUTH_THROTTLER_LIMIT: Joi.number().integer().min(1).default(60),
+  AUTH_THROTTLER_TTL_MS: Joi.number().integer().min(1).default(60_000),
+  AUTH_THROTTLER_BLOCK_DURATION_MS: Joi.number()
+    .integer()
+    .min(1)
+    .default(60_000),
 
   COOKIE_SECURE: Joi.boolean()
     .truthy('true')

@@ -17,7 +17,19 @@ export default registerAs('auth', () => ({
     Number(process.env.AUTH_VERIFICATION_RESEND_LIMIT) || 3,
   verificationResendWindowSeconds:
     Number(process.env.AUTH_VERIFICATION_RESEND_WINDOW_SECONDS) || 900,
+  verificationRegisterLimit:
+    Number(process.env.AUTH_VERIFICATION_REGISTER_LIMIT) || 3,
+  verificationRegisterWindowSeconds:
+    Number(process.env.AUTH_VERIFICATION_REGISTER_WINDOW_SECONDS) || 900,
+  verificationConfirmLimit:
+    Number(process.env.AUTH_VERIFICATION_CONFIRM_LIMIT) || 5,
+  verificationConfirmWindowSeconds:
+    Number(process.env.AUTH_VERIFICATION_CONFIRM_WINDOW_SECONDS) || 300,
   mfaVerifyLimit: Number(process.env.AUTH_MFA_VERIFY_LIMIT) || 5,
   mfaVerifyWindowSeconds:
     Number(process.env.AUTH_MFA_VERIFY_WINDOW_SECONDS) || 300,
+  throttlerLimit: Number(process.env.AUTH_THROTTLER_LIMIT) || 60,
+  throttlerTtlMs: Number(process.env.AUTH_THROTTLER_TTL_MS) || 60_000,
+  throttlerBlockDurationMs:
+    Number(process.env.AUTH_THROTTLER_BLOCK_DURATION_MS) || 60_000,
 }));

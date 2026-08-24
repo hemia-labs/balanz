@@ -41,6 +41,7 @@ export function apiErrorMessage(error: unknown, fallback: string) {
   if (!isApiError(error)) return fallback;
   if (error.code === "MFA_REQUIRED") return "Completa la verificación MFA para continuar.";
   if (error.code === "MFA_SETUP_REQUIRED") return "Configura MFA en Seguridad para realizar esta acción.";
+  if (error.code === "MFA_INVALID_CODE") return "El código MFA no es válido o ha expirado.";
   if (error.status === 429) return "Ya realizaste demasiadas solicitudes. Intenta más tarde.";
   return error.message || fallback;
 }

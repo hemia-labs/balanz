@@ -12,27 +12,28 @@ interface BreadcrumbItem {
 }
 
 const labels: Record<string, string> = {
-  inicio: "Inicio",
-  clientes: "Clientes",
-  procesos: "Procesos",
-  equipo: "Equipo",
-  auditoria: "Auditoría",
-  configuracion: "Configuración",
-  resumen: "Resumen",
-  ejercicios: "Ejercicios",
+  home: "Inicio",
+  clients: "Clientes",
+  processes: "Procesos",
+  team: "Equipo",
+  audit: "Auditoría",
+  settings: "Configuración",
+  overview: "Resumen",
+  "fiscal-years": "Ejercicios",
   cfdi: "CFDI",
-  alertas: "Alertas",
-  obligaciones: "Obligaciones",
+  alerts: "Alertas",
+  obligations: "Obligaciones",
   diot: "DIOT",
   ieps: "IEPS",
-  cierre: "Checklist y cierre",
-  exportaciones: "Exportaciones",
-  pagos: "Pagos",
-  nomina: "Nómina",
-  incidencias: "Incidencias",
-  "e-firma-sat": "e.firma y SAT",
-  responsables: "Responsables",
-  accesos: "Accesos",
+  close: "Checklist y cierre",
+  exports: "Exportaciones",
+  payments: "Pagos",
+  payroll: "Nómina",
+  issues: "Incidencias",
+  "e-signature-sat": "e.firma y SAT",
+  responsibles: "Responsables",
+  access: "Accesos",
+  data: "Datos del cliente",
 };
 
 function readableLabel(segment: string) {
@@ -44,22 +45,22 @@ function monthLabel(slug: string) {
 }
 
 function buildClientTrail(relative: string[], clientHref: string): BreadcrumbItem[] {
-  const [section = "resumen", second, third, fourth, fifth] = relative;
+  const [section = "overview", second, third, fourth, fifth] = relative;
 
-  if (section === "ejercicios") {
+  if (section === "fiscal-years") {
     if (!second) return [{ label: "Ejercicios" }];
-    if (third !== "periodos" || !fourth) {
+    if (third !== "periods" || !fourth) {
       return [
-        { label: "Ejercicios", href: `${clientHref}/ejercicios` },
+        { label: "Ejercicios", href: `${clientHref}/fiscal-years` },
         { label: `Ejercicio ${second}` },
       ];
     }
 
-    const periodHref = `${clientHref}/ejercicios/${second}/periodos/${fourth}`;
+    const periodHref = `${clientHref}/fiscal-years/${second}/periods/${fourth}`;
     return [
-      { label: `Ejercicio ${second}`, href: `${clientHref}/ejercicios/${second}` },
+      { label: `Ejercicio ${second}`, href: `${clientHref}/fiscal-years/${second}` },
       { label: monthLabel(fourth), href: periodHref },
-      { label: readableLabel(fifth ?? "resumen") },
+      { label: readableLabel(fifth ?? "overview") },
     ];
   }
 
@@ -70,17 +71,17 @@ function buildClientTrail(relative: string[], clientHref: string): BreadcrumbIte
     ];
   }
 
-  if (section === "obligaciones" && second) {
+  if (section === "obligations" && second) {
     const trail: BreadcrumbItem[] = [
-      { label: "Obligaciones", href: `${clientHref}/obligaciones` },
+      { label: "Obligaciones", href: `${clientHref}/obligations` },
     ];
     if (second === "diot" || second === "ieps") {
-      trail.push({ label: readableLabel(second), href: `${clientHref}/obligaciones/${second}` });
+      trail.push({ label: readableLabel(second), href: `${clientHref}/obligations/${second}` });
       if (second === "diot" && third && fourth) {
-        trail.push({ label: `${monthLabel(fourth)} ${third}`, href: `${clientHref}/obligaciones/diot/${third}/${fourth}` });
-        trail.push({ label: readableLabel(fifth ?? "resumen") });
+        trail.push({ label: `${monthLabel(fourth)} ${third}`, href: `${clientHref}/obligations/diot/${third}/${fourth}` });
+        trail.push({ label: readableLabel(fifth ?? "overview") });
       } else if (second === "ieps" && third) {
-        trail.push({ label: readableLabel(fourth ?? "resumen") });
+        trail.push({ label: readableLabel(fourth ?? "overview") });
       }
       return trail;
     }
@@ -88,9 +89,9 @@ function buildClientTrail(relative: string[], clientHref: string): BreadcrumbIte
     return trail;
   }
 
-  if (section === "configuracion" && second) {
+  if (section === "settings" && second) {
     return [
-      { label: "Configuración", href: `${clientHref}/configuracion/datos` },
+      { label: "Configuración", href: `${clientHref}/settings/data` },
       { label: readableLabel(second) },
     ];
   }
@@ -103,19 +104,19 @@ export function ContextBreadcrumbs() {
   const { client, organization } = useAccountingContext();
   const locale = pathname.split("/").filter(Boolean)[0] ?? "es";
   const parts = pathname.split("/").filter(Boolean);
-  const organizationIndex = parts.indexOf("despachos");
+  const organizationIndex = parts.indexOf("organizations");
   const organizationSection = organizationIndex >= 0 ? parts[organizationIndex + 2] : undefined;
-  const organizationHref = `${organizationBase(locale, organization.id)}/inicio`;
+  const organizationHref = `${organizationBase(locale, organization.slug)}/home`;
   const items: BreadcrumbItem[] = [{ label: organization.shortName, href: organizationHref }];
 
   if (client) {
-    const clientHref = clientBase(locale, organization.id, client.id);
-    const clientIndex = parts.indexOf("clientes");
+    const clientHref = clientBase(locale, organization.slug, client.id);
+    const clientIndex = parts.indexOf("clients");
     const relative = clientIndex >= 0 ? parts.slice(clientIndex + 2) : [];
-    items.push({ label: client.name, href: `${clientHref}/resumen` });
+    items.push({ label: client.name, href: `${clientHref}/overview` });
     items.push(...buildClientTrail(relative, clientHref));
-  } else if (organizationSection && organizationSection !== "inicio") {
-    const sectionHref = `${organizationBase("es", organization.id)}/${organizationSection}`;
+  } else if (organizationSection && organizationSection !== "home") {
+    const sectionHref = `${organizationBase(locale, organization.slug)}/${organizationSection}`;
     const subsection = parts[organizationIndex + 3];
     if (subsection) items.push({ label: readableLabel(organizationSection), href: sectionHref });
     items.push({ label: readableLabel(subsection ?? organizationSection) });

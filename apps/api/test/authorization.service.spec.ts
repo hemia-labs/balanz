@@ -38,6 +38,7 @@ describe('AuthorizationService', () => {
       organizations as never,
       memberships as never,
       {} as never,
+      {} as never,
     );
     const session = {
       id: 'session-1',

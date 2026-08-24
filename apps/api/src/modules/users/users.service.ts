@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException, Optional } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { EntityManager, ILike, Repository } from 'typeorm';
+import { DataSource, EntityManager, ILike, In, Repository } from 'typeorm';
 import { FindUsersDto } from './dtos/find-users.dto';
 import { CreateUserDto } from './dtos/create-user.dto';
 import { UpdateUserDto } from './dtos/update-user.dto';
@@ -10,6 +10,11 @@ import { User } from './entities/user.entity';
 import { UserMapper } from './mappers/user.mapper';
 import { PasswordService } from '../../common/auth/password.service';
 import { SessionsService } from '../sessions/sessions.service';
+import {
+  Membership,
+  MembershipRole,
+  MembershipStatus,
+} from '../memberships/entities/membership.entity';
 
 export interface RegistrationUserInput {
   firstName: string;
@@ -26,22 +31,40 @@ export class UsersService {
   constructor(
     @InjectRepository(User)
     private readonly repository: Repository<User>,
+    @InjectRepository(Membership)
+    private readonly memberships: Repository<Membership>,
     private readonly passwords: PasswordService,
+    private readonly dataSource: DataSource,
     @Optional() private readonly sessions?: SessionsService,
   ) {}
 
-  async findAll(query: FindUsersDto): Promise<UsersPageResponseDto> {
+  async findAll(
+    query: FindUsersDto,
+    organizationId: string,
+  ): Promise<UsersPageResponseDto> {
     const page = query.page;
     const limit = query.limit;
     const search = query.search?.trim();
+    const memberships = await this.memberships.find({
+      select: { userId: true },
+      where: { organizationId },
+    });
+    const userIds = memberships.map(({ userId }) => userId);
+    if (userIds.length === 0) {
+      return {
+        items: [],
+        meta: { page, limit, total: 0, totalPages: 0 },
+      };
+    }
+
     const base = query.status ? { status: query.status } : {};
     const where = search
       ? [
-          { ...base, firstName: ILike(`%${search}%`) },
-          { ...base, lastName: ILike(`%${search}%`) },
-          { ...base, email: ILike(`%${search}%`) },
+          { ...base, id: In(userIds), firstName: ILike(`%${search}%`) },
+          { ...base, id: In(userIds), lastName: ILike(`%${search}%`) },
+          { ...base, id: In(userIds), email: ILike(`%${search}%`) },
         ]
-      : base;
+      : { ...base, id: In(userIds) };
     const [users, total] = await this.repository.findAndCount({
       where,
       order: { createdAt: 'DESC' },
@@ -55,21 +78,38 @@ export class UsersService {
     };
   }
 
-  async findOne(id: string): Promise<UserResponseDto> {
-    return UserMapper.toDTO(await this.ensureExists(id));
+  async findOne(id: string, organizationId: string): Promise<UserResponseDto> {
+    return UserMapper.toDTO(await this.ensureExists(id, organizationId));
   }
 
-  async create(dto: CreateUserDto): Promise<UserResponseDto> {
-    const user = this.repository.create({
-      firstName: dto.firstName,
-      lastName: dto.lastName,
-      email: dto.email.trim().toLowerCase(),
-      passwordHash: await this.passwords.hash(dto.password),
-      phoneE164: dto.phoneE164,
-      locale: dto.locale,
-      timezone: dto.timezone,
+  async create(
+    dto: CreateUserDto,
+    organizationId: string,
+  ): Promise<UserResponseDto> {
+    return this.dataSource.transaction(async (manager) => {
+      const users = manager.getRepository(User);
+      const memberships = manager.getRepository(Membership);
+      const user = await users.save(
+        users.create({
+          firstName: dto.firstName,
+          lastName: dto.lastName,
+          email: dto.email.trim().toLowerCase(),
+          passwordHash: await this.passwords.hash(dto.password),
+          phoneE164: dto.phoneE164,
+          locale: dto.locale ?? 'es-MX',
+          timezone: dto.timezone ?? 'America/Mexico_City',
+        }),
+      );
+      await memberships.save(
+        memberships.create({
+          organizationId,
+          userId: user.id,
+          role: MembershipRole.COLLABORATOR,
+          status: MembershipStatus.PENDING,
+        }),
+      );
+      return UserMapper.toDTO(user);
     });
-    return UserMapper.toDTO(await this.repository.save(user));
   }
 
   createForRegistration(
@@ -80,8 +120,12 @@ export class UsersService {
     return repository.save(repository.create(input));
   }
 
-  async update(id: string, dto: UpdateUserDto): Promise<UserResponseDto> {
-    const user = await this.ensureExists(id);
+  async update(
+    id: string,
+    organizationId: string,
+    dto: UpdateUserDto,
+  ): Promise<UserResponseDto> {
+    const user = await this.ensureExists(id, organizationId);
     const previousStatus = user.status;
     const { password, ...changes } = dto;
     Object.assign(user, {
@@ -91,18 +135,25 @@ export class UsersService {
     if (password) user.passwordHash = await this.passwords.hash(password);
     const saved = await this.repository.save(user);
     if (previousStatus !== saved.status) {
-      await this.sessions?.invalidateByUser(saved.id);
+      await this.sessions?.revokeUserSessions(saved.id, 'user_status_changed');
     }
     return UserMapper.toDTO(saved);
   }
 
-  async remove(id: string): Promise<void> {
-    await this.ensureExists(id);
+  async remove(id: string, organizationId: string): Promise<void> {
+    await this.ensureExists(id, organizationId);
     await this.repository.softDelete(id);
-    await this.sessions?.invalidateByUser(id);
+    await this.sessions?.revokeUserSessions(id, 'user_deleted');
   }
 
-  private async ensureExists(id: string): Promise<User> {
+  private async ensureExists(
+    id: string,
+    organizationId: string,
+  ): Promise<User> {
+    const membership = await this.memberships.findOne({
+      where: { organizationId, userId: id },
+    });
+    if (!membership) throw new NotFoundException('User not found');
     const user = await this.repository.findOne({ where: { id } });
     if (!user) throw new NotFoundException('User not found');
     return user;

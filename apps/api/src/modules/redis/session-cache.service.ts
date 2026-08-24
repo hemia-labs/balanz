@@ -21,12 +21,6 @@ export interface CachedSessionEntry {
   assignedAccountIds: string[];
 }
 
-export interface SessionCacheScope {
-  userId?: string;
-  organizationId?: string | null;
-  membershipId?: string | null;
-}
-
 export interface CacheLookup<T> {
   available: boolean;
   value: T | null;
@@ -66,14 +60,7 @@ export class SessionCacheService {
     }
   }
 
-  async set(
-    tokenHash: string,
-    entry: CachedSessionEntry,
-    previousScope?: {
-      organizationId: string | null;
-      membershipId: string | null;
-    },
-  ): Promise<boolean> {
+  async set(tokenHash: string, entry: CachedSessionEntry): Promise<boolean> {
     if (!this.canUse()) return false;
     const ttl = Math.max(
       1,
@@ -81,43 +68,12 @@ export class SessionCacheService {
     );
 
     try {
-      const multi = this.client!.multi();
-      multi.set(this.tokenKey(tokenHash), JSON.stringify(entry), { EX: ttl });
-      multi.set(this.sessionIdKey(entry.sessionId), tokenHash, { EX: ttl });
-      multi.sAdd(this.userIndexKey(entry.userId), entry.sessionId);
-
-      if (entry.organizationId) {
-        multi.sAdd(
-          this.organizationIndexKey(entry.organizationId),
-          entry.sessionId,
-        );
-      }
-      if (entry.membershipId) {
-        multi.sAdd(
-          this.membershipIndexKey(entry.membershipId),
-          entry.sessionId,
-        );
-      }
-      if (
-        previousScope?.organizationId &&
-        previousScope.organizationId !== entry.organizationId
-      ) {
-        multi.sRem(
-          this.organizationIndexKey(previousScope.organizationId),
-          entry.sessionId,
-        );
-      }
-      if (
-        previousScope?.membershipId &&
-        previousScope.membershipId !== entry.membershipId
-      ) {
-        multi.sRem(
-          this.membershipIndexKey(previousScope.membershipId),
-          entry.sessionId,
-        );
-      }
-      await multi.exec();
-      return true;
+      const result = await this.client!.set(
+        this.tokenKey(tokenHash),
+        JSON.stringify(entry),
+        { EX: ttl },
+      );
+      return result === 'OK';
     } catch {
       this.markUnavailable();
       return false;
@@ -132,10 +88,15 @@ export class SessionCacheService {
     );
     entry.lastActivityAt = new Date().toISOString();
     try {
-      await this.client!.set(this.tokenKey(tokenHash), JSON.stringify(entry), {
-        EX: ttl,
-      });
-      return true;
+      const result = await this.client!.set(
+        this.tokenKey(tokenHash),
+        JSON.stringify(entry),
+        {
+          EX: ttl,
+          XX: true,
+        },
+      );
+      return result === 'OK';
     } catch {
       this.markUnavailable();
       return false;
@@ -163,64 +124,31 @@ export class SessionCacheService {
   async deleteSession(
     sessionId: string,
     tokenHash?: string,
-    entry?: CachedSessionEntry,
-    scope?: SessionCacheScope,
+    cleanupAliases = false,
   ): Promise<boolean> {
     if (!this.canUse()) return false;
 
     try {
-      const resolvedTokenHash =
-        tokenHash ?? (await this.client!.get(this.sessionIdKey(sessionId)));
-      const resolvedEntry =
-        entry ??
-        (resolvedTokenHash
-          ? await this.get(resolvedTokenHash).then((result) => result.value)
-          : null);
-      const userId = resolvedEntry?.userId ?? scope?.userId;
-      const organizationId =
-        resolvedEntry?.organizationId ?? scope?.organizationId;
-      const membershipId = resolvedEntry?.membershipId ?? scope?.membershipId;
-      const multi = this.client!.multi();
-      if (resolvedTokenHash) multi.del(this.tokenKey(resolvedTokenHash));
-      multi.del(this.sessionIdKey(sessionId));
-      multi.del(this.activityKey(sessionId));
-      if (userId) multi.sRem(this.userIndexKey(userId), sessionId);
-      if (organizationId) {
-        multi.sRem(this.organizationIndexKey(organizationId), sessionId);
+      await this.client!.del([
+        this.activityKey(sessionId),
+        ...(tokenHash ? [this.tokenKey(tokenHash)] : []),
+      ]);
+      if (cleanupAliases) {
+        for await (const keys of this.client!.scanIterator({
+          MATCH: `${this.prefix()}auth:session:token:*`,
+          COUNT: 100,
+        })) {
+          const values = await this.client!.mGet(keys);
+          const aliases = keys.filter(
+            (_, index) => this.sessionId(values[index]) === sessionId,
+          );
+          if (aliases.length > 0) await this.client!.del(aliases);
+        }
       }
-      if (membershipId) {
-        multi.sRem(this.membershipIndexKey(membershipId), sessionId);
-      }
-      await multi.exec();
       return true;
     } catch {
       this.markUnavailable();
       return false;
-    }
-  }
-
-  async invalidateByUser(userId: string): Promise<void> {
-    await this.invalidateIndex(this.userIndexKey(userId));
-  }
-
-  async invalidateByOrganization(organizationId: string): Promise<void> {
-    await this.invalidateIndex(this.organizationIndexKey(organizationId));
-  }
-
-  async invalidateByMembership(membershipId: string): Promise<void> {
-    await this.invalidateIndex(this.membershipIndexKey(membershipId));
-  }
-
-  private async invalidateIndex(indexKey: string): Promise<void> {
-    if (!this.canUse()) return;
-    try {
-      const sessionIds = await this.client!.sMembers(indexKey);
-      await Promise.all(
-        sessionIds.map((sessionId) => this.deleteSession(sessionId)),
-      );
-      await this.client!.del(indexKey);
-    } catch {
-      this.markUnavailable();
     }
   }
 
@@ -262,28 +190,22 @@ export class SessionCacheService {
     );
   }
 
+  private sessionId(value: string | null | undefined): string | null {
+    if (!value) return null;
+    try {
+      const parsed = JSON.parse(value) as unknown;
+      return this.isEntry(parsed) ? parsed.sessionId : null;
+    } catch {
+      return null;
+    }
+  }
+
   private prefix(): string {
     return this.config.get<string>('redis.keyPrefix', 'balanz:');
   }
 
   private tokenKey(tokenHash: string): string {
     return `${this.prefix()}auth:session:token:${tokenHash}`;
-  }
-
-  private sessionIdKey(sessionId: string): string {
-    return `${this.prefix()}auth:session:id:${sessionId}`;
-  }
-
-  private userIndexKey(userId: string): string {
-    return `${this.prefix()}auth:session:index:user:${userId}`;
-  }
-
-  private organizationIndexKey(organizationId: string): string {
-    return `${this.prefix()}auth:session:index:organization:${organizationId}`;
-  }
-
-  private membershipIndexKey(membershipId: string): string {
-    return `${this.prefix()}auth:session:index:membership:${membershipId}`;
   }
 
   private activityKey(sessionId: string): string {

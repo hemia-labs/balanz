@@ -23,9 +23,9 @@ type ThemePreference = "system" | "light" | "dark";
 const useThemeEffect = typeof window === "undefined" ? useEffect : useLayoutEffect;
 
 function getThemePreference(): ThemePreference {
-  if (typeof window === "undefined") return "system";
+  if (typeof window === "undefined") return "light";
   const stored = localStorage.getItem("theme-preference");
-  return stored === "light" || stored === "dark" ? stored : "system";
+  return stored === "light" || stored === "dark" ? stored : "light";
 }
 
 function ConfirmLogout({
@@ -80,7 +80,7 @@ export function AppTopbar() {
     }
   }, [theme]);
 
-  const processesHref = `/${locale}/despachos/${organization.id}/procesos`;
+  const processesHref = `/${locale}/organizations/${organization.slug}/processes`;
   return (
     <header className="sticky top-0 z-10 flex h-topbar shrink-0 items-center gap-2 border-b border-border bg-card px-3 sm:px-4 lg:px-6">
       <MobileNavigation />
@@ -108,10 +108,10 @@ export function AppTopbar() {
               </DropdownMenuLabel>
             </DropdownMenuGroup>
             <DropdownMenuSeparator />
-            <DropdownMenuItem onClick={() => router.push(`/${locale}/perfil`)}><CircleUserRound className="size-4" /> Mi perfil</DropdownMenuItem>
-            <DropdownMenuItem onClick={() => router.push(`/${locale}/seguridad`)}><ShieldCheck className="size-4" /> Seguridad y MFA</DropdownMenuItem>
-            <DropdownMenuItem onClick={() => router.push(`/${locale}/preferencias`)}><Settings2 className="size-4" /> Preferencias</DropdownMenuItem>
-            <DropdownMenuItem onClick={() => router.push(`/${locale}/ayuda`)}><HelpCircle className="size-4" /> Ayuda y soporte</DropdownMenuItem>
+            <DropdownMenuItem onClick={() => router.push(`/${locale}/profile`)}><CircleUserRound className="size-4" /> Mi perfil</DropdownMenuItem>
+            <DropdownMenuItem onClick={() => router.push(`/${locale}/security`)}><ShieldCheck className="size-4" /> Seguridad y MFA</DropdownMenuItem>
+            <DropdownMenuItem onClick={() => router.push(`/${locale}/preferences`)}><Settings2 className="size-4" /> Preferencias</DropdownMenuItem>
+            <DropdownMenuItem onClick={() => router.push(`/${locale}/help`)}><HelpCircle className="size-4" /> Ayuda y soporte</DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuGroup>
               <DropdownMenuLabel>Apariencia</DropdownMenuLabel>

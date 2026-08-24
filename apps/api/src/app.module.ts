@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
-import { ConfigModule } from '@nestjs/config';
+import { ConfigModule, ConfigService } from '@nestjs/config';
+import { ThrottlerModule } from '@nestjs/throttler';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import appConfig from './config/app.config';
@@ -32,6 +33,23 @@ import { AuthModule as FeatureAuthModule } from './modules/auth/auth.module';
       ],
       validationSchema: envVarsSchema,
       validationOptions: { allowUnknown: true, abortEarly: true },
+    }),
+    ThrottlerModule.forRootAsync({
+      imports: [ConfigModule],
+      inject: [ConfigService],
+      useFactory: (config: ConfigService) => ({
+        throttlers: [
+          {
+            name: 'auth',
+            limit: config.get<number>('auth.throttlerLimit', 60),
+            ttl: config.get<number>('auth.throttlerTtlMs', 60_000),
+            blockDuration: config.get<number>(
+              'auth.throttlerBlockDurationMs',
+              60_000,
+            ),
+          },
+        ],
+      }),
     }),
     CommonAuthModule,
     SecretsModule,

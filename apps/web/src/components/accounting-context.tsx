@@ -5,7 +5,7 @@ import { usePathname, useSearchParams } from "next/navigation";
 import { useSession } from "@/features/session/session-provider";
 import type { OrganizationSummary } from "@/features/session/types";
 import { capabilities, type Capability, type DemoAccount, type DemoClient, type DemoMembership, type DemoOrganization } from "@/lib/accounting-types";
-import { clientById, clientsFor, membershipFor, organizationById } from "@/lib/demo-data";
+import { clientById, clientsFor, membershipFor, organizationById, organizationBySlug } from "@/lib/demo-data";
 
 interface AccountingContextValue {
   locale: string;
@@ -42,15 +42,16 @@ export function AccountingContextProvider({ children }: { children: React.ReactN
 
   const value = useMemo(() => {
     const locale = pathname.split("/").filter(Boolean)[0] ?? "es";
-    const organizationId = session?.organizationId ?? routeIdentifier(pathname, "despachos") ?? searchParams.get("organizacion") ?? "";
+    const organizationSlug = routeIdentifier(pathname, "organizations") ?? searchParams.get("organizacion") ?? "";
+    const organizationId = session?.organizationId ?? organizationSlug;
     const apiOrganization = organizations.find((item) => item.id === organizationId);
-    const demoOrganization = demoMode ? organizationById(organizationId) : undefined;
+    const demoOrganization = demoMode ? organizationById(organizationId) ?? organizationBySlug(organizationSlug) : undefined;
     const isDemo = Boolean(demoOrganization && !apiOrganization);
     const organization: DemoOrganization = apiOrganization
-      ? { id: apiOrganization.id, name: apiOrganization.name, shortName: apiOrganization.name }
+      ? { id: apiOrganization.id, slug: apiOrganization.slug, name: apiOrganization.name, shortName: apiOrganization.name }
       : demoOrganization
         ? { ...demoOrganization }
-        : { id: organizationId, name: "Organización activa", shortName: "Organización activa" };
+        : { id: organizationId, slug: organizationSlug || organizationId, name: "Organización activa", shortName: "Organización activa" };
     const allowed = authorization?.permissions ?? (isDemo ? membershipFor(organization.id)?.capabilities ?? [] : []);
     const resolvedCapabilities = capabilities.filter((item) => allowed.includes(item)) as Capability[];
     const membership: DemoMembership = {
@@ -59,7 +60,7 @@ export function AccountingContextProvider({ children }: { children: React.ReactN
       capabilities: resolvedCapabilities,
       assignedClientIds: authorization?.assignedAccountIds ?? (isDemo ? membershipFor(organization.id)?.assignedClientIds ?? [] : []),
     };
-    const clientId = routeIdentifier(pathname, "clientes");
+    const clientId = routeIdentifier(pathname, "clients");
     const client = isDemo && clientId ? clientById(organization.id, clientId) : undefined;
     return {
       locale,

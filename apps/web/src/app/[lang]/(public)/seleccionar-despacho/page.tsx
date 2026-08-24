@@ -9,6 +9,16 @@ import { Button } from "@/components/ui/button";
 import { ApiError } from "@/lib/api-client";
 import { getOrganizations, selectOrganization } from "@/features/organizations/api";
 import type { OrganizationSummary } from "@/features/session/types";
+import { safeInternalReturnTo } from "@/lib/navigation-security";
+
+let organizationsRequest: Promise<OrganizationSummary[]> | null = null;
+
+function loadOrganizations() {
+  organizationsRequest ??= getOrganizations().finally(() => {
+    organizationsRequest = null;
+  });
+  return organizationsRequest;
+}
 
 export function SelectOrganizationPage() {
   const params = useParams<{ lang: string }>();
@@ -20,18 +30,16 @@ export function SelectOrganizationPage() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    const controller = new AbortController();
     let active = true;
-    getOrganizations(controller.signal)
+    loadOrganizations()
       .then((items) => { if (active) setOrganizations(items); })
       .catch((requestError) => {
         if (!active) return;
-        if (requestError instanceof ApiError && requestError.code === "ABORTED") return;
         if (requestError instanceof ApiError && requestError.status === 401) router.replace(`/${locale}/login`);
         else setError("No se pudieron cargar tus organizaciones.");
       })
       .finally(() => { if (active) setLoading(false); });
-    return () => { active = false; controller.abort(); };
+    return () => { active = false; };
   }, [locale, router]);
 
   async function select(organization: OrganizationSummary) {
@@ -39,7 +47,10 @@ export function SelectOrganizationPage() {
     setError(null);
     try {
       await selectOrganization(organization.id);
-      router.replace(`/${locale}/despachos/${organization.id}/inicio`);
+      const destination = typeof window === "undefined"
+        ? null
+        : safeInternalReturnTo(new URLSearchParams(window.location.search).get("returnTo"));
+      router.replace(destination ?? `/${locale}/organizations/${organization.slug}/home`);
     } catch (requestError) {
       if (!(requestError instanceof ApiError && requestError.code === "ABORTED")) setError(requestError instanceof ApiError ? requestError.message : "No se pudo activar la organización.");
     } finally {

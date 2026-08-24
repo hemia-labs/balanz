@@ -61,6 +61,12 @@ type NormalizedRegistrationInput = Omit<
   organizationTimezone: string;
 };
 
+const invalidMfaCode = () =>
+  new BadRequestException({
+    code: 'MFA_INVALID_CODE',
+    message: 'El código MFA no es válido o ha expirado.',
+  });
+
 @Injectable()
 export class AuthService {
   constructor(
@@ -80,8 +86,19 @@ export class AuthService {
     private readonly mfaEncryption: MfaEncryptionService,
   ) {}
 
-  async register(input: RegisterDto): Promise<RegisterResponseDto> {
+  async register(
+    input: RegisterDto,
+    ipAddress = 'unknown',
+  ): Promise<RegisterResponseDto> {
     const normalized = this.normalize(input);
+    await this.assertRateLimit(
+      [
+        ['verification-register-email', normalized.email],
+        ['verification-register-ip', ipAddress],
+      ],
+      this.rateLimits.registerLimit(),
+      this.rateLimits.registerWindowSeconds(),
+    );
     const passwordHash = await this.passwords.hash(normalized.password);
     const rawToken = randomBytes(32).toString('hex');
     const tokenHash = this.hashToken(rawToken);
@@ -91,96 +108,82 @@ export class AuthService {
       now.getTime() + this.verificationTtlMinutes() * 60_000,
     );
 
-    const { result, outboxId } = await this.dataSource
-      .transaction(
-        async (
+    const result = await this.dataSource
+      .transaction(async (manager): Promise<RegistrationResult> => {
+        const user = await this.users.createForRegistration(manager, {
+          firstName: normalized.firstName,
+          lastName: normalized.lastName,
+          email: normalized.email,
+          passwordHash,
+          phoneE164: normalized.phoneE164,
+          locale: normalized.locale,
+          timezone: normalized.timezone,
+        });
+
+        const organization = await this.organizations.createForRegistration(
           manager,
-        ): Promise<{ result: RegistrationResult; outboxId: string }> => {
-          const user = await this.users.createForRegistration(manager, {
-            firstName: normalized.firstName,
-            lastName: normalized.lastName,
-            email: normalized.email,
-            passwordHash,
-            phoneE164: normalized.phoneE164,
-            locale: normalized.locale,
-            timezone: normalized.timezone,
-          });
+          {
+            name: normalized.organizationName,
+            legalName: normalized.legalName,
+            slug: normalized.slug,
+            billingEmail: normalized.billingEmail,
+            timezone: normalized.organizationTimezone,
+            ownerUserId: user.id,
+          },
+        );
 
-          const organization = await this.organizations.createForRegistration(
-            manager,
-            {
-              name: normalized.organizationName,
-              legalName: normalized.legalName,
-              slug: normalized.slug,
-              billingEmail: normalized.billingEmail,
-              timezone: normalized.organizationTimezone,
-              ownerUserId: user.id,
-            },
-          );
+        const membership = await this.memberships.createOwner(
+          manager,
+          organization.id,
+          user.id,
+        );
 
-          const membership = await this.memberships.createOwner(
-            manager,
-            organization.id,
-            user.id,
-          );
+        await this.subscriptions.createPending(
+          manager,
+          organization.id,
+          normalized.subscriptionType,
+        );
 
-          await this.subscriptions.createPending(
-            manager,
-            organization.id,
-            normalized.subscriptionType,
-          );
-
-          const tokenRepository = manager.getRepository(EmailVerificationToken);
-          const verificationToken = await tokenRepository.save(
-            tokenRepository.create({
-              userId: user.id,
-              tokenHash,
-              expiresAt,
-              usedAt: null,
-            }),
-          );
-
-          const outbox = await this.email.enqueueVerification(manager, {
+        const tokenRepository = manager.getRepository(EmailVerificationToken);
+        await tokenRepository.save(
+          tokenRepository.create({
             userId: user.id,
-            tokenId: verificationToken.id,
-            email: normalized.email,
-            firstName: normalized.firstName,
-          });
+            tokenHash,
+            expiresAt,
+            usedAt: null,
+          }),
+        );
 
-          await this.audit.record(manager, {
-            organizationId: organization.id,
-            actorType: AuditActorType.USER,
-            actorUserId: user.id,
-            actorMembershipId: membership.id,
-            action: 'auth.register.created',
-            decision: AuditDecision.ALLOW,
-            objectType: 'organization',
-            objectId: organization.id,
-            correlationId,
-            metadata: {
-              schemaVersion: 1,
-              subscriptionType: normalized.subscriptionType,
-            },
-          });
+        await this.audit.record(manager, {
+          organizationId: organization.id,
+          actorType: AuditActorType.USER,
+          actorUserId: user.id,
+          actorMembershipId: membership.id,
+          action: 'auth.register.created',
+          decision: AuditDecision.ALLOW,
+          objectType: 'organization',
+          objectId: organization.id,
+          correlationId,
+          metadata: {
+            schemaVersion: 1,
+            subscriptionType: normalized.subscriptionType,
+          },
+        });
 
-          return {
-            result: {
-              userId: user.id,
-              organizationId: organization.id,
-              membershipId: membership.id,
-              role: MembershipRole.OWNER,
-              organizationStatus: 'active',
-              membershipStatus: MembershipStatus.PENDING,
-              subscriptionType: normalized.subscriptionType,
-              subscriptionStatus: SubscriptionStatus.PENDING,
-              nextStep: 'verify_email',
-              mfaRequired: false,
-              tenantActive: false,
-            },
-            outboxId: outbox.id,
-          };
-        },
-      )
+        return {
+          userId: user.id,
+          organizationId: organization.id,
+          membershipId: membership.id,
+          role: MembershipRole.OWNER,
+          organizationStatus: 'active',
+          membershipStatus: MembershipStatus.PENDING,
+          subscriptionType: normalized.subscriptionType,
+          subscriptionStatus: SubscriptionStatus.PENDING,
+          nextStep: 'verify_email',
+          mfaRequired: false,
+          tenantActive: false,
+        };
+      })
       .catch((error: unknown) => {
         if (
           error instanceof QueryFailedError &&
@@ -193,12 +196,10 @@ export class AuthService {
         throw error;
       });
 
-    await this.email.deliverVerification({
-      outboxId,
+    await this.email.sendVerification({
       email: normalized.email,
       firstName: normalized.firstName,
       token: rawToken,
-      expiresAt,
     });
 
     return AuthMapper.toRegisterResponse(result);
@@ -243,49 +244,38 @@ export class AuthService {
     );
     const correlationId = randomUUID();
 
-    const { outboxId, firstName } = await this.dataSource.transaction(
-      async (manager) => {
-        const tokenRepository = manager.getRepository(EmailVerificationToken);
-        await tokenRepository.update(
-          { userId: user.id, usedAt: IsNull() },
-          { usedAt: now },
-        );
-        const token = await tokenRepository.save(
-          tokenRepository.create({
-            userId: user.id,
-            tokenHash,
-            expiresAt,
-            usedAt: null,
-          }),
-        );
-        const outbox = await this.email.enqueueVerification(manager, {
+    await this.dataSource.transaction(async (manager) => {
+      const tokenRepository = manager.getRepository(EmailVerificationToken);
+      await tokenRepository.update(
+        { userId: user.id, usedAt: IsNull() },
+        { usedAt: now },
+      );
+      await tokenRepository.save(
+        tokenRepository.create({
           userId: user.id,
-          tokenId: token.id,
-          email: user.email,
-          firstName: user.firstName,
-        });
-        await this.audit.record(manager, {
-          organizationId: null,
-          actorType: AuditActorType.USER,
-          actorUserId: user.id,
-          actorMembershipId: null,
-          action: 'auth.email.verification.resent',
-          decision: AuditDecision.ALLOW,
-          objectType: 'user',
-          objectId: user.id,
-          correlationId,
-          metadata: { schemaVersion: 1 },
-        });
-        return { outboxId: outbox.id, firstName: user.firstName };
-      },
-    );
+          tokenHash,
+          expiresAt,
+          usedAt: null,
+        }),
+      );
+      await this.audit.record(manager, {
+        organizationId: null,
+        actorType: AuditActorType.USER,
+        actorUserId: user.id,
+        actorMembershipId: null,
+        action: 'auth.email.verification.resent',
+        decision: AuditDecision.ALLOW,
+        objectType: 'user',
+        objectId: user.id,
+        correlationId,
+        metadata: { schemaVersion: 1 },
+      });
+    });
 
-    await this.email.deliverVerification({
-      outboxId,
+    await this.email.sendVerification({
       email: user.email,
-      firstName,
+      firstName: user.firstName,
       token: rawToken,
-      expiresAt,
     });
   }
 
@@ -299,6 +289,14 @@ export class AuthService {
     if (!token.trim())
       throw new BadRequestException('Invalid verification token');
     const tokenHash = this.hashToken(token.trim());
+    await this.assertRateLimit(
+      [
+        ['verification-confirm-ip', input.ipAddress],
+        ['verification-confirm-token', tokenHash],
+      ],
+      this.rateLimits.confirmLimit(),
+      this.rateLimits.confirmWindowSeconds(),
+    );
     const correlationId = randomUUID();
 
     const transactionResult = await this.dataSource.transaction(
@@ -419,16 +417,21 @@ export class AuthService {
           },
           rawSessionToken: session.rawToken,
           session: session.session,
+          welcome: {
+            email: user.email,
+            firstName: user.firstName,
+            organizationName: organization.name,
+            locale: user.locale,
+            timezone: user.timezone,
+            trialEndsAt: trialEndsAt!,
+          },
         };
       },
     );
 
     const context = await this.authorization.resolve(transactionResult.session);
-    await this.sessions.cacheSession(
-      transactionResult.session,
-      context,
-      transactionResult.rawSessionToken,
-    );
+    await this.sessions.cacheSession(transactionResult.session, context);
+    void this.email.sendWelcome(transactionResult.welcome);
     return {
       result: transactionResult.result,
       rawSessionToken: transactionResult.rawSessionToken,
@@ -665,7 +668,7 @@ export class AuthService {
         },
         lock: { mode: 'pessimistic_write' },
       });
-      if (!factor) throw new BadRequestException('Invalid MFA code');
+      if (!factor) throw invalidMfaCode();
       const secret = await this.mfaEncryption.decrypt(factor.secretEncrypted);
       const verified = await this.totp.verify(
         secret,
@@ -673,7 +676,7 @@ export class AuthService {
         factor.lastUsedCounter,
       );
       if (!verified.valid || verified.timeStep === undefined)
-        throw new BadRequestException('Invalid MFA code');
+        throw invalidMfaCode();
 
       const sessionRepository = manager.getRepository(AuthSession);
       const lockedSession = await sessionRepository.findOne({
@@ -713,7 +716,7 @@ export class AuthService {
         correlationId: randomUUID(),
         metadata: { schemaVersion: 2, enrolling },
       });
-      return { rotation, session: lockedSession };
+      return { rotation, session: lockedSession, activatedAt: now };
     });
     await this.sessions.revokeOtherSessions(
       session.userId,
@@ -726,10 +729,26 @@ export class AuthService {
     const context = await this.authorization.resolve(result.session);
     await this.sessions.cacheRotated(
       result.session,
-      result.rotation.rawToken,
       result.rotation.previousTokenHash,
       context,
     );
+    if (enrolling) {
+      const user = await this.dataSource.getRepository(User).findOne({
+        where: { id: session.userId },
+      });
+      if (user) {
+        await this.email.sendMfaEnabled({
+          email: user.email,
+          firstName: user.firstName,
+          mfaStatus: 'active',
+          mfaMethod: 'TOTP',
+          activatedAt: result.activatedAt,
+          deviceName: 'Aplicación autenticadora',
+          locale: user.locale,
+          timezone: user.timezone,
+        });
+      }
+    }
     return { rawSessionToken: result.rotation.rawToken, context };
   }
 
@@ -777,7 +796,7 @@ export class AuthService {
         factor.lastUsedCounter,
       );
       if (!verified.valid || verified.timeStep === undefined)
-        throw new BadRequestException('Invalid MFA code');
+        throw invalidMfaCode();
       const now = new Date();
       factor.status = AuthFactorStatus.REVOKED;
       factor.revokedAt = now;
@@ -810,7 +829,7 @@ export class AuthService {
         correlationId: randomUUID(),
         metadata: { schemaVersion: 2 },
       });
-      return { rotation, session: lockedSession };
+      return { rotation, session: lockedSession, changedAt: now };
     });
     await this.sessions.revokeOtherSessions(
       session.userId,
@@ -823,10 +842,19 @@ export class AuthService {
     const context = await this.authorization.resolve(result.session);
     await this.sessions.cacheRotated(
       result.session,
-      result.rotation.rawToken,
       result.rotation.previousTokenHash,
       context,
     );
+    await this.email.sendMfaDisabled({
+      email: user.email,
+      firstName: user.firstName,
+      mfaStatus: 'disabled',
+      mfaMethod: 'TOTP',
+      activatedAt: result.changedAt,
+      deviceName: 'Aplicación autenticadora',
+      locale: user.locale,
+      timezone: user.timezone,
+    });
     return { rawSessionToken: result.rotation.rawToken, context };
   }
 
@@ -871,10 +899,7 @@ export class AuthService {
       },
     });
     const context = await this.authorization.resolve(result.session);
-    await this.sessions.cacheSession(result.session, context, undefined, {
-      organizationId: result.previousOrganizationId,
-      membershipId: result.previousMembershipId,
-    });
+    await this.sessions.cacheSession(result.session, context);
     return context;
   }
 
@@ -928,6 +953,24 @@ export class AuthService {
     }
 
     return normalized;
+  }
+
+  private async assertRateLimit(
+    entries: Array<[scope: string, key: string]>,
+    limit: number,
+    windowSeconds: number,
+  ): Promise<void> {
+    const allowed = await Promise.all(
+      entries.map(([scope, key]) =>
+        this.rateLimits.consume(scope, key, limit, windowSeconds),
+      ),
+    );
+    if (allowed.some((value) => !value)) {
+      throw new HttpException(
+        'Too many verification requests',
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
+    }
   }
 
   private verificationTtlMinutes(): number {

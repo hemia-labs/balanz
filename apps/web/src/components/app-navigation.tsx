@@ -22,7 +22,7 @@ export function AppNavigation({
   const items = filterNavigation(
     appNavigation.map((item) => ({
       ...item,
-      href: navHref(item, locale, organization.id, client?.id),
+      href: navHref(item, locale, organization.slug, client?.id),
     })),
     context,
     capabilities

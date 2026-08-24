@@ -41,7 +41,7 @@ export function AppSidebar() {
         {context === "client" && client ? (
           <>
             {!collapsed ? (
-                <Link href={`/${locale}/despachos/${organization.id}/inicio`} className="mb-2 flex min-h-10 items-center gap-2 rounded-md px-3 text-body-sm font-semibold text-sidebar-foreground/75 hover:bg-sidebar-accent hover:text-sidebar-foreground">
+                <Link href={`/${locale}/organizations/${organization.slug}/home`} className="mb-2 flex min-h-10 items-center gap-2 rounded-md px-3 text-body-sm font-semibold text-sidebar-foreground/75 hover:bg-sidebar-accent hover:text-sidebar-foreground">
                 <ArrowLeft className="size-4" aria-hidden="true" /> Volver al despacho
               </Link>
             ) : null}

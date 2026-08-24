@@ -4,13 +4,15 @@ import type { CachedSessionEntry } from '../src/modules/redis/session-cache.serv
 
 function makeEntry(): CachedSessionEntry {
   return {
-    version: 1,
+    version: 2,
     sessionId: 'session-1',
     userId: 'user-1',
     organizationId: 'org-1',
     membershipId: 'membership-1',
     status: 'active',
     mfaVerifiedAt: new Date().toISOString(),
+    requiresMfa: false,
+    mfaStatus: 'disabled',
     expiresAt: new Date(Date.now() + 60_000).toISOString(),
     lastActivityAt: new Date().toISOString(),
     tenantActive: true,
@@ -20,30 +22,14 @@ function makeEntry(): CachedSessionEntry {
   };
 }
 
-interface MultiMock {
-  set: jest.Mock<MultiMock, [unknown, unknown, unknown?]>;
-  sAdd: jest.Mock<MultiMock, [unknown, unknown]>;
-  sRem: jest.Mock<MultiMock, [unknown, unknown]>;
-  del: jest.Mock<MultiMock, [unknown]>;
-  exec: jest.Mock<Promise<unknown[]>, []>;
-}
-
-function makeMulti(): MultiMock {
-  const multi = {} as MultiMock;
-  multi.set = jest.fn(() => multi);
-  multi.sAdd = jest.fn(() => multi);
-  multi.sRem = jest.fn(() => multi);
-  multi.del = jest.fn(() => multi);
-  multi.exec = jest.fn<Promise<unknown[]>, []>(() => Promise.resolve([]));
-  return multi;
-}
-
 describe('SessionCacheService', () => {
   it('stores only the hashed-token key and session context with the configured prefix', async () => {
-    const multi = makeMulti();
+    const set = jest.fn<Promise<'OK'>, [string, string, { EX: number }]>(() =>
+      Promise.resolve('OK'),
+    );
     const client = {
       isReady: true,
-      multi: jest.fn(() => multi),
+      set,
     };
     const config = {
       get: jest.fn((key: string, fallback: unknown) =>
@@ -54,19 +40,11 @@ describe('SessionCacheService', () => {
 
     await expect(service.set('hash-1', makeEntry())).resolves.toBe(true);
 
-    const tokenCall = multi.set.mock.calls.find(
-      (call) => call[0] === 'test:auth:session:token:hash-1',
-    );
-    expect(tokenCall?.[1]).toEqual(
-      expect.stringContaining('"sessionId":"session-1"'),
-    );
-    const options = tokenCall?.[2] as { EX?: unknown } | undefined;
-    expect(typeof options?.EX).toBe('number');
-    expect(multi.set).not.toHaveBeenCalledWith(
-      expect.any(String),
-      expect.stringContaining('raw-token'),
-      expect.anything(),
-    );
+    expect(set).toHaveBeenCalledTimes(1);
+    const call = set.mock.calls[0];
+    expect(call?.[0]).toBe('test:auth:session:token:hash-1');
+    expect(call?.[1]).toContain('"sessionId":"session-1"');
+    expect(typeof call?.[2].EX).toBe('number');
   });
 
   it('reports Redis unavailable so callers can fall back to PostgreSQL', async () => {
@@ -85,12 +63,49 @@ describe('SessionCacheService', () => {
     });
   });
 
-  it('cleans scope indexes even when the cached session entry is missing', async () => {
-    const multi = makeMulti();
+  it('deletes only the token and temporary activity keys', async () => {
+    const del = jest.fn<Promise<number>, [string[]]>(() => Promise.resolve(2));
     const client = {
       isReady: true,
-      get: jest.fn().mockResolvedValue(null),
-      multi: jest.fn(() => multi),
+      del,
+    };
+    const config = {
+      get: jest.fn().mockReturnValue('test:'),
+    } as unknown as ConfigService;
+    const service = new SessionCacheService(client as never, config);
+
+    await expect(service.deleteSession('session-1', 'hash-1')).resolves.toBe(
+      true,
+    );
+
+    expect(del).toHaveBeenCalledWith([
+      'test:auth:session:activity:session-1',
+      'test:auth:session:token:hash-1',
+    ]);
+  });
+
+  it('removes legacy token aliases for the same session during logout', async () => {
+    const del = jest.fn<Promise<number>, [string[]]>(() => Promise.resolve(1));
+    const legacyEntry = makeEntry();
+    const otherEntry = { ...makeEntry(), sessionId: 'session-2' };
+    const mGet = jest.fn<Promise<Array<string | null>>, [string[]]>(() =>
+      Promise.resolve([
+        JSON.stringify(legacyEntry),
+        JSON.stringify(otherEntry),
+      ]),
+    );
+    async function* scanIterator() {
+      await Promise.resolve();
+      yield [
+        'test:auth:session:token:legacy-raw-token',
+        'test:auth:session:token:other-token',
+      ];
+    }
+    const client = {
+      isReady: true,
+      del,
+      mGet,
+      scanIterator,
     };
     const config = {
       get: jest.fn().mockReturnValue('test:'),
@@ -98,26 +113,39 @@ describe('SessionCacheService', () => {
     const service = new SessionCacheService(client as never, config);
 
     await expect(
-      service.deleteSession('session-1', 'hash-1', undefined, {
-        userId: 'user-1',
-        organizationId: 'org-1',
-        membershipId: 'membership-1',
-      }),
+      service.deleteSession('session-1', 'hash-1', true),
     ).resolves.toBe(true);
 
-    expect(multi.del).toHaveBeenCalledWith('test:auth:session:token:hash-1');
-    expect(multi.sRem).toHaveBeenCalledWith(
-      'test:auth:session:index:user:user-1',
-      'session-1',
-    );
-    expect(multi.sRem).toHaveBeenCalledWith(
-      'test:auth:session:index:organization:org-1',
-      'session-1',
-    );
-    expect(multi.sRem).toHaveBeenCalledWith(
-      'test:auth:session:index:membership:membership-1',
-      'session-1',
-    );
+    expect(del).toHaveBeenNthCalledWith(1, [
+      'test:auth:session:activity:session-1',
+      'test:auth:session:token:hash-1',
+    ]);
+    expect(del).toHaveBeenNthCalledWith(2, [
+      'test:auth:session:token:legacy-raw-token',
+    ]);
+  });
+
+  it('touches only an existing token key so logout cannot be undone', async () => {
+    const set = jest.fn<
+      Promise<null>,
+      [string, string, { EX: number; XX: true }]
+    >(() => Promise.resolve(null));
+    const client = {
+      isReady: true,
+      set,
+    };
+    const config = {
+      get: jest.fn().mockReturnValue('test:'),
+    } as unknown as ConfigService;
+    const service = new SessionCacheService(client as never, config);
+
+    await expect(service.touch('hash-1', makeEntry())).resolves.toBe(false);
+    expect(set).toHaveBeenCalledTimes(1);
+    const call = set.mock.calls[0];
+    expect(call?.[0]).toBe('test:auth:session:token:hash-1');
+    expect(typeof call?.[1]).toBe('string');
+    expect(typeof call?.[2].EX).toBe('number');
+    expect(call?.[2].XX).toBe(true);
   });
 
   it('uses NX and the configured activity window for persistence throttling', async () => {

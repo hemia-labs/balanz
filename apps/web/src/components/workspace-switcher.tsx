@@ -52,7 +52,7 @@ export function WorkspaceSwitcher({ compact = false }: { compact?: boolean }) {
                 if (option.id === organization.id) return;
                 setError(null);
                 void changeOrganization(option.id)
-                  .then(() => router.push(`/${locale}/despachos/${option.id}/inicio`))
+                  .then(() => router.push(`/${locale}/organizations/${option.slug}/home`))
                   .catch((cause) => setError(cause instanceof Error ? cause.message : "No se pudo cambiar de organización."));
               }}
             >

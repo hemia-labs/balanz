@@ -2,7 +2,7 @@ import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { createHash, randomBytes } from 'node:crypto';
 import type { Request, Response } from 'express';
-import { DataSource, EntityManager, Repository } from 'typeorm';
+import { DataSource, EntityManager, Not, Repository } from 'typeorm';
 import { InjectRepository } from '@nestjs/typeorm';
 import { AuthSession, AuthSessionStatus } from './entities/auth-session.entity';
 import { AuthorizationService } from './authorization.service';
@@ -14,10 +14,7 @@ import type {
   SessionTokenPair,
 } from './session.types';
 import { SessionCacheService } from '../redis/session-cache.service';
-import type {
-  CachedSessionEntry,
-  SessionCacheScope,
-} from '../redis/session-cache.service';
+import type { CachedSessionEntry } from '../redis/session-cache.service';
 
 interface CookieConfig {
   httpOnly: boolean;
@@ -44,7 +41,7 @@ export class SessionsService {
       this.createForManager(manager, input),
     );
     const context = await this.authorization.resolve(pair.session);
-    await this.cacheSession(pair.session, context, pair.rawToken);
+    await this.cacheSession(pair.session, context);
     return pair;
   }
 
@@ -87,7 +84,7 @@ export class SessionsService {
         entry.status !== 'active' ||
         new Date(entry.expiresAt).getTime() <= Date.now()
       ) {
-        await this.cache.deleteSession(entry.sessionId, tokenHash, entry);
+        await this.cache.deleteSession(entry.sessionId, tokenHash);
         if (
           entry.status === 'active' &&
           new Date(entry.expiresAt).getTime() <= Date.now()
@@ -98,6 +95,16 @@ export class SessionsService {
           );
         }
         throw new UnauthorizedException('Expired session');
+      }
+
+      const stillActive = await this.repository.existsBy({
+        id: entry.sessionId,
+        sessionTokenHash: tokenHash,
+        status: AuthSessionStatus.ACTIVE,
+      });
+      if (!stillActive) {
+        await this.cache.deleteSession(entry.sessionId, tokenHash);
+        throw new UnauthorizedException('Invalid session');
       }
 
       const session = this.fromCache(entry, tokenHash);
@@ -131,7 +138,7 @@ export class SessionsService {
     }
 
     const context = await this.authorization.resolve(session);
-    await this.cacheSession(session, context, rawToken);
+    await this.cacheSession(session, context);
     return { session, context, tokenHash, cacheHit: false };
   }
 
@@ -165,54 +172,26 @@ export class SessionsService {
         revokedAt: new Date(),
       },
     );
-    const scope: SessionCacheScope | undefined = session
-      ? {
-          userId: session.userId,
-          organizationId: session.organizationId ?? null,
-          membershipId: session.membershipId ?? null,
-        }
-      : undefined;
-    await this.cache.deleteSession(
-      sessionId,
-      session?.sessionTokenHash,
-      undefined,
-      scope,
-    );
+    await this.cache.deleteSession(sessionId, session?.sessionTokenHash, true);
   }
 
   async cacheSession(
     session: AuthSession,
     context: SessionAuthorizationContext,
-    rawTokenOrHash?: string,
-    previousScope?: {
-      organizationId: string | null;
-      membershipId: string | null;
-    },
   ): Promise<void> {
-    const tokenHash = rawTokenOrHash
-      ? rawTokenOrHash.length === 64 && /^[a-f0-9]+$/i.test(rawTokenOrHash)
-        ? rawTokenOrHash
-        : this.hashToken(rawTokenOrHash)
-      : session.sessionTokenHash;
     await this.cache.set(
-      tokenHash,
+      session.sessionTokenHash,
       this.toCacheEntry(session, context),
-      previousScope,
     );
   }
 
   async cacheRotated(
     session: AuthSession,
-    rawToken: string,
     previousTokenHash: string,
     context: SessionAuthorizationContext,
   ): Promise<void> {
     await this.cache.deleteSession(session.id, previousTokenHash);
-    await this.cacheSession(session, context, rawToken);
-  }
-
-  async invalidateByUser(userId: string): Promise<void> {
-    await this.cache.invalidateByUser(userId);
+    await this.cacheSession(session, context);
   }
 
   async revokeOtherSessions(
@@ -220,27 +199,11 @@ export class SessionsService {
     exceptSessionId: string,
     reason: string,
   ): Promise<void> {
-    await this.repository
-      .createQueryBuilder()
-      .update(AuthSession)
-      .set({
-        status: AuthSessionStatus.REVOKED,
-        revokedReason: reason.slice(0, 100),
-        revokedAt: new Date(),
-      })
-      .where('user_id = :userId', { userId })
-      .andWhere('id <> :exceptSessionId', { exceptSessionId })
-      .andWhere('status = :status', { status: AuthSessionStatus.ACTIVE })
-      .execute();
-    await this.cache.invalidateByUser(userId);
+    await this.revokeSessionsByUser(userId, reason, exceptSessionId);
   }
 
-  async invalidateByOrganization(organizationId: string): Promise<void> {
-    await this.cache.invalidateByOrganization(organizationId);
-  }
-
-  async invalidateByMembership(membershipId: string): Promise<void> {
-    await this.cache.invalidateByMembership(membershipId);
+  async revokeUserSessions(userId: string, reason: string): Promise<void> {
+    await this.revokeSessionsByUser(userId, reason);
   }
 
   setCookie(response: Response, rawToken: string): void {
@@ -343,6 +306,32 @@ export class SessionsService {
       expiresAt: new Date(entry.expiresAt),
       tenantActive: entry.tenantActive,
     };
+  }
+
+  private async revokeSessionsByUser(
+    userId: string,
+    reason: string,
+    exceptSessionId?: string,
+  ): Promise<void> {
+    const where = {
+      userId,
+      status: AuthSessionStatus.ACTIVE,
+      ...(exceptSessionId ? { id: Not(exceptSessionId) } : {}),
+    };
+    const sessions = await this.repository.find({
+      select: { id: true, sessionTokenHash: true },
+      where,
+    });
+    await this.repository.update(where, {
+      status: AuthSessionStatus.REVOKED,
+      revokedReason: reason.slice(0, 100),
+      revokedAt: new Date(),
+    });
+    await Promise.all(
+      sessions.map((session) =>
+        this.cache.deleteSession(session.id, session.sessionTokenHash),
+      ),
+    );
   }
 
   private async persistActivityIfDue(session: AuthSession): Promise<void> {

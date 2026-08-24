@@ -23,15 +23,15 @@ export function isNavigationItemActive(pathname: string, href: string) {
 }
 
 export const legacyDestinations: Record<string, string> = {
-  documents: "clientes",
-  queries: "clientes",
-  income: "clientes",
-  payroll: "clientes",
-  reports: "procesos",
-  certificates: "clientes",
-  users: "equipo",
-  collaboration: "inicio",
-  plans: "configuracion/plan-facturacion",
+  documents: "clients",
+  queries: "clients",
+  income: "clients",
+  payroll: "clients",
+  reports: "processes",
+  certificates: "clients",
+  users: "team",
+  collaboration: "home",
+  plans: "settings/billing-plan",
 };
 
 export function resolveLegacyDestination(section: string) {

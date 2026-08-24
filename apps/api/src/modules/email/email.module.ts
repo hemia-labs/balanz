@@ -1,67 +1,53 @@
-import { EmailSenderService, TemplateManager } from '@hemia/email-sender';
+import { SESv2Client } from '@aws-sdk/client-sesv2';
 import { SecretsService } from '@hemia/secrets/nestjs';
-import { Logger, Module } from '@nestjs/common';
+import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
-import { TypeOrmModule } from '@nestjs/typeorm';
-import type { EmailConfig } from '../../config/email.config';
 import { SecretsModule } from '../secrets/secrets.module';
-import { HemiaEmailDeliveryAdapter } from './adapters/hemia-email-delivery.adapter';
-import { EmailOutbox } from './entities/email-outbox.entity';
+import { SesEmailDeliveryAdapter } from './adapters/ses-email-delivery.adapter';
 import { EmailService } from './email.service';
-import { EmailTemplateRenderer } from './helpers/email-template-renderer';
 import { EMAIL_DELIVERY_PORT } from './ports/email-delivery.port';
-import { isEmailSecret, type EmailSecret } from './types/email-secret.types';
-
-// ponytail: compatibility bridge until @hemia/email-sender awaits MJML 5.
-TemplateManager.render = (template, data) =>
-  EmailTemplateRenderer.render(template, data);
+import {
+  isAwsEmailSecret,
+  type AwsEmailSecret,
+} from './types/aws-email-secret.types';
 
 @Module({
-  imports: [
-    TypeOrmModule.forFeature([EmailOutbox]),
-    ConfigModule,
-    SecretsModule,
-  ],
+  imports: [ConfigModule, SecretsModule],
   providers: [
     {
-      provide: EmailSenderService,
+      provide: SESv2Client,
       inject: [ConfigService, SecretsService],
       useFactory: async (config: ConfigService, secrets: SecretsService) => {
-        const email = config.getOrThrow<EmailConfig>('email');
         const secretsEnabled = config.get<boolean>('secrets.enabled', false);
-        const source = secretsEnabled ? 'vault:email/smtp' : 'env:SMTP_*';
-        const smtp = !secretsEnabled
-          ? email.smtp
-          : await (async () => {
-              const secret =
-                await secrets.getRequired<EmailSecret>('email/smtp');
-              if (!isEmailSecret(secret)) {
-                throw new Error(
-                  'Secret email/smtp must contain smtp_host, smtp_port, smtp_secure, smtp_user and smtp_password',
-                );
-              }
+        if (!secretsEnabled) {
+          return new SESv2Client({
+            region: config.get<string>('AWS_REGION', 'us-east-2'),
+          });
+        }
 
-              return {
-                host: secret.smtp_host,
-                port: secret.smtp_port,
-                secure: secret.smtp_secure,
-                auth: { user: secret.smtp_user, pass: secret.smtp_password },
-              };
-            })();
+        const credentials =
+          await secrets.getRequired<AwsEmailSecret>('email/ses');
+        if (!isAwsEmailSecret(credentials)) {
+          throw new Error(
+            'Secret email/ses must contain aws_access_key, aws_secret_key and aws_region',
+          );
+        }
 
-        const logger = new Logger('Email');
-        logger.log(
-          `SMTP configuration loaded: source=${source}, host=${smtp.host}, port=${smtp.port}, secure=${smtp.secure}, authConfigured=${Boolean(smtp.auth?.user && smtp.auth?.pass)}`,
-        );
-
-        return new EmailSenderService(smtp, TemplateManager);
+        return new SESv2Client({
+          region: credentials.aws_region,
+          credentials: {
+            accessKeyId: credentials.aws_access_key,
+            secretAccessKey: credentials.aws_secret_key,
+            sessionToken: credentials.aws_session_token,
+          },
+        });
       },
     },
     EmailService,
-    HemiaEmailDeliveryAdapter,
+    SesEmailDeliveryAdapter,
     {
       provide: EMAIL_DELIVERY_PORT,
-      useExisting: HemiaEmailDeliveryAdapter,
+      useExisting: SesEmailDeliveryAdapter,
     },
   ],
   exports: [EmailService],

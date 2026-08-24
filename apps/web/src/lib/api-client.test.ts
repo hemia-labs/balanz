@@ -7,6 +7,7 @@ test("clasifica errores API y evita mensajes sensibles de rate limit", () => {
   assert.equal(classifyApiError(new ApiError(403, "forbidden")), "forbidden");
   assert.equal(classifyApiError(new ApiError(429, "Too many requests")), "rate_limited");
   assert.equal(apiErrorMessage(new ApiError(429, "internal detail"), "fallback"), "Ya realizaste demasiadas solicitudes. Intenta más tarde.");
+  assert.equal(apiErrorMessage(new ApiError(400, "Invalid", "MFA_INVALID_CODE"), "fallback"), "El código MFA no es válido o ha expirado.");
 });
 
 test("normaliza errores de transporte conservando status y código", async () => {

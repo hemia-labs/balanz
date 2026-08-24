@@ -11,12 +11,12 @@ import {
   Res,
   UseGuards,
 } from '@nestjs/common';
+import { ThrottlerGuard } from '@nestjs/throttler';
 import type { Request, Response } from 'express';
 import { CurrentSession } from '../../common/decorators/current-session.decorator';
 import { CurrentAuthorization } from '../../common/decorators/current-session.decorator';
 import { OnboardingGuard } from '../../common/guards/onboarding.guard';
 import { SessionGuard } from '../../common/guards/session.guard';
-import { TenantAccessGuard } from '../../common/guards/tenant-access.guard';
 import { AuthSession } from '../sessions/entities/auth-session.entity';
 import { SessionsService } from '../sessions/sessions.service';
 import { AuthService } from './auth.service';
@@ -30,6 +30,7 @@ import { DisableMfaDto } from './dtos/disable-mfa.dto';
 import type { SessionAuthorizationContext } from '../sessions/session.types';
 
 @Controller('auth')
+@UseGuards(ThrottlerGuard)
 export class AuthController {
   constructor(
     private readonly auth: AuthService,
@@ -37,8 +38,8 @@ export class AuthController {
   ) {}
 
   @Post('register')
-  register(@Body() input: RegisterDto) {
-    return this.auth.register(input);
+  register(@Body() input: RegisterDto, @Req() request: Request) {
+    return this.auth.register(input, this.clientIp(request));
   }
 
   @Post('login')
