@@ -130,12 +130,6 @@ export const envVarsSchema = Joi.object({
   REDIS_DB: Joi.number().integer().min(0).max(15).default(0),
   REDIS_KEY_PREFIX: Joi.string().trim().min(1).default('balanz:'),
   REDIS_CONNECT_TIMEOUT_MS: Joi.number().integer().min(1).default(1000),
-  AUTH_SESSION_ACTIVITY_PERSIST_INTERVAL_SECONDS: Joi.number()
-    .integer()
-    .min(1)
-    .max(86_400)
-    .default(300),
-
   // Email (SESv2). AWS_REGION sólo se usa sin Vault; las demás credenciales
   // se resuelven con la cadena estándar del SDK.
   AWS_REGION: Joi.string().trim().min(1).default('us-east-2'),
@@ -207,6 +201,16 @@ export const envVarsSchema = Joi.object({
     .min(300)
     .max(2_592_000)
     .default(28_800),
+  AUTH_SESSION_IDLE_TTL_SECONDS: Joi.number()
+    .integer()
+    .min(60)
+    .max(2_592_000)
+    .default(1_800),
+  AUTHORIZATION_CACHE_TTL_SECONDS: Joi.number()
+    .integer()
+    .min(1)
+    .max(3_600)
+    .default(60),
   MFA_ENCRYPTION_KEY: Joi.when('SECRETS_ENABLED', {
     is: true,
     then: Joi.string().base64().length(44).optional(),
@@ -246,7 +250,11 @@ export const envVarsSchema = Joi.object({
   COOKIE_SAME_SITE: Joi.when('COOKIE_SECURE', {
     is: false,
     then: Joi.string().valid('strict', 'lax').default('lax'),
-    otherwise: Joi.string().valid('strict', 'lax', 'none').default('lax'),
+    otherwise: Joi.when('NODE_ENV', {
+      is: 'production',
+      then: Joi.string().valid('strict', 'lax', 'none').default('strict'),
+      otherwise: Joi.string().valid('strict', 'lax', 'none').default('lax'),
+    }),
   }),
   COOKIE_DOMAIN: Joi.string().allow('').default(''),
   BCRYPT_SALT_ROUNDS: Joi.when('SECRETS_ENABLED', {

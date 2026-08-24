@@ -63,8 +63,8 @@ describe('SessionCacheService', () => {
     });
   });
 
-  it('deletes only the token and temporary activity keys', async () => {
-    const del = jest.fn<Promise<number>, [string[]]>(() => Promise.resolve(2));
+  it('deletes only the token key', async () => {
+    const del = jest.fn<Promise<number>, [string[]]>(() => Promise.resolve(1));
     const client = {
       isReady: true,
       del,
@@ -78,10 +78,7 @@ describe('SessionCacheService', () => {
       true,
     );
 
-    expect(del).toHaveBeenCalledWith([
-      'test:auth:session:activity:session-1',
-      'test:auth:session:token:hash-1',
-    ]);
+    expect(del).toHaveBeenCalledWith(['test:auth:session:token:hash-1']);
   });
 
   it('removes legacy token aliases for the same session during logout', async () => {
@@ -117,7 +114,6 @@ describe('SessionCacheService', () => {
     ).resolves.toBe(true);
 
     expect(del).toHaveBeenNthCalledWith(1, [
-      'test:auth:session:activity:session-1',
       'test:auth:session:token:hash-1',
     ]);
     expect(del).toHaveBeenNthCalledWith(2, [
@@ -138,33 +134,16 @@ describe('SessionCacheService', () => {
       get: jest.fn().mockReturnValue('test:'),
     } as unknown as ConfigService;
     const service = new SessionCacheService(client as never, config);
+    const entry = makeEntry();
+    const lastActivityAt = entry.lastActivityAt;
 
-    await expect(service.touch('hash-1', makeEntry())).resolves.toBe(false);
+    await expect(service.touch('hash-1', entry)).resolves.toBe(false);
     expect(set).toHaveBeenCalledTimes(1);
     const call = set.mock.calls[0];
     expect(call?.[0]).toBe('test:auth:session:token:hash-1');
     expect(typeof call?.[1]).toBe('string');
     expect(typeof call?.[2].EX).toBe('number');
     expect(call?.[2].XX).toBe(true);
-  });
-
-  it('uses NX and the configured activity window for persistence throttling', async () => {
-    const client = {
-      isReady: true,
-      set: jest.fn().mockResolvedValue('OK'),
-    };
-    const config = {
-      get: jest.fn().mockReturnValue('test:'),
-    } as unknown as ConfigService;
-    const service = new SessionCacheService(client as never, config);
-
-    await expect(
-      service.acquireActivityLock('session-1', 300),
-    ).resolves.toEqual({ available: true, value: true });
-    expect(client.set).toHaveBeenCalledWith(
-      'test:auth:session:activity:session-1',
-      '1',
-      { NX: true, EX: 300 },
-    );
+    expect(entry.lastActivityAt).toBe(lastActivityAt);
   });
 });

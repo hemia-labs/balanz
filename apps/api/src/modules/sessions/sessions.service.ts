@@ -80,20 +80,8 @@ export class SessionsService {
     const cached = await this.cache.get(tokenHash);
     if (cached.available && cached.value) {
       const entry = cached.value;
-      if (
-        entry.status !== 'active' ||
-        new Date(entry.expiresAt).getTime() <= Date.now()
-      ) {
-        await this.cache.deleteSession(entry.sessionId, tokenHash);
-        if (
-          entry.status === 'active' &&
-          new Date(entry.expiresAt).getTime() <= Date.now()
-        ) {
-          await this.repository.update(
-            { id: entry.sessionId, status: AuthSessionStatus.ACTIVE },
-            { status: AuthSessionStatus.EXPIRED },
-          );
-        }
+      if (entry.status !== 'active' || this.isExpired(entry)) {
+        await this.expireCachedSession(entry.sessionId, tokenHash);
         throw new UnauthorizedException('Expired session');
       }
 
@@ -110,7 +98,6 @@ export class SessionsService {
       const session = this.fromCache(entry, tokenHash);
       const touched = await this.cache.touch(tokenHash, entry);
       if (touched) {
-        await this.persistActivityIfDue(session);
         return {
           session,
           context: this.contextFromCache(entry),
@@ -127,7 +114,7 @@ export class SessionsService {
 
     if (
       session.status !== AuthSessionStatus.ACTIVE ||
-      session.expiresAt.getTime() <= Date.now()
+      this.isExpired(session)
     ) {
       if (session.status === AuthSessionStatus.ACTIVE) {
         await this.repository.update(session.id, {
@@ -247,6 +234,30 @@ export class SessionsService {
     return this.config.get<number>('auth.sessionTtlSeconds', 28_800) * 1_000;
   }
 
+  private isExpired(value: {
+    expiresAt: Date | string;
+    lastActivityAt: Date | string;
+  }): boolean {
+    const now = Date.now();
+    const idleTtl =
+      this.config.get<number>('auth.sessionIdleTtlSeconds', 1_800) * 1_000;
+    return (
+      new Date(value.expiresAt).getTime() <= now ||
+      new Date(value.lastActivityAt).getTime() + idleTtl <= now
+    );
+  }
+
+  private async expireCachedSession(
+    sessionId: string,
+    tokenHash: string,
+  ): Promise<void> {
+    await this.repository.update(
+      { id: sessionId, status: AuthSessionStatus.ACTIVE },
+      { status: AuthSessionStatus.EXPIRED },
+    );
+    await this.cache.deleteSession(sessionId, tokenHash);
+  }
+
   private cookieConfig(): CookieConfig {
     return this.config.getOrThrow<CookieConfig>('cookies');
   }
@@ -334,19 +345,4 @@ export class SessionsService {
     );
   }
 
-  private async persistActivityIfDue(session: AuthSession): Promise<void> {
-    const interval = this.config.get<number>(
-      'auth.sessionActivityPersistIntervalSeconds',
-      300,
-    );
-    const lock = await this.cache.acquireActivityLock(session.id, interval);
-    if (!lock.available || !lock.value) return;
-
-    const now = new Date();
-    const result = await this.repository.update(
-      { id: session.id, status: AuthSessionStatus.ACTIVE },
-      { lastActivityAt: now },
-    );
-    if (result.affected) session.lastActivityAt = now;
-  }
 }

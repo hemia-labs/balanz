@@ -62,10 +62,7 @@ export class SessionCacheService {
 
   async set(tokenHash: string, entry: CachedSessionEntry): Promise<boolean> {
     if (!this.canUse()) return false;
-    const ttl = Math.max(
-      1,
-      Math.ceil((new Date(entry.expiresAt).getTime() - Date.now()) / 1_000),
-    );
+    const ttl = this.cacheTtlSeconds(entry);
 
     try {
       const result = await this.client!.set(
@@ -82,11 +79,7 @@ export class SessionCacheService {
 
   async touch(tokenHash: string, entry: CachedSessionEntry): Promise<boolean> {
     if (!this.canUse()) return false;
-    const ttl = Math.max(
-      1,
-      Math.ceil((new Date(entry.expiresAt).getTime() - Date.now()) / 1_000),
-    );
-    entry.lastActivityAt = new Date().toISOString();
+    const ttl = this.cacheTtlSeconds(entry);
     try {
       const result = await this.client!.set(
         this.tokenKey(tokenHash),
@@ -103,24 +96,6 @@ export class SessionCacheService {
     }
   }
 
-  async acquireActivityLock(
-    sessionId: string,
-    ttlSeconds: number,
-  ): Promise<CacheLookup<boolean>> {
-    if (!this.canUse()) return { available: false, value: null };
-
-    try {
-      const result = await this.client!.set(this.activityKey(sessionId), '1', {
-        NX: true,
-        EX: ttlSeconds,
-      });
-      return { available: true, value: result === 'OK' };
-    } catch {
-      this.markUnavailable();
-      return { available: false, value: null };
-    }
-  }
-
   async deleteSession(
     sessionId: string,
     tokenHash?: string,
@@ -130,7 +105,6 @@ export class SessionCacheService {
 
     try {
       await this.client!.del([
-        this.activityKey(sessionId),
         ...(tokenHash ? [this.tokenKey(tokenHash)] : []),
       ]);
       if (cleanupAliases) {
@@ -204,11 +178,26 @@ export class SessionCacheService {
     return this.config.get<string>('redis.keyPrefix', 'balanz:');
   }
 
+  private cacheTtlSeconds(entry: CachedSessionEntry): number {
+    const now = Date.now();
+    const absoluteTtl = (new Date(entry.expiresAt).getTime() - now) / 1_000;
+    const idleTtl =
+      (new Date(entry.lastActivityAt).getTime() +
+        this.config.get<number>('auth.sessionIdleTtlSeconds', 1_800) * 1_000 -
+        now) /
+      1_000;
+    const authorizationTtl = this.config.get<number>(
+      'auth.authorizationCacheTtlSeconds',
+      60,
+    );
+    return Math.max(
+      1,
+      Math.ceil(Math.min(absoluteTtl, idleTtl, authorizationTtl)),
+    );
+  }
+
   private tokenKey(tokenHash: string): string {
     return `${this.prefix()}auth:session:token:${tokenHash}`;
   }
 
-  private activityKey(sessionId: string): string {
-    return `${this.prefix()}auth:session:activity:${sessionId}`;
-  }
 }

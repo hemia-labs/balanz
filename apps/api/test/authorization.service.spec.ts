@@ -9,6 +9,7 @@ import {
   AuthSession,
   AuthSessionStatus,
 } from '../src/modules/sessions/entities/auth-session.entity';
+import { RoleScope } from '../src/modules/permissions/entities/role.entity';
 
 describe('AuthorizationService', () => {
   it('requires the session tenant to match the membership tenant', async () => {
@@ -29,14 +30,21 @@ describe('AuthorizationService', () => {
         id: 'membership-1',
         organizationId: 'org-1',
         userId: 'user-1',
-        role: MembershipRole.OWNER,
+        roleId: 'role-1',
+        role: { key: MembershipRole.OWNER, scope: RoleScope.ORGANIZATION },
         status: MembershipStatus.ACTIVE,
       }),
+    };
+    const rolePermissions = {
+      find: jest
+        .fn()
+        .mockResolvedValue([{ permission: { key: 'organization.view' } }]),
     };
     const service = new AuthorizationService(
       users as never,
       organizations as never,
       memberships as never,
+      rolePermissions as never,
       {} as never,
       {} as never,
     );
@@ -62,6 +70,10 @@ describe('AuthorizationService', () => {
         organizationId: 'org-1',
         userId: 'user-1',
       },
+      relations: { role: true },
+    });
+    expect(rolePermissions.find).toHaveBeenCalledWith({
+      where: { roleId: 'role-1' },
     });
   });
 });

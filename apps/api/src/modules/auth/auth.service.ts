@@ -18,10 +18,10 @@ import { EmailService } from '../email/email.service';
 import { EmailVerificationToken } from './entities/email-verification-token.entity';
 import { AuthFactor, AuthFactorStatus } from './entities/auth-factor.entity';
 import {
-  MembershipRole,
   Membership,
   MembershipStatus,
 } from '../memberships/entities/membership.entity';
+import { RoleKey } from '../permissions/entities/role.entity';
 import { MembershipsService } from '../memberships/memberships.service';
 import { OrganizationsService } from '../organizations/organizations.service';
 import { SubscriptionStatus } from '../subscriptions/entities/subscription.entity';
@@ -174,7 +174,7 @@ export class AuthService {
           userId: user.id,
           organizationId: organization.id,
           membershipId: membership.id,
-          role: MembershipRole.OWNER,
+          role: RoleKey.OWNER,
           organizationStatus: 'active',
           membershipStatus: MembershipStatus.PENDING,
           subscriptionType: normalized.subscriptionType,
@@ -561,57 +561,79 @@ export class AuthService {
       .findOne({ where: { id: session.userId } });
     if (!user?.emailVerifiedAt)
       throw new UnauthorizedException('Verified email required');
-    const current = await this.dataSource.getRepository(AuthFactor).findOne({
-      where: [
-        { userId: session.userId, status: AuthFactorStatus.ACTIVE },
-        { userId: session.userId, status: AuthFactorStatus.PENDING },
-      ],
-      order: { createdAt: 'DESC' },
-    });
-    if (current?.status === AuthFactorStatus.ACTIVE)
-      throw new ConflictException('MFA is already active');
-
-    let factor = current;
-    let secret: string;
-    let otpauthUri: string;
-    if (factor) {
-      secret = await this.mfaEncryption.decrypt(factor.secretEncrypted);
-      otpauthUri = (await this.totp.setup(user.email)).otpauthUri.replace(
-        /secret=[^&]+/,
-        `secret=${secret}`,
-      );
-    } else {
-      const setup = await this.totp.setup(user.email);
-      secret = setup.secret;
-      otpauthUri = setup.otpauthUri;
-      factor = await this.dataSource.transaction(async (manager) => {
-        const saved = await manager.getRepository(AuthFactor).save(
-          manager.getRepository(AuthFactor).create({
-            userId: session.userId,
-            secretEncrypted: await this.mfaEncryption.encrypt(secret),
-            status: AuthFactorStatus.PENDING,
-            verifiedAt: null,
-            lastUsedAt: null,
-            lastUsedCounter: null,
-            revokedAt: null,
-          }),
-        );
-        await this.audit.record(manager, {
-          organizationId: context.organizationId,
-          actorType: AuditActorType.USER,
-          actorUserId: session.userId,
-          actorMembershipId: context.membershipId,
-          action: 'auth.mfa.started',
-          decision: AuditDecision.ALLOW,
-          objectType: 'auth_factor',
-          objectId: saved.id,
-          correlationId: randomUUID(),
-          metadata: { schemaVersion: 2, factorType: 'totp' },
-        });
-        return saved;
+    const setup = await this.totp.setup(user.email);
+    const result = await this.dataSource.transaction(async (manager) => {
+      const lockedUser = await manager.getRepository(User).findOne({
+        where: { id: session.userId },
+        lock: { mode: 'pessimistic_write' },
       });
-    }
-    return { factorId: factor.id, secret, otpauthUri, status: factor.status };
+      if (!lockedUser?.emailVerifiedAt) {
+        throw new UnauthorizedException('Verified email required');
+      }
+
+      const factors = manager.getRepository(AuthFactor);
+      const current = await factors.findOne({
+        where: [
+          { userId: session.userId, status: AuthFactorStatus.ACTIVE },
+          { userId: session.userId, status: AuthFactorStatus.PENDING },
+        ],
+        order: { createdAt: 'DESC' },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (current?.status === AuthFactorStatus.ACTIVE) {
+        throw new ConflictException('MFA is already active');
+      }
+
+      if (current) {
+        const secret = await this.mfaEncryption.decrypt(
+          current.secretEncrypted,
+        );
+        return {
+          factor: current,
+          secret,
+          otpauthUri: setup.otpauthUri.replace(
+            /secret=[^&]+/,
+            `secret=${secret}`,
+          ),
+        };
+      }
+
+      const secretEncrypted = await this.mfaEncryption.encrypt(setup.secret);
+      const saved = await factors.save(
+        factors.create({
+          userId: session.userId,
+          secretEncrypted,
+          status: AuthFactorStatus.PENDING,
+          verifiedAt: null,
+          lastUsedAt: null,
+          lastUsedCounter: null,
+          revokedAt: null,
+        }),
+      );
+      await this.audit.record(manager, {
+        organizationId: context.organizationId,
+        actorType: AuditActorType.USER,
+        actorUserId: session.userId,
+        actorMembershipId: context.membershipId,
+        action: 'auth.mfa.started',
+        decision: AuditDecision.ALLOW,
+        objectType: 'auth_factor',
+        objectId: saved.id,
+        correlationId: randomUUID(),
+        metadata: { schemaVersion: 2, factorType: 'totp' },
+      });
+      return {
+        factor: saved,
+        secret: setup.secret,
+        otpauthUri: setup.otpauthUri,
+      };
+    });
+    return {
+      factorId: result.factor.id,
+      secret: result.secret,
+      otpauthUri: result.otpauthUri,
+      status: result.factor.status,
+    };
   }
 
   async verifyMfa(

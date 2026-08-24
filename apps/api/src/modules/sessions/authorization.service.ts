@@ -22,32 +22,8 @@ import {
   AuthFactor,
   AuthFactorStatus,
 } from '../auth/entities/auth-factor.entity';
-
-const OWNER_PERMISSIONS = [
-  'organization.view',
-  'organization.manage',
-  'ownership.manage',
-  'billing.manage',
-  'team.view',
-  'team.manage',
-  'clients.view',
-  'clients.manage',
-  'clients.assign',
-  'credentials.manage',
-  'sat.download',
-  'payroll.view',
-  'cfdi.review',
-  'cfdi.exclude',
-  'period.close',
-  'period.reopen',
-  'exports.create',
-  'obligations.view',
-  'obligations.configure',
-  'diot.generate',
-  'ieps.generate',
-  'audit.view',
-  'support.authorize',
-];
+import { RolePermission } from '../permissions/entities/role-permission.entity';
+import { RoleScope } from '../permissions/entities/role.entity';
 
 export const MFA_SENSITIVE_PERMISSIONS = new Set([
   'organization.manage',
@@ -83,6 +59,8 @@ export class AuthorizationService {
     private readonly organizations: Repository<Organization>,
     @InjectRepository(Membership)
     private readonly memberships: Repository<Membership>,
+    @InjectRepository(RolePermission)
+    private readonly rolePermissions: Repository<RolePermission>,
     @Optional()
     @InjectRepository(AuthFactor)
     private readonly factors: Repository<AuthFactor>,
@@ -107,6 +85,7 @@ export class AuthorizationService {
     }
 
     let role: string | null = null;
+    let permissions: string[] = [];
     let tenantActive = false;
     const mfaStatus =
       factor?.status === AuthFactorStatus.ACTIVE
@@ -125,13 +104,20 @@ export class AuthorizationService {
             organizationId: session.organizationId,
             userId: session.userId,
           },
+          relations: { role: true },
         }),
       ]);
 
       if (!organization || !membership) {
         throw new ForbiddenException('Invalid tenant context');
       }
-      role = membership.role;
+      if (membership.role.scope !== RoleScope.ORGANIZATION) {
+        throw new ForbiddenException('Invalid tenant role');
+      }
+      role = membership.role.key;
+      permissions = await this.rolePermissions
+        .find({ where: { roleId: membership.roleId } })
+        .then((items) => items.map((item) => item.permission.key).sort());
       tenantActive =
         organization.status === OrganizationStatus.ACTIVE &&
         membership.status === MembershipStatus.ACTIVE &&
@@ -146,7 +132,7 @@ export class AuthorizationService {
       organizationId: session.organizationId ?? null,
       membershipId: session.membershipId ?? null,
       role,
-      permissions: role === 'owner' ? [...OWNER_PERMISSIONS] : [],
+      permissions,
       assignedAccountIds: [],
       mfaVerifiedAt: session.mfaVerifiedAt ?? null,
       requiresMfa: session.requiresMfa,
@@ -188,6 +174,7 @@ export class AuthorizationService {
     const memberships = await this.memberships.find({
       where: { userId, status: MembershipStatus.ACTIVE },
       order: { createdAt: 'ASC' },
+      relations: { role: true },
     });
     if (memberships.length === 0) return [];
 
@@ -203,17 +190,18 @@ export class AuthorizationService {
 
     return memberships.flatMap((membership) => {
       const organization = byId.get(membership.organizationId);
-      return organization
-        ? [
-            {
-              id: organization.id,
-              name: organization.name,
-              slug: organization.slug,
-              membershipId: membership.id,
-              role: membership.role,
-            },
-          ]
-        : [];
+      if (!organization || membership.role?.scope !== RoleScope.ORGANIZATION) {
+        return [];
+      }
+      return [
+        {
+          id: organization.id,
+          name: organization.name,
+          slug: organization.slug,
+          membershipId: membership.id,
+          role: membership.role.key,
+        },
+      ];
     });
   }
 
@@ -251,8 +239,13 @@ export class AuthorizationService {
           userId,
           status: MembershipStatus.ACTIVE,
         },
+        relations: { role: true },
       });
-      if (!organization || !membership) {
+      if (
+        !organization ||
+        !membership ||
+        membership.role?.scope !== RoleScope.ORGANIZATION
+      ) {
         throw new NotFoundException('Organization not found');
       }
 

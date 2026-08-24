@@ -32,9 +32,6 @@ describe('SessionsService Redis resolution', () => {
     const cache = {
       get: jest.fn().mockResolvedValue({ available: true, value: entry }),
       touch: jest.fn().mockResolvedValue(true),
-      acquireActivityLock: jest
-        .fn()
-        .mockResolvedValue({ available: true, value: false }),
       set: jest.fn(),
       deleteSession: jest.fn(),
     };
@@ -113,6 +110,7 @@ describe('SessionsService Redis resolution', () => {
       deleteSession: jest.fn().mockResolvedValue(false),
     };
     const config = {
+      get: jest.fn((key: string, fallback: unknown) => fallback),
       getOrThrow: jest.fn().mockReturnValue({
         sessionName: 'balanz_session',
         httpOnly: true,

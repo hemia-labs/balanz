@@ -1,14 +1,12 @@
-import {
-  MembershipStatus,
-  type MembershipRole,
-} from '../memberships/entities/membership.entity';
+import { MembershipStatus } from '../memberships/entities/membership.entity';
+import type { RoleKey } from '../permissions/entities/role.entity';
 import { SubscriptionStatus } from '../subscriptions/entities/subscription.entity';
 
 export interface RegistrationResult {
   userId: string;
   organizationId: string;
   membershipId: string;
-  role: MembershipRole;
+  role: RoleKey;
   organizationStatus: 'active';
   membershipStatus: MembershipStatus.PENDING;
   subscriptionType: string;

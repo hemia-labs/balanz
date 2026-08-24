@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
+import { APP_GUARD } from '@nestjs/core';
 import { ThrottlerModule } from '@nestjs/throttler';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
@@ -16,6 +17,7 @@ import { DatabaseModule } from './database/database.module';
 import { UsersModule } from './modules/users/users.module';
 import { SecretsModule } from './modules/secrets/secrets.module';
 import { AuthModule as FeatureAuthModule } from './modules/auth/auth.module';
+import { CsrfGuard } from './common/guards/csrf.guard';
 
 @Module({
   imports: [
@@ -58,6 +60,6 @@ import { AuthModule as FeatureAuthModule } from './modules/auth/auth.module';
     FeatureAuthModule,
   ],
   controllers: [AppController],
-  providers: [AppService],
+  providers: [AppService, { provide: APP_GUARD, useClass: CsrfGuard }],
 })
 export class AppModule {}

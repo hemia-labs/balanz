@@ -46,6 +46,7 @@ export function MfaSettings({
   const [busy, setBusy] = useState(false);
   const [copied, setCopied] = useState(false);
   const [showDisable, setShowDisable] = useState(false);
+  const [setupDismissed, setSetupDismissed] = useState(false);
 
   useEffect(() => {
     if (initialStatus) return;
@@ -60,6 +61,7 @@ export function MfaSettings({
   async function startSetup() {
     setBusy(true);
     setError("");
+    setSetupDismissed(false);
     try {
       const next = await setupTotp();
       setSetup(next);
@@ -72,7 +74,7 @@ export function MfaSettings({
   }
 
   useEffect(() => {
-    if (!startOnMount || status === "loading" || status === "unavailable" || status === "active" || setup) return;
+    if (!startOnMount || setupDismissed || status === "loading" || status === "unavailable" || status === "active" || setup) return;
     let active = true;
     void setupTotp()
       .then((next) => {
@@ -84,7 +86,7 @@ export function MfaSettings({
         if (active) setError(apiErrorMessage(cause, "No se pudo iniciar la configuración."));
       });
     return () => { active = false; };
-  }, [setup, startOnMount, status]);
+  }, [setup, setupDismissed, startOnMount, status]);
 
   async function verifySetup(event: React.FormEvent) {
     event.preventDefault();
@@ -95,6 +97,7 @@ export function MfaSettings({
       await verifyTotp(setupCode);
       setStatus("active");
       setSetup(null);
+      setSetupDismissed(false);
       setSetupCode("");
       onActivated?.();
     } catch (cause) {
@@ -165,7 +168,7 @@ export function MfaSettings({
         </InputOTP>
         <p className="text-caption text-muted-foreground">El código se actualiza cada 30 segundos.</p>
         <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-          <Button type="button" variant="outline" onClick={() => { setSetup(null); setSetupCode(""); setError(""); onCancel?.(); }} disabled={busy}>Cancelar</Button>
+          <Button type="button" variant="outline" onClick={() => { setSetup(null); setSetupCode(""); setError(""); setStatus("disabled"); setSetupDismissed(true); onCancel?.(); }} disabled={busy}>Cancelar</Button>
           <Button type="submit" disabled={busy || setupCode.length !== 6}>{busy ? "Verificando…" : "Verificar y activar"}</Button>
         </div>
       </form>
@@ -217,7 +220,13 @@ export function MfaSettings({
       </CardContent>
     </Card>}
 
-    {compact && !setup && !active && <p className="text-body-sm text-muted-foreground">Preparando la configuración…</p>}
+    {compact && !setup && !active && <div className="space-y-4">
+      <p className="text-body-sm text-muted-foreground">Puedes activar MFA ahora o continuar sin activarlo y configurarlo más tarde desde Seguridad.</p>
+      <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+        <Button type="button" variant="outline" onClick={onContinue} disabled={!onContinue}>Continuar sin activar</Button>
+        <Button type="button" onClick={() => void startSetup()} disabled={busy}>{busy ? "Preparando…" : "Mostrar QR de nuevo"}</Button>
+      </div>
+    </div>}
 
     {setup && (compact ? setupSteps : <Card className="gap-0 border border-border py-0 ring-0"><CardHeader className="border-b p-5"><CardTitle><h2>Configura la autenticación de dos factores</h2></CardTitle><CardDescription>Vincula una aplicación autenticadora en dos pasos.</CardDescription></CardHeader><CardContent className="p-5">{setupSteps}</CardContent></Card>)}
 

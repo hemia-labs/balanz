@@ -7,9 +7,13 @@ import { User } from '../src/modules/users/entities/user.entity';
 import { UsersService } from '../src/modules/users/users.service';
 import {
   Membership,
-  MembershipRole,
   MembershipStatus,
 } from '../src/modules/memberships/entities/membership.entity';
+import {
+  Role,
+  RoleKey,
+  RoleScope,
+} from '../src/modules/permissions/entities/role.entity';
 
 describe('UsersService', () => {
   it('crea usuarios sin devolver ni guardar la contraseña en claro', async () => {
@@ -33,9 +37,21 @@ describe('UsersService', () => {
       create: jest.fn((value: Partial<Membership>) => value as Membership),
       save: jest.fn().mockResolvedValue({}),
     } as unknown as jest.Mocked<Repository<Membership>>;
+    const roleRepository = {
+      findOneByOrFail: jest.fn().mockResolvedValue({
+        id: 'role-collaborator',
+        key: RoleKey.COLLABORATOR,
+        scope: RoleScope.ORGANIZATION,
+      }),
+    } as unknown as jest.Mocked<Repository<Role>>;
     const manager = {
-      getRepository: jest.fn((entity: typeof User | typeof Membership) =>
-        entity === User ? repository : membershipRepository,
+      getRepository: jest.fn(
+        (entity: typeof User | typeof Membership | typeof Role) =>
+          entity === User
+            ? repository
+            : entity === Membership
+              ? membershipRepository
+              : roleRepository,
       ),
     };
     const module = await Test.createTestingModule({
@@ -85,7 +101,7 @@ describe('UsersService', () => {
     expect(membershipRepository.create).toHaveBeenCalledWith({
       organizationId: 'organization-1',
       userId: '1',
-      role: MembershipRole.COLLABORATOR,
+      roleId: 'role-collaborator',
       status: MembershipStatus.PENDING,
     });
     expect(result).not.toHaveProperty('passwordHash');

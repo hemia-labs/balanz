@@ -10,8 +10,10 @@ export default registerAs('auth', () => ({
     Number(process.env.EMAIL_VERIFICATION_TTL_MINUTES) || 30,
   trialDurationDays: Number(process.env.TRIAL_DURATION_DAYS) || 30,
   sessionTtlSeconds: Number(process.env.AUTH_SESSION_TTL_SECONDS) || 28_800,
-  sessionActivityPersistIntervalSeconds:
-    Number(process.env.AUTH_SESSION_ACTIVITY_PERSIST_INTERVAL_SECONDS) || 300,
+  sessionIdleTtlSeconds:
+    Number(process.env.AUTH_SESSION_IDLE_TTL_SECONDS) || 1_800,
+  authorizationCacheTtlSeconds:
+    Number(process.env.AUTHORIZATION_CACHE_TTL_SECONDS) || 60,
   mfaEncryptionKey: process.env.MFA_ENCRYPTION_KEY,
   verificationResendLimit:
     Number(process.env.AUTH_VERIFICATION_RESEND_LIMIT) || 3,

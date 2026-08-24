@@ -3,15 +3,15 @@ import {
   CreateDateColumn,
   Entity,
   Index,
+  JoinColumn,
+  ManyToOne,
   PrimaryGeneratedColumn,
   UpdateDateColumn,
 } from 'typeorm';
+import { Role, RoleKey } from '../../permissions/entities/role.entity';
 
-export enum MembershipRole {
-  OWNER = 'owner',
-  ACCOUNTANT = 'accountant',
-  COLLABORATOR = 'collaborator',
-}
+export const MembershipRole = RoleKey;
+export type MembershipRole = RoleKey;
 
 export enum MembershipStatus {
   PENDING = 'pending',
@@ -34,8 +34,12 @@ export class Membership {
   @Column({ name: 'user_id', type: 'uuid' })
   userId: string;
 
-  @Column({ type: 'enum', enum: MembershipRole })
-  role: MembershipRole;
+  @Column({ name: 'role_id', type: 'uuid' })
+  roleId: string;
+
+  @ManyToOne(() => Role, { onDelete: 'RESTRICT' })
+  @JoinColumn({ name: 'role_id' })
+  role: Role;
 
   @Column({ type: 'enum', enum: MembershipStatus })
   status: MembershipStatus;

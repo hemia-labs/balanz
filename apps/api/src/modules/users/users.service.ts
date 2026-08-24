@@ -12,9 +12,9 @@ import { PasswordService } from '../../common/auth/password.service';
 import { SessionsService } from '../sessions/sessions.service';
 import {
   Membership,
-  MembershipRole,
   MembershipStatus,
 } from '../memberships/entities/membership.entity';
+import { Role, RoleKey, RoleScope } from '../permissions/entities/role.entity';
 
 export interface RegistrationUserInput {
   firstName: string;
@@ -89,6 +89,10 @@ export class UsersService {
     return this.dataSource.transaction(async (manager) => {
       const users = manager.getRepository(User);
       const memberships = manager.getRepository(Membership);
+      const role = await manager.getRepository(Role).findOneByOrFail({
+        key: RoleKey.COLLABORATOR,
+        scope: RoleScope.ORGANIZATION,
+      });
       const user = await users.save(
         users.create({
           firstName: dto.firstName,
@@ -104,7 +108,7 @@ export class UsersService {
         memberships.create({
           organizationId,
           userId: user.id,
-          role: MembershipRole.COLLABORATOR,
+          roleId: role.id,
           status: MembershipStatus.PENDING,
         }),
       );
@@ -127,6 +131,7 @@ export class UsersService {
   ): Promise<UserResponseDto> {
     const user = await this.ensureExists(id, organizationId);
     const previousStatus = user.status;
+    const passwordChanged = Boolean(dto.password);
     const { password, ...changes } = dto;
     Object.assign(user, {
       ...changes,
@@ -134,8 +139,11 @@ export class UsersService {
     });
     if (password) user.passwordHash = await this.passwords.hash(password);
     const saved = await this.repository.save(user);
-    if (previousStatus !== saved.status) {
-      await this.sessions?.revokeUserSessions(saved.id, 'user_status_changed');
+    if (passwordChanged || previousStatus !== saved.status) {
+      await this.sessions?.revokeUserSessions(
+        saved.id,
+        passwordChanged ? 'password_changed' : 'user_status_changed',
+      );
     }
     return UserMapper.toDTO(saved);
   }
