@@ -26,7 +26,21 @@ export const PERMISSION_CATALOG = [
   'support.authorize',
 ] as const;
 
-type PermissionKey = (typeof PERMISSION_CATALOG)[number];
+export type PermissionKey = (typeof PERMISSION_CATALOG)[number];
+
+export const MFA_SENSITIVE_PERMISSION_KEYS = [
+  'organization.manage',
+  'ownership.manage',
+  'billing.manage',
+  'team.manage',
+  'clients.assign',
+  'credentials.manage',
+  'sat.download',
+  'period.close',
+  'period.reopen',
+  'exports.create',
+  'support.authorize',
+] as const satisfies readonly PermissionKey[];
 
 export const PERMISSION_METADATA = {
   'organization.view': {

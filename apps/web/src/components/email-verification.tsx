@@ -66,10 +66,6 @@ export function EmailVerification({ locale = "es" }: { locale?: string }) {
     }
   }
 
-  useEffect(() => {
-    if (token) void confirm();
-  }, [token]);
-
   async function resend() {
     if (!pending.email || cooldown > 0) return;
     setMessage(null);

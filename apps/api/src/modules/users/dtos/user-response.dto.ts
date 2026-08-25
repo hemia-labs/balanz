@@ -10,6 +10,7 @@ export class UserResponseDto {
   locale: string;
   timezone: string;
   status: string;
+  membershipStatus?: string;
   lastLoginAt?: Date | null;
   createdAt: Date;
   updatedAt: Date;

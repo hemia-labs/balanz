@@ -193,6 +193,32 @@ export class SessionsService {
     await this.revokeSessionsByUser(userId, reason);
   }
 
+  async revokeMembershipSessions(
+    organizationId: string,
+    membershipId: string,
+    reason: string,
+  ): Promise<void> {
+    const where = {
+      organizationId,
+      membershipId,
+      status: AuthSessionStatus.ACTIVE,
+    };
+    const sessions = await this.repository.find({
+      select: { id: true, sessionTokenHash: true },
+      where,
+    });
+    await this.repository.update(where, {
+      status: AuthSessionStatus.REVOKED,
+      revokedReason: reason.slice(0, 100),
+      revokedAt: new Date(),
+    });
+    await Promise.all(
+      sessions.map((session) =>
+        this.cache.deleteSession(session.id, session.sessionTokenHash),
+      ),
+    );
+  }
+
   setCookie(response: Response, rawToken: string): void {
     const cookies = this.cookieConfig();
     response.cookie(cookies.sessionName, rawToken, {
@@ -344,5 +370,4 @@ export class SessionsService {
       ),
     );
   }
-
 }

@@ -290,4 +290,54 @@ describe('SessionsService Redis resolution', () => {
     expect(cache.deleteSession).toHaveBeenCalledWith('session-1', 'hash-1');
     expect(cache.deleteSession).toHaveBeenCalledWith('session-2', 'hash-2');
   });
+
+  it('revokes only sessions for the affected tenant membership', async () => {
+    const sessions = [
+      { id: 'session-a', sessionTokenHash: 'hash-a' },
+      { id: 'session-b', sessionTokenHash: 'hash-b' },
+    ];
+    const updateSessions = jest.fn().mockResolvedValue({ affected: 1 });
+    const repository = {
+      find: jest.fn().mockResolvedValue(sessions),
+      update: updateSessions,
+    };
+    const cache = {
+      deleteSession: jest.fn().mockResolvedValue(true),
+    };
+    const service = new SessionsService(
+      repository as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      cache as never,
+    );
+
+    await service.revokeMembershipSessions(
+      'organization-a',
+      'membership-a',
+      'membership_revoked',
+    );
+
+    expect(repository.find).toHaveBeenCalledWith({
+      select: { id: true, sessionTokenHash: true },
+      where: {
+        organizationId: 'organization-a',
+        membershipId: 'membership-a',
+        status: AuthSessionStatus.ACTIVE,
+      },
+    });
+    expect(updateSessions).toHaveBeenCalledWith(
+      {
+        organizationId: 'organization-a',
+        membershipId: 'membership-a',
+        status: AuthSessionStatus.ACTIVE,
+      },
+      expect.objectContaining({
+        status: AuthSessionStatus.REVOKED,
+        revokedReason: 'membership_revoked',
+      }),
+    );
+    expect(cache.deleteSession).toHaveBeenCalledWith('session-a', 'hash-a');
+    expect(cache.deleteSession).toHaveBeenCalledWith('session-b', 'hash-b');
+  });
 });

@@ -24,31 +24,11 @@ import {
 } from '../auth/entities/auth-factor.entity';
 import { RolePermission } from '../permissions/entities/role-permission.entity';
 import { RoleScope } from '../permissions/entities/role.entity';
+import { MFA_SENSITIVE_PERMISSION_KEYS } from '../../common/auth/permission-catalog';
 
-export const MFA_SENSITIVE_PERMISSIONS = new Set([
-  'organization.manage',
-  'organization.transfer',
-  'organization.cancel',
-  'members.manage',
-  'permissions.manage',
-  'billing.manage',
-  'clients.assign',
-  'fiscal_entities.manage',
-  'credentials.manage',
-  'sat.download',
-  'cfdi.download',
-  'payroll.export',
-  'exceptions.accept',
-  'checklist.configure',
-  'periods.takeover',
-  'periods.close',
-  'periods.reopen',
-  'exports.generate',
-  'exports.download',
-  'exports.bulk',
-  'support.authorize',
-  'retention.manage',
-]);
+export const MFA_SENSITIVE_PERMISSIONS = new Set<string>(
+  MFA_SENSITIVE_PERMISSION_KEYS,
+);
 
 @Injectable()
 export class AuthorizationService {

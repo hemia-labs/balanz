@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { DemoMembership } from "./accounting-types";
-import { filterNavigation, isNavigationItemActive, resolveLegacyDestination } from "./navigation-core";
+import {
+  filterNavigation,
+  isNavigationItemActive,
+  resolveOrganizationRoute,
+} from "./navigation-core";
 import { canAccessClient, hasCapability } from "./permissions";
 import { resolveProductRoute } from "./product-route";
 
@@ -45,8 +49,12 @@ test("aplica capacidades y asignación explícita de cliente", () => {
   assert.equal(canAccessClient(membership, "cliente-ajeno"), false);
 });
 
-test("mantiene destinos seguros para rutas heredadas", () => {
-  assert.equal(resolveLegacyDestination("users"), "team");
-  assert.equal(resolveLegacyDestination("plans"), "settings/billing-plan");
-  assert.equal(resolveLegacyDestination("desconocida"), undefined);
+test("resuelve el tenant de una ruta por slug o identificador", () => {
+  const organizations = [
+    { id: "org-a", slug: "despacho-a" },
+    { id: "org-b", slug: "despacho-b" },
+  ];
+  assert.equal(resolveOrganizationRoute(organizations, "despacho-b")?.id, "org-b");
+  assert.equal(resolveOrganizationRoute(organizations, "org-a")?.slug, "despacho-a");
+  assert.equal(resolveOrganizationRoute(organizations, "desconocida"), undefined);
 });

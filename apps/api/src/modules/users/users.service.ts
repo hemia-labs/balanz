@@ -1,4 +1,9 @@
-import { Injectable, NotFoundException, Optional } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+  Optional,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, EntityManager, ILike, In, Repository } from 'typeorm';
 import { FindUsersDto } from './dtos/find-users.dto';
@@ -14,6 +19,7 @@ import {
   Membership,
   MembershipStatus,
 } from '../memberships/entities/membership.entity';
+import { canTransitionMembership } from '../memberships/membership-state';
 import { Role, RoleKey, RoleScope } from '../permissions/entities/role.entity';
 
 export interface RegistrationUserInput {
@@ -46,8 +52,11 @@ export class UsersService {
     const limit = query.limit;
     const search = query.search?.trim();
     const memberships = await this.memberships.find({
-      select: { userId: true },
-      where: { organizationId },
+      select: { userId: true, status: true },
+      where: {
+        organizationId,
+        ...(query.status ? { status: query.status } : {}),
+      },
     });
     const userIds = memberships.map(({ userId }) => userId);
     if (userIds.length === 0) {
@@ -57,14 +66,13 @@ export class UsersService {
       };
     }
 
-    const base = query.status ? { status: query.status } : {};
     const where = search
       ? [
-          { ...base, id: In(userIds), firstName: ILike(`%${search}%`) },
-          { ...base, id: In(userIds), lastName: ILike(`%${search}%`) },
-          { ...base, id: In(userIds), email: ILike(`%${search}%`) },
+          { id: In(userIds), firstName: ILike(`%${search}%`) },
+          { id: In(userIds), lastName: ILike(`%${search}%`) },
+          { id: In(userIds), email: ILike(`%${search}%`) },
         ]
-      : { ...base, id: In(userIds) };
+      : { id: In(userIds) };
     const [users, total] = await this.repository.findAndCount({
       where,
       order: { createdAt: 'DESC' },
@@ -73,13 +81,17 @@ export class UsersService {
     });
 
     return {
-      items: UserMapper.toDTOList(users),
+      items: UserMapper.toDTOList(
+        users,
+        new Map(memberships.map(({ userId, status }) => [userId, status])),
+      ),
       meta: { page, limit, total, totalPages: Math.ceil(total / limit) },
     };
   }
 
   async findOne(id: string, organizationId: string): Promise<UserResponseDto> {
-    return UserMapper.toDTO(await this.ensureExists(id, organizationId));
+    const { user, membership } = await this.ensureMember(id, organizationId);
+    return UserMapper.toDTO(user, membership.status);
   }
 
   async create(
@@ -112,7 +124,7 @@ export class UsersService {
           status: MembershipStatus.PENDING,
         }),
       );
-      return UserMapper.toDTO(user);
+      return UserMapper.toDTO(user, MembershipStatus.PENDING);
     });
   }
 
@@ -129,41 +141,57 @@ export class UsersService {
     organizationId: string,
     dto: UpdateUserDto,
   ): Promise<UserResponseDto> {
-    const user = await this.ensureExists(id, organizationId);
-    const previousStatus = user.status;
-    const passwordChanged = Boolean(dto.password);
-    const { password, ...changes } = dto;
-    Object.assign(user, {
-      ...changes,
-      ...(changes.email && { email: changes.email.trim().toLowerCase() }),
-    });
-    if (password) user.passwordHash = await this.passwords.hash(password);
-    const saved = await this.repository.save(user);
-    if (passwordChanged || previousStatus !== saved.status) {
-      await this.sessions?.revokeUserSessions(
-        saved.id,
-        passwordChanged ? 'password_changed' : 'user_status_changed',
-      );
+    const { user, membership } = await this.ensureMember(id, organizationId);
+    if (dto.status && dto.status !== membership.status) {
+      if (!canTransitionMembership(membership.status, dto.status)) {
+        throw new BadRequestException('Invalid membership status transition');
+      }
+      const now = new Date();
+      membership.status = dto.status;
+      membership.suspendedAt =
+        dto.status === MembershipStatus.SUSPENDED ? now : null;
+      membership.revokedAt =
+        dto.status === MembershipStatus.REVOKED ? now : null;
+      if (dto.status === MembershipStatus.ACTIVE) {
+        membership.joinedAt ??= now;
+      }
+      await this.memberships.save(membership);
+      if (
+        dto.status === MembershipStatus.SUSPENDED ||
+        dto.status === MembershipStatus.REVOKED
+      ) {
+        await this.sessions?.revokeMembershipSessions(
+          organizationId,
+          membership.id,
+          `membership_${dto.status}`,
+        );
+      }
     }
-    return UserMapper.toDTO(saved);
+    return UserMapper.toDTO(user, membership.status);
   }
 
   async remove(id: string, organizationId: string): Promise<void> {
-    await this.ensureExists(id, organizationId);
-    await this.repository.softDelete(id);
-    await this.sessions?.revokeUserSessions(id, 'user_deleted');
+    const { membership } = await this.ensureMember(id, organizationId);
+    membership.status = MembershipStatus.REVOKED;
+    membership.revokedAt = new Date();
+    await this.memberships.save(membership);
+    await this.sessions?.revokeMembershipSessions(
+      organizationId,
+      membership.id,
+      'membership_revoked',
+    );
   }
 
-  private async ensureExists(
+  private async ensureMember(
     id: string,
     organizationId: string,
-  ): Promise<User> {
+  ): Promise<{ user: User; membership: Membership }> {
     const membership = await this.memberships.findOne({
       where: { organizationId, userId: id },
     });
     if (!membership) throw new NotFoundException('User not found');
     const user = await this.repository.findOne({ where: { id } });
     if (!user) throw new NotFoundException('User not found');
-    return user;
+    return { user, membership };
   }
 }

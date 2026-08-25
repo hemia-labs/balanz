@@ -1,11 +1,12 @@
 "use client";
 
-import { createContext, useContext, useMemo } from "react";
-import { usePathname, useSearchParams } from "next/navigation";
+import { createContext, useContext, useEffect, useMemo } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useSession } from "@/features/session/session-provider";
 import type { OrganizationSummary } from "@/features/session/types";
 import { capabilities, type Capability, type DemoAccount, type DemoClient, type DemoMembership, type DemoOrganization } from "@/lib/accounting-types";
 import { clientById, clientsFor, membershipFor, organizationById, organizationBySlug } from "@/lib/demo-data";
+import { resolveOrganizationRoute } from "@/lib/navigation-core";
 
 interface AccountingContextValue {
   locale: string;
@@ -37,13 +38,32 @@ function mapRole(role: string | null | undefined): DemoMembership["role"] {
 
 export function AccountingContextProvider({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
+  const router = useRouter();
   const searchParams = useSearchParams();
   const { session, authorization, organizations, switchTenant } = useSession();
+  const locale = pathname.split("/").filter(Boolean)[0] ?? "es";
+  const organizationSlug = routeIdentifier(pathname, "organizations") ?? searchParams.get("organizacion") ?? "";
+  const routeOrganization =
+    resolveOrganizationRoute(organizations, organizationSlug) ??
+    (demoMode ? organizationBySlug(organizationSlug) : undefined);
+  const activeOrganization =
+    resolveOrganizationRoute(organizations, session?.organizationId ?? "") ??
+    (demoMode && session?.organizationId ? organizationById(session.organizationId) : undefined);
+  const tenantMismatch = Boolean(
+    organizationSlug &&
+      (!activeOrganization || !routeOrganization || routeOrganization.id !== activeOrganization.id)
+  );
+
+  useEffect(() => {
+    if (!tenantMismatch) return;
+    const destination = activeOrganization
+      ? `/${locale}/organizations/${encodeURIComponent(activeOrganization.slug)}/home`
+      : `/${locale}/select-organization`;
+    router.replace(destination);
+  }, [activeOrganization, locale, router, tenantMismatch]);
 
   const value = useMemo(() => {
-    const locale = pathname.split("/").filter(Boolean)[0] ?? "es";
-    const organizationSlug = routeIdentifier(pathname, "organizations") ?? searchParams.get("organizacion") ?? "";
-    const organizationId = session?.organizationId ?? organizationSlug;
+    const organizationId = session?.organizationId ?? routeOrganization?.id ?? organizationSlug;
     const apiOrganization = organizations.find((item) => item.id === organizationId);
     const demoOrganization = demoMode ? organizationById(organizationId) ?? organizationBySlug(organizationSlug) : undefined;
     const isDemo = Boolean(demoOrganization && !apiOrganization);
@@ -75,7 +95,15 @@ export function AccountingContextProvider({ children }: { children: React.ReactN
       organizations,
       changeOrganization: switchTenant,
     };
-  }, [authorization, organizations, pathname, searchParams, session, switchTenant]);
+  }, [authorization, locale, organizationSlug, organizations, pathname, routeOrganization, session, switchTenant]);
+
+  if (tenantMismatch) {
+    return (
+      <div className="grid min-h-screen place-items-center bg-slate-50 px-6 text-sm text-slate-600">
+        Validando organización…
+      </div>
+    );
+  }
 
   return <AccountingContext.Provider value={value}>{children}</AccountingContext.Provider>;
 }
