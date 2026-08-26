@@ -15,6 +15,7 @@ import {
   RoleKey,
   RoleScope,
 } from '../src/modules/permissions/entities/role.entity';
+import { Organization } from '../src/modules/organizations/entities/organization.entity';
 
 describe('UsersService', () => {
   it('crea usuarios sin devolver ni guardar la contraseña en claro', async () => {
@@ -215,6 +216,19 @@ describe('UsersService', () => {
       findOne: jest.fn().mockResolvedValue(membership),
       save: jest.fn().mockResolvedValue(membership),
     } as unknown as jest.Mocked<Repository<Membership>>;
+    const organizationRepository = {
+      findOne: jest.fn().mockResolvedValue({ id: 'organization-a' }),
+    };
+    const manager = {
+      getRepository: jest.fn(
+        (entity: typeof User | typeof Membership | typeof Organization) =>
+          entity === User
+            ? repository
+            : entity === Membership
+              ? membershipRepository
+              : organizationRepository,
+      ),
+    };
     const revokeMembershipSessions = jest.fn().mockResolvedValue(undefined);
     const module = await Test.createTestingModule({
       providers: [
@@ -225,7 +239,15 @@ describe('UsersService', () => {
           useValue: membershipRepository,
         },
         { provide: PasswordService, useValue: { hash: jest.fn() } },
-        { provide: DataSource, useValue: {} },
+        {
+          provide: DataSource,
+          useValue: {
+            transaction: jest.fn(
+              (callback: (value: typeof manager) => unknown) =>
+                Promise.resolve(callback(manager)),
+            ),
+          },
+        },
         {
           provide: SessionsService,
           useValue: { revokeMembershipSessions },
@@ -268,6 +290,19 @@ describe('UsersService', () => {
       findOne: jest.fn().mockResolvedValue(membership),
       save: jest.fn().mockResolvedValue(membership),
     } as unknown as jest.Mocked<Repository<Membership>>;
+    const organizationRepository = {
+      findOne: jest.fn().mockResolvedValue({ id: 'organization-a' }),
+    };
+    const manager = {
+      getRepository: jest.fn(
+        (entity: typeof User | typeof Membership | typeof Organization) =>
+          entity === User
+            ? repository
+            : entity === Membership
+              ? membershipRepository
+              : organizationRepository,
+      ),
+    };
     const revokeMembershipSessions = jest.fn().mockResolvedValue(undefined);
     const module = await Test.createTestingModule({
       providers: [
@@ -278,7 +313,15 @@ describe('UsersService', () => {
           useValue: membershipRepository,
         },
         { provide: PasswordService, useValue: { hash: jest.fn() } },
-        { provide: DataSource, useValue: {} },
+        {
+          provide: DataSource,
+          useValue: {
+            transaction: jest.fn(
+              (callback: (value: typeof manager) => unknown) =>
+                Promise.resolve(callback(manager)),
+            ),
+          },
+        },
         {
           provide: SessionsService,
           useValue: { revokeMembershipSessions },
@@ -297,5 +340,63 @@ describe('UsersService', () => {
       'membership-a',
       'membership_revoked',
     );
+  });
+
+  it('impide revocar al último owner activo', async () => {
+    const user = { id: 'owner-1', status: 'active' } as User;
+    const membership = {
+      id: 'membership-owner',
+      organizationId: 'organization-a',
+      userId: 'owner-1',
+      status: MembershipStatus.ACTIVE,
+      role: { key: RoleKey.OWNER },
+    } as Membership;
+    const userRepository = {
+      findOne: jest.fn().mockResolvedValue(user),
+    };
+    const membershipRepository = {
+      findOne: jest.fn().mockResolvedValue(membership),
+      count: jest.fn().mockResolvedValue(1),
+      save: jest.fn(),
+    };
+    const manager = {
+      getRepository: jest.fn(
+        (entity: typeof User | typeof Membership | typeof Organization) =>
+          entity === User
+            ? userRepository
+            : entity === Membership
+              ? membershipRepository
+              : {
+                  findOne: jest
+                    .fn()
+                    .mockResolvedValue({ id: 'organization-a' }),
+                },
+      ),
+    };
+    const module = await Test.createTestingModule({
+      providers: [
+        UsersService,
+        { provide: getRepositoryToken(User), useValue: userRepository },
+        {
+          provide: getRepositoryToken(Membership),
+          useValue: membershipRepository,
+        },
+        { provide: PasswordService, useValue: { hash: jest.fn() } },
+        {
+          provide: DataSource,
+          useValue: {
+            transaction: jest.fn(
+              (callback: (value: typeof manager) => unknown) =>
+                Promise.resolve(callback(manager)),
+            ),
+          },
+        },
+      ],
+    }).compile();
+
+    await expect(
+      module.get(UsersService).remove('owner-1', 'organization-a'),
+    ).rejects.toThrow('Organization must retain an active owner');
+    expect(membershipRepository.save).not.toHaveBeenCalled();
   });
 });

@@ -12,7 +12,7 @@
     "start": "nest start",
     "start:dev": "nest start --watch",
     "start:debug": "nest start --debug --watch",
-    "start:prod": "node dist/main",
+    "start:prod": "npm run db:prepare && node dist/main",
     "lint": "eslint \"{src,apps,libs,test}/**/*.ts\" --fix",
     "test": "jest",
     "test:watch": "jest --watch",
@@ -23,7 +23,8 @@
     "migration:generate": "typeorm-ts-node-commonjs -d src/database/data-source.ts migration:generate src/database/migrations/Migration",
     "migration:run": "typeorm-ts-node-commonjs -d src/database/data-source.ts migration:run",
     "migration:revert": "typeorm-ts-node-commonjs -d src/database/data-source.ts migration:revert",
-    "seed:run": "ts-node --transpile-only src/database/seeds/run-seeds.ts"
+    "seed:run": "ts-node --transpile-only src/database/seeds/run-seeds.ts",
+    "db:prepare": "npm run migration:run && npm run seed:run"
   },
   "dependencies": {
     "@aws-sdk/client-sesv2": "^3.1116.0",
