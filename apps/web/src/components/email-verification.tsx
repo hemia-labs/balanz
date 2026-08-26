@@ -86,7 +86,7 @@ export function EmailVerification({ locale = "es" }: { locale?: string }) {
   }
 
   return (
-    <main id="main-content" className="grid min-h-screen place-items-center bg-background px-4 py-8">
+    <main id="main-content" className="grid min-h-screen w-full flex-1 place-items-center bg-background px-4 py-8">
       <Surface className="w-full max-w-form space-y-5 p-6">
         <div>
           <p className="text-caption font-semibold text-accent-foreground">Verificación de correo</p>

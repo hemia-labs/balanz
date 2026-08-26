@@ -1,11 +1,31 @@
 "use client";
 
-import { createContext, useContext, useEffect, useMemo } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useSession } from "@/features/session/session-provider";
 import type { OrganizationSummary } from "@/features/session/types";
-import { capabilities, type Capability, type DemoAccount, type DemoClient, type DemoMembership, type DemoOrganization } from "@/lib/accounting-types";
-import { clientById, clientsFor, membershipFor, organizationById, organizationBySlug } from "@/lib/demo-data";
+import {
+  capabilities,
+  type Capability,
+  type DemoAccount,
+  type DemoClient,
+  type DemoMembership,
+  type DemoOrganization,
+} from "@/lib/accounting-types";
+import {
+  clientById,
+  clientsFor,
+  membershipFor,
+  organizationById,
+  organizationBySlug,
+} from "@/lib/demo-data";
 import { resolveOrganizationRoute } from "@/lib/navigation-core";
 
 interface AccountingContextValue {
@@ -15,11 +35,14 @@ interface AccountingContextValue {
   membership: DemoMembership;
   clients: DemoClient[];
   client?: DemoClient;
+  clientId?: string;
+  clientName?: string;
   capabilities: Capability[];
   context: "organization" | "client";
   isDemo: boolean;
   organizations: OrganizationSummary[];
   changeOrganization: (organizationId: string) => Promise<void>;
+  registerClientName: (clientId: string, name: string) => void;
 }
 
 const AccountingContext = createContext<AccountingContextValue | null>(null);
@@ -32,26 +55,49 @@ function routeIdentifier(pathname: string, segment: string) {
 }
 
 function mapRole(role: string | null | undefined): DemoMembership["role"] {
-  if (role === "titular" || role === "administrador" || role === "responsable") return role;
+  if (role === "owner" || role === "titular") return "titular";
+  if (role === "accountant" || role === "responsable") return "responsable";
   return "colaborador";
 }
 
-export function AccountingContextProvider({ children }: { children: React.ReactNode }) {
+export function AccountingContextProvider({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
   const pathname = usePathname();
   const router = useRouter();
   const searchParams = useSearchParams();
   const { session, authorization, organizations, switchTenant } = useSession();
+  const [liveClientIdentity, setLiveClientIdentity] = useState<{
+    id: string;
+    name: string;
+  } | null>(null);
+  const registerClientName = useCallback((clientId: string, name: string) => {
+    setLiveClientIdentity((current) =>
+      current?.id === clientId && current.name === name
+        ? current
+        : { id: clientId, name },
+    );
+  }, []);
   const locale = pathname.split("/").filter(Boolean)[0] ?? "es";
-  const organizationSlug = routeIdentifier(pathname, "organizations") ?? searchParams.get("organizacion") ?? "";
+  const organizationSlug =
+    routeIdentifier(pathname, "organizations") ??
+    searchParams.get("organizacion") ??
+    "";
   const routeOrganization =
     resolveOrganizationRoute(organizations, organizationSlug) ??
     (demoMode ? organizationBySlug(organizationSlug) : undefined);
   const activeOrganization =
     resolveOrganizationRoute(organizations, session?.organizationId ?? "") ??
-    (demoMode && session?.organizationId ? organizationById(session.organizationId) : undefined);
+    (demoMode && session?.organizationId
+      ? organizationById(session.organizationId)
+      : undefined);
   const tenantMismatch = Boolean(
     organizationSlug &&
-      (!activeOrganization || !routeOrganization || routeOrganization.id !== activeOrganization.id)
+    (!activeOrganization ||
+      !routeOrganization ||
+      routeOrganization.id !== activeOrganization.id),
   );
 
   useEffect(() => {
@@ -63,25 +109,59 @@ export function AccountingContextProvider({ children }: { children: React.ReactN
   }, [activeOrganization, locale, router, tenantMismatch]);
 
   const value = useMemo(() => {
-    const organizationId = session?.organizationId ?? routeOrganization?.id ?? organizationSlug;
-    const apiOrganization = organizations.find((item) => item.id === organizationId);
-    const demoOrganization = demoMode ? organizationById(organizationId) ?? organizationBySlug(organizationSlug) : undefined;
+    const organizationId =
+      session?.organizationId ?? routeOrganization?.id ?? organizationSlug;
+    const apiOrganization = organizations.find(
+      (item) => item.id === organizationId,
+    );
+    const demoOrganization = demoMode
+      ? (organizationById(organizationId) ??
+        organizationBySlug(organizationSlug))
+      : undefined;
     const isDemo = Boolean(demoOrganization && !apiOrganization);
     const organization: DemoOrganization = apiOrganization
-      ? { id: apiOrganization.id, slug: apiOrganization.slug, name: apiOrganization.name, shortName: apiOrganization.name }
+      ? {
+          id: apiOrganization.id,
+          slug: apiOrganization.slug,
+          name: apiOrganization.name,
+          shortName: apiOrganization.name,
+        }
       : demoOrganization
         ? { ...demoOrganization }
-        : { id: organizationId, slug: organizationSlug || organizationId, name: "Organización activa", shortName: "Organización activa" };
-    const allowed = authorization?.permissions ?? (isDemo ? membershipFor(organization.id)?.capabilities ?? [] : []);
-    const resolvedCapabilities = capabilities.filter((item) => allowed.includes(item)) as Capability[];
+        : {
+            id: organizationId,
+            slug: organizationSlug || organizationId,
+            name: "Organización activa",
+            shortName: "Organización activa",
+          };
+    const allowed =
+      authorization?.permissions ??
+      (isDemo ? (membershipFor(organization.id)?.capabilities ?? []) : []);
+    const resolvedCapabilities = capabilities.filter((item) =>
+      allowed.includes(item),
+    ) as Capability[];
     const membership: DemoMembership = {
       organizationId: organization.id,
-      role: mapRole(authorization?.role ?? session?.role ?? (isDemo ? membershipFor(organization.id)?.role : undefined)),
+      role: mapRole(
+        authorization?.role ??
+          session?.role ??
+          (isDemo ? membershipFor(organization.id)?.role : undefined),
+      ),
       capabilities: resolvedCapabilities,
-      assignedClientIds: authorization?.assignedAccountIds ?? (isDemo ? membershipFor(organization.id)?.assignedClientIds ?? [] : []),
+      assignedClientIds:
+        authorization?.assignedAccountIds ??
+        (isDemo
+          ? (membershipFor(organization.id)?.assignedClientIds ?? [])
+          : []),
     };
     const clientId = routeIdentifier(pathname, "clients");
-    const client = isDemo && clientId ? clientById(organization.id, clientId) : undefined;
+    const client =
+      isDemo && clientId ? clientById(organization.id, clientId) : undefined;
+    const clientName =
+      client?.name ??
+      (liveClientIdentity && liveClientIdentity.id === clientId
+        ? liveClientIdentity.name
+        : undefined);
     return {
       locale,
       account: { id: session?.userId ?? "", name: "Cuenta global", email: "" },
@@ -89,13 +169,27 @@ export function AccountingContextProvider({ children }: { children: React.ReactN
       membership,
       clients: isDemo ? clientsFor(organization.id) : [],
       client,
+      clientId,
+      clientName,
       capabilities: resolvedCapabilities,
-      context: client ? ("client" as const) : ("organization" as const),
+      context: clientId ? ("client" as const) : ("organization" as const),
       isDemo,
       organizations,
       changeOrganization: switchTenant,
+      registerClientName,
     };
-  }, [authorization, locale, organizationSlug, organizations, pathname, routeOrganization, session, switchTenant]);
+  }, [
+    authorization,
+    locale,
+    liveClientIdentity,
+    organizationSlug,
+    organizations,
+    pathname,
+    routeOrganization,
+    registerClientName,
+    session,
+    switchTenant,
+  ]);
 
   if (tenantMismatch) {
     return (
@@ -105,11 +199,18 @@ export function AccountingContextProvider({ children }: { children: React.ReactN
     );
   }
 
-  return <AccountingContext.Provider value={value}>{children}</AccountingContext.Provider>;
+  return (
+    <AccountingContext.Provider value={value}>
+      {children}
+    </AccountingContext.Provider>
+  );
 }
 
 export function useAccountingContext() {
   const value = useContext(AccountingContext);
-  if (!value) throw new Error("useAccountingContext debe usarse dentro de AccountingContextProvider");
+  if (!value)
+    throw new Error(
+      "useAccountingContext debe usarse dentro de AccountingContextProvider",
+    );
   return value;
 }

@@ -10,13 +10,30 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSepara
 export function ClientSwitcher({ compact = false }: { compact?: boolean }) {
   const router = useRouter();
   const pathname = usePathname();
-  const { client, clients, organization } = useAccountingContext();
-  if (!client) return null;
+  const { client, clientName, clients, organization } = useAccountingContext();
+  const activeName = client?.name ?? clientName;
+  if (!activeName) return null;
 
   if (compact) {
     return (
-      <div className="grid size-10 place-items-center rounded-md bg-sidebar-accent text-sidebar-accent-foreground" title={client.name}>
+      <div
+        className="grid size-10 place-items-center rounded-md bg-sidebar-accent text-sidebar-accent-foreground"
+        title={activeName}
+      >
         <Building className="size-5" aria-hidden="true" />
+      </div>
+    );
+  }
+
+  if (!client) {
+    return (
+      <div className="px-3 py-2">
+        <span className="block text-caption font-semibold text-sidebar-foreground/55">
+          Cliente activo
+        </span>
+        <span className="block truncate text-body-sm font-semibold text-sidebar-foreground">
+          {activeName}
+        </span>
       </div>
     );
   }

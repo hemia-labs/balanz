@@ -1,0 +1,171 @@
+import { apiClient } from "@/lib/api-client";
+import type {
+  AccountAssignment,
+  AssignmentResponsibility,
+  ClientAccount,
+  ClientDetail,
+  ClientPage,
+  CreatedClientAggregate,
+  FiscalYear,
+  LegalEntity,
+  MemberCandidate,
+  PeriodsResponse,
+} from "./types";
+
+export interface ClientListQuery {
+  search?: string;
+  status?: string;
+  page?: number;
+  limit?: number;
+  sort?: "name" | "status" | "updatedAt";
+  direction?: "asc" | "desc";
+}
+
+function queryString(values: Record<string, string | number | undefined>) {
+  const query = new URLSearchParams();
+  Object.entries(values).forEach(([key, value]) => {
+    if (value !== undefined && value !== "") query.set(key, String(value));
+  });
+  const result = query.toString();
+  return result ? `?${result}` : "";
+}
+
+export function getClients(query: ClientListQuery, signal?: AbortSignal) {
+  return apiClient<ClientPage>(`/client-accounts${queryString({ ...query })}`, {
+    signal,
+  });
+}
+
+export function getClient(clientAccountId: string, signal?: AbortSignal) {
+  return apiClient<ClientDetail>(
+    `/client-accounts/${encodeURIComponent(clientAccountId)}`,
+    { signal },
+  );
+}
+
+export function getPrimaryCandidates(signal?: AbortSignal) {
+  return apiClient<MemberCandidate[]>(
+    "/client-accounts/available-primary-members",
+    { signal },
+  );
+}
+
+export function createClient(
+  input: {
+    accountName: string;
+    legalEntity: { legalName: string; rfc: string };
+    primaryMembershipId: string;
+    fiscalYear: number;
+  },
+  signal?: AbortSignal,
+) {
+  return apiClient<CreatedClientAggregate>("/client-accounts", {
+    method: "POST",
+    body: JSON.stringify(input),
+    signal,
+  });
+}
+
+export function updateClient(
+  clientAccountId: string,
+  input: { name?: string; code?: string | null; expectedVersion: number },
+) {
+  return apiClient<ClientAccount>(
+    `/client-accounts/${encodeURIComponent(clientAccountId)}`,
+    {
+      method: "PATCH",
+      body: JSON.stringify(input),
+    },
+  );
+}
+
+export function archiveClient(clientAccountId: string) {
+  return apiClient<void>(
+    `/client-accounts/${encodeURIComponent(clientAccountId)}`,
+    { method: "DELETE" },
+  );
+}
+
+export function createLegalEntity(
+  clientAccountId: string,
+  input: { rfc: string; legalName: string },
+) {
+  return apiClient<LegalEntity>(
+    `/client-accounts/${encodeURIComponent(clientAccountId)}/legal-entities`,
+    {
+      method: "POST",
+      body: JSON.stringify(input),
+    },
+  );
+}
+
+export function updateLegalEntity(
+  legalEntityId: string,
+  input: { rfc?: string; legalName?: string; expectedVersion: number },
+) {
+  return apiClient<LegalEntity>(
+    `/legal-entities/${encodeURIComponent(legalEntityId)}`,
+    {
+      method: "PATCH",
+      body: JSON.stringify(input),
+    },
+  );
+}
+
+export function archiveLegalEntity(legalEntityId: string) {
+  return apiClient<void>(
+    `/legal-entities/${encodeURIComponent(legalEntityId)}`,
+    { method: "DELETE" },
+  );
+}
+
+export function getAvailableMembers(
+  clientAccountId: string,
+  signal?: AbortSignal,
+) {
+  return apiClient<MemberCandidate[]>(
+    `/client-accounts/${encodeURIComponent(clientAccountId)}/available-members`,
+    { signal },
+  );
+}
+
+export function createAssignment(
+  clientAccountId: string,
+  input: { membershipId: string; responsibility: AssignmentResponsibility },
+) {
+  return apiClient<AccountAssignment>(
+    `/client-accounts/${encodeURIComponent(clientAccountId)}/assignments`,
+    { method: "POST", body: JSON.stringify(input) },
+  );
+}
+
+export function revokeAssignment(
+  clientAccountId: string,
+  assignmentId: string,
+) {
+  return apiClient<void>(
+    `/client-accounts/${encodeURIComponent(clientAccountId)}/assignments/${encodeURIComponent(assignmentId)}`,
+    { method: "DELETE" },
+  );
+}
+
+export function getFiscalYears(legalEntityId: string, signal?: AbortSignal) {
+  return apiClient<FiscalYear[]>(
+    `/legal-entities/${encodeURIComponent(legalEntityId)}/fiscal-years`,
+    { signal },
+  );
+}
+
+export function createFiscalYear(legalEntityId: string, year: number) {
+  return apiClient<FiscalYear & { periodIds: string[] }>(
+    `/legal-entities/${encodeURIComponent(legalEntityId)}/fiscal-years`,
+    { method: "POST", body: JSON.stringify({ year }) },
+  );
+}
+
+export function getPeriods(fiscalYearId: string, signal?: AbortSignal) {
+  return apiClient<PeriodsResponse>(
+    `/fiscal-years/${encodeURIComponent(fiscalYearId)}/periods`,
+    { signal },
+  );
+}
