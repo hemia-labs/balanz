@@ -52,7 +52,7 @@ export function AppNavigation({
                       "relative flex min-h-10 items-center gap-3 rounded-md text-body-sm font-semibold text-sidebar-foreground transition-colors duration-150 ease-standard",
                       collapsed ? "justify-center px-0" : "px-3",
                       active
-                        ? "bg-sidebar-primary text-sidebar-primary-foreground before:absolute before:bottom-2 before:left-0 before:top-2 before:w-0.5 before:bg-sidebar-ring"
+                        ? "bg-sidebar-accent text-sidebar-accent-foreground before:absolute before:bottom-2 before:left-0 before:top-2 before:w-0.5 before:bg-sidebar-primary"
                         : "text-sidebar-foreground/76 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
                     )}
                   >
