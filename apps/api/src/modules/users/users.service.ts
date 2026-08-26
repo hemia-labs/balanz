@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   Injectable,
   NotFoundException,
   Optional,
@@ -15,6 +16,7 @@ import { User } from './entities/user.entity';
 import { UserMapper } from './mappers/user.mapper';
 import { PasswordService } from '../../common/auth/password.service';
 import { SessionsService } from '../sessions/sessions.service';
+import { Organization } from '../organizations/entities/organization.entity';
 import {
   Membership,
   MembershipStatus,
@@ -141,40 +143,61 @@ export class UsersService {
     organizationId: string,
     dto: UpdateUserDto,
   ): Promise<UserResponseDto> {
-    const { user, membership } = await this.ensureMember(id, organizationId);
-    if (dto.status && dto.status !== membership.status) {
-      if (!canTransitionMembership(membership.status, dto.status)) {
-        throw new BadRequestException('Invalid membership status transition');
+    const result = await this.dataSource.transaction(async (manager) => {
+      const { user, membership } = await this.ensureMember(
+        id,
+        organizationId,
+        manager,
+      );
+      if (dto.status && dto.status !== membership.status) {
+        if (!canTransitionMembership(membership.status, dto.status)) {
+          throw new BadRequestException('Invalid membership status transition');
+        }
+        if (
+          dto.status === MembershipStatus.SUSPENDED ||
+          dto.status === MembershipStatus.REVOKED
+        ) {
+          await this.assertNotLastOwner(manager, organizationId, membership);
+        }
+        const now = new Date();
+        membership.status = dto.status;
+        membership.suspendedAt =
+          dto.status === MembershipStatus.SUSPENDED ? now : null;
+        membership.revokedAt =
+          dto.status === MembershipStatus.REVOKED ? now : null;
+        if (dto.status === MembershipStatus.ACTIVE) {
+          membership.joinedAt ??= now;
+        }
+        await manager.getRepository(Membership).save(membership);
       }
-      const now = new Date();
-      membership.status = dto.status;
-      membership.suspendedAt =
-        dto.status === MembershipStatus.SUSPENDED ? now : null;
-      membership.revokedAt =
-        dto.status === MembershipStatus.REVOKED ? now : null;
-      if (dto.status === MembershipStatus.ACTIVE) {
-        membership.joinedAt ??= now;
-      }
-      await this.memberships.save(membership);
-      if (
-        dto.status === MembershipStatus.SUSPENDED ||
-        dto.status === MembershipStatus.REVOKED
-      ) {
-        await this.sessions?.revokeMembershipSessions(
-          organizationId,
-          membership.id,
-          `membership_${dto.status}`,
-        );
-      }
+      return { user, membership };
+    });
+    if (
+      dto.status === MembershipStatus.SUSPENDED ||
+      dto.status === MembershipStatus.REVOKED
+    ) {
+      await this.sessions?.revokeMembershipSessions(
+        organizationId,
+        result.membership.id,
+        `membership_${dto.status}`,
+      );
     }
-    return UserMapper.toDTO(user, membership.status);
+    return UserMapper.toDTO(result.user, result.membership.status);
   }
 
   async remove(id: string, organizationId: string): Promise<void> {
-    const { membership } = await this.ensureMember(id, organizationId);
-    membership.status = MembershipStatus.REVOKED;
-    membership.revokedAt = new Date();
-    await this.memberships.save(membership);
+    const membership = await this.dataSource.transaction(async (manager) => {
+      const { membership } = await this.ensureMember(
+        id,
+        organizationId,
+        manager,
+      );
+      await this.assertNotLastOwner(manager, organizationId, membership);
+      membership.status = MembershipStatus.REVOKED;
+      membership.revokedAt = new Date();
+      await manager.getRepository(Membership).save(membership);
+      return membership;
+    });
     await this.sessions?.revokeMembershipSessions(
       organizationId,
       membership.id,
@@ -185,13 +208,47 @@ export class UsersService {
   private async ensureMember(
     id: string,
     organizationId: string,
+    manager?: EntityManager,
   ): Promise<{ user: User; membership: Membership }> {
-    const membership = await this.memberships.findOne({
+    const memberships = manager?.getRepository(Membership) ?? this.memberships;
+    const users = manager?.getRepository(User) ?? this.repository;
+    const membership = await memberships.findOne({
       where: { organizationId, userId: id },
+      relations: { role: true },
     });
     if (!membership) throw new NotFoundException('User not found');
-    const user = await this.repository.findOne({ where: { id } });
+    const user = await users.findOne({ where: { id } });
     if (!user) throw new NotFoundException('User not found');
     return { user, membership };
+  }
+
+  private async assertNotLastOwner(
+    manager: EntityManager,
+    organizationId: string,
+    membership: Membership,
+  ): Promise<void> {
+    if (
+      membership.role?.key !== RoleKey.OWNER ||
+      membership.status !== MembershipStatus.ACTIVE
+    ) {
+      return;
+    }
+
+    const organization = await manager.getRepository(Organization).findOne({
+      where: { id: organizationId },
+      lock: { mode: 'pessimistic_write' },
+    });
+    if (!organization) throw new NotFoundException('Organization not found');
+
+    const activeOwners = await manager.getRepository(Membership).count({
+      where: {
+        organizationId,
+        status: MembershipStatus.ACTIVE,
+        role: { key: RoleKey.OWNER },
+      },
+    });
+    if (activeOwners <= 1) {
+      throw new ConflictException('Organization must retain an active owner');
+    }
   }
 }

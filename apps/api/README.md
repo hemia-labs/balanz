@@ -89,6 +89,13 @@ bun run --cwd apps/api start:dev   # watch mode
 
 Sin DB el servidor levanta igual (responde en `/`). El módulo de datos está apagado.
 
+En producción, `start:prod` ejecuta primero las migraciones pendientes y el seed
+idempotente, y solo inicia la API si ambos pasos terminan correctamente:
+
+```bash
+bun run --cwd apps/api start:prod
+```
+
 ## Activar la base de datos
 
 1. Completa `.env`.
