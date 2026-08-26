@@ -3,10 +3,11 @@
 import Link from "next/link";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { ApiError, isAbortError } from "@/lib/api-client";
+import { ApiError, isAbortError, subscribeToUnauthorizedApi } from "@/lib/api-client";
 import { selectOrganization } from "@/features/organizations/api";
 import { getAuthorization, getSession } from "@/features/session/api";
 import { getOrganizations } from "@/features/organizations/api";
+import { localeFromPath, unauthorizedLoginDestination } from "./unauthorized-navigation";
 import type { AuthorizationContext, OrganizationSummary, SessionContext, SessionState } from "./types";
 
 interface SessionContextValue {
@@ -21,15 +22,6 @@ interface SessionContextValue {
 
 const SessionContext = createContext<SessionContextValue | null>(null);
 
-function localeFromPath(pathname: string) {
-  return pathname.split("/").filter(Boolean)[0] ?? "es";
-}
-
-function safeReturnTo(pathname: string, search: string) {
-  const value = `${pathname}${search}`;
-  return value.startsWith("/") && !value.startsWith("//") ? value : "/";
-}
-
 function statusForError(error: ApiError): SessionState {
   if (error.code === "MFA_REQUIRED" || error.code === "MFA_SETUP_REQUIRED" || error.status === 403) return "forbidden";
   if (error.status === 401) return "unauthenticated";
@@ -43,6 +35,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const navigationRef = useRef({ pathname, search });
   const requestVersion = useRef(0);
+  const redirectingUnauthorized = useRef(false);
   const [status, setStatus] = useState<SessionState>("checking");
   const [session, setSession] = useState<SessionContext | null>(null);
   const [authorization, setAuthorization] = useState<AuthorizationContext | null>(null);
@@ -52,6 +45,32 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     navigationRef.current = { pathname, search };
   }, [pathname, search]);
+
+  const invalidateSession = useCallback((requestError: ApiError) => {
+    requestVersion.current += 1;
+    setSession(null);
+    setAuthorization(null);
+    setOrganizations([]);
+    setError(requestError);
+    setStatus("unauthenticated");
+
+    if (redirectingUnauthorized.current) return;
+    const current = navigationRef.current;
+    const destination = unauthorizedLoginDestination(
+      current.pathname,
+      current.search,
+    );
+    if (!destination) return;
+    redirectingUnauthorized.current = true;
+    router.replace(destination);
+  }, [router]);
+
+  useEffect(
+    () => subscribeToUnauthorizedApi(({ error: requestError }) => {
+      invalidateSession(requestError);
+    }),
+    [invalidateSession],
+  );
 
   const loadSession = useCallback(async (signal?: AbortSignal) => {
     const version = ++requestVersion.current;
@@ -78,18 +97,18 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       const requestError = cause instanceof ApiError
         ? cause
         : new ApiError(0, "No se pudo validar la sesión.", "SESSION_ERROR", {}, cause);
+      if (requestError.status === 401) {
+        invalidateSession(requestError);
+        return;
+      }
       setSession(null);
       setAuthorization(null);
+      setOrganizations([]);
       setError(requestError);
       const nextStatus = statusForError(requestError);
       setStatus(nextStatus);
-      if (nextStatus === "unauthenticated") {
-        const { pathname: currentPathname, search } = navigationRef.current;
-        const returnTo = safeReturnTo(currentPathname, search ? `?${search}` : "");
-        router.replace(`/${localeFromPath(currentPathname)}/login?returnTo=${encodeURIComponent(returnTo)}`);
-      }
     }
-  }, [router]);
+  }, [invalidateSession, router]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -113,11 +132,14 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       const requestError = cause instanceof ApiError
         ? cause
         : new ApiError(0, "No se pudo activar la organización.", "TENANT_SWITCH_ERROR", {}, cause);
-      setError(requestError);
-      setStatus(statusForError(requestError));
+      if (requestError.status === 401) invalidateSession(requestError);
+      else {
+        setError(requestError);
+        setStatus(statusForError(requestError));
+      }
       throw requestError;
     }
-  }, [loadSession]);
+  }, [invalidateSession, loadSession]);
 
   const value = useMemo<SessionContextValue>(() => ({
     status,

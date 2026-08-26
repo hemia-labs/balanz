@@ -5,6 +5,8 @@ import {
   apiErrorMessage,
   classifyApiError,
   apiClient,
+  shouldNotifyUnauthorizedApi,
+  subscribeToUnauthorizedApi,
 } from "./api-client";
 
 test("clasifica errores API y evita mensajes sensibles de rate limit", () => {
@@ -73,9 +75,93 @@ test("normaliza errores de transporte conservando status y código", async () =>
   }
 });
 
+test("notifica globalmente un 401 de una operación autenticada", async () => {
+  const originalFetch = globalThis.fetch;
+  const events: Array<{ status: number; method: string; path: string }> = [];
+  const unsubscribe = subscribeToUnauthorizedApi(({ error, method, path }) => {
+    events.push({ status: error.status, method, path });
+  });
+  globalThis.fetch = async () =>
+    new Response(JSON.stringify({ message: "SESSION_EXPIRED" }), {
+      status: 401,
+      headers: { "content-type": "application/json" },
+    });
+
+  try {
+    await assert.rejects(
+      apiClient("/client-accounts?page=2", { method: "post" }),
+      (error: unknown) => error instanceof ApiError && error.status === 401,
+    );
+    assert.deepEqual(events, [
+      { status: 401, method: "POST", path: "/client-accounts?page=2" },
+    ]);
+  } finally {
+    unsubscribe();
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("mantiene locales los 401 de bootstrap y login para evitar bucles", async () => {
+  const originalFetch = globalThis.fetch;
+  let notifications = 0;
+  const unsubscribe = subscribeToUnauthorizedApi(() => {
+    notifications += 1;
+  });
+  globalThis.fetch = async () =>
+    new Response(JSON.stringify({ message: "UNAUTHORIZED" }), {
+      status: 401,
+      headers: { "content-type": "application/json" },
+    });
+
+  try {
+    for (const path of [
+      "/auth/session",
+      "/auth/session/?source=bootstrap",
+      "/auth/login",
+      "/auth/login/mfa",
+    ]) {
+      await assert.rejects(apiClient(path), ApiError);
+    }
+    assert.equal(notifications, 0);
+    assert.equal(shouldNotifyUnauthorizedApi("/auth/session/organization"), true);
+    assert.equal(shouldNotifyUnauthorizedApi("/me/authorization"), true);
+  } finally {
+    unsubscribe();
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("un listener defectuoso no reemplaza el ApiError original", async () => {
+  const originalFetch = globalThis.fetch;
+  const unsubscribe = subscribeToUnauthorizedApi(() => {
+    throw new Error("listener failure");
+  });
+  globalThis.fetch = async () =>
+    new Response(JSON.stringify({ message: "SESSION_EXPIRED" }), {
+      status: 401,
+      headers: { "content-type": "application/json" },
+    });
+
+  try {
+    await assert.rejects(apiClient("/client-accounts"), (error: unknown) => {
+      assert.equal(error instanceof ApiError, true);
+      assert.equal((error as ApiError).status, 401);
+      assert.equal((error as ApiError).code, "SESSION_EXPIRED");
+      return true;
+    });
+  } finally {
+    unsubscribe();
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("respeta una señal cancelada antes de iniciar la petición", async () => {
   const originalFetch = globalThis.fetch;
   const controller = new AbortController();
+  let notifications = 0;
+  const unsubscribe = subscribeToUnauthorizedApi(() => {
+    notifications += 1;
+  });
   controller.abort();
   globalThis.fetch = async (_input, init) => {
     assert.equal(init?.signal?.aborted, true);
@@ -90,7 +176,9 @@ test("respeta una señal cancelada antes de iniciar la petición", async () => {
         return true;
       },
     );
+    assert.equal(notifications, 0);
   } finally {
+    unsubscribe();
     globalThis.fetch = originalFetch;
   }
 });

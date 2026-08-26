@@ -17,6 +17,60 @@ export class ApiError extends Error {
   }
 }
 
+export interface UnauthorizedApiEvent {
+  error: ApiError;
+  method: string;
+  path: string;
+}
+
+type UnauthorizedApiListener = (event: UnauthorizedApiEvent) => void;
+
+const unauthorizedApiListeners = new Set<UnauthorizedApiListener>();
+
+/**
+ * Allows the authenticated application shell to react to an expired session
+ * regardless of which feature made the request. Authentication bootstrap and
+ * login requests deliberately remain local to their own flows.
+ */
+export function subscribeToUnauthorizedApi(
+  listener: UnauthorizedApiListener,
+) {
+  unauthorizedApiListeners.add(listener);
+  return () => {
+    unauthorizedApiListeners.delete(listener);
+  };
+}
+
+function pathnameForApiRequest(path: string) {
+  try {
+    return new URL(path, "https://api.balanz.invalid").pathname.replace(
+      /\/$/,
+      "",
+    );
+  } catch {
+    return path.split(/[?#]/, 1)[0].replace(/\/$/, "");
+  }
+}
+
+export function shouldNotifyUnauthorizedApi(path: string) {
+  const pathname = pathnameForApiRequest(path);
+  return (
+    pathname !== "/auth/session" &&
+    pathname !== "/auth/login" &&
+    !pathname.startsWith("/auth/login/")
+  );
+}
+
+function notifyUnauthorizedApi(event: UnauthorizedApiEvent) {
+  for (const listener of [...unauthorizedApiListeners]) {
+    try {
+      listener(event);
+    } catch {
+      // A UI listener must never replace the original API error.
+    }
+  }
+}
+
 export function isApiError(error: unknown): error is ApiError {
   return error instanceof ApiError;
 }
@@ -154,13 +208,24 @@ export async function apiClient<T>(
       const message = Array.isArray(body?.message)
         ? body.message.join(". ")
         : body?.message;
-      throw new ApiError(
+      const requestError = new ApiError(
         response.status,
         message ?? body?.error ?? "No se pudo completar la operación",
         errorCode(message, body?.code),
         normalizeFieldErrors(body?.fieldErrors ?? body?.errors),
         body?.details,
       );
+      if (
+        requestError.status === 401 &&
+        shouldNotifyUnauthorizedApi(path)
+      ) {
+        notifyUnauthorizedApi({
+          error: requestError,
+          method: (init.method ?? "GET").toUpperCase(),
+          path,
+        });
+      }
+      throw requestError;
     }
     return body as T;
   } catch (error) {

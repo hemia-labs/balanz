@@ -28,7 +28,13 @@
     "src/features/clients/fiscal-periods-load-state.test.ts",
     "src/features/clients/entity-context.ts",
     "src/features/clients/entity-context.test.ts",
+    "src/features/clients/client-list-query.ts",
+    "src/features/clients/client-list-query.test.ts",
+    "src/features/clients/submission-guard.ts",
+    "src/features/clients/submission-guard.test.ts",
     "src/features/clients/types.ts",
+    "src/features/session/unauthorized-navigation.ts",
+    "src/features/session/unauthorized-navigation.test.ts",
     "src/features/session/types.ts"
   ]
 }

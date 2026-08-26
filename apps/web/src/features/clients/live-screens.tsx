@@ -80,11 +80,27 @@ import {
   normalizeDomainSearch,
   resolveEntitySearchDraft,
 } from "./entity-context";
+import {
+  clearClientListState,
+  clientListQueryValue,
+  clientSearchQuery,
+  editClientSearchDraft,
+  initialClientListLoadState,
+  normalizeClientListSearch,
+  rejectClientListLoad,
+  resolveClientListLoad,
+  resolveClientSearchDraft,
+  selectClientListLoad,
+  startClientListLoad,
+} from "./client-list-query";
+import {
+  acquireSubmissionLock,
+  releaseSubmissionLock,
+} from "./submission-guard";
 import type {
   AccountAssignment,
   AssignmentResponsibility,
   ClientDetail,
-  ClientPage,
   CollectionPage,
   LegalEntity,
   MemberCandidate,
@@ -436,6 +452,7 @@ function NewClientDialog({
   const [membershipId, setMembershipId] = useState("");
   const [year, setYear] = useState(new Date().getFullYear());
   const [pending, setPending] = useState(false);
+  const submissionLock = useRef(false);
   const [error, setError] = useState<unknown>(null);
   const candidates = useMemberCandidatePage(getPrimaryCandidates, open);
   const members = candidates.result?.items ?? [];
@@ -447,7 +464,7 @@ function NewClientDialog({
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (pending) return;
+    if (!acquireSubmissionLock(submissionLock)) return;
     const normalizedRfc = rfc.trim().toUpperCase();
     if (!RFC_PATTERN.test(normalizedRfc)) {
       setError(
@@ -462,6 +479,7 @@ function NewClientDialog({
           },
         ),
       );
+      releaseSubmissionLock(submissionLock);
       return;
     }
     setPending(true);
@@ -480,6 +498,7 @@ function NewClientDialog({
     } catch (cause) {
       setError(cause);
     } finally {
+      releaseSubmissionLock(submissionLock);
       setPending(false);
     }
   }
@@ -666,12 +685,22 @@ export function LiveClientsScreen() {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  const [search, setSearch] = useState(searchParams.get("search") ?? "");
-  const [page, setPage] = useState<ClientPage | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<unknown>(null);
-  const [creating, setCreating] = useState(false);
   const queryKey = searchParams.toString();
+  const routeSearch = normalizeClientListSearch(searchParams.get("search"));
+  const [searchDraft, setSearchDraft] = useState({
+    base: routeSearch,
+    value: routeSearch,
+  });
+  const search = resolveClientSearchDraft(searchDraft, routeSearch);
+  const debouncedSearch = useDebouncedValue(search);
+  const requestSequence = useRef(0);
+  const [loadState, setLoadState] = useState(initialClientListLoadState);
+  const { page, loading, error } = selectClientListLoad(
+    loadState,
+    organization.id,
+    queryKey,
+  );
+  const [creating, setCreating] = useState(false);
   const base = `/${pathname.split("/").filter(Boolean)[0] ?? "es"}/organizations/${encodeURIComponent(organization.slug)}`;
   const canCreate = [
     "clients.manage",
@@ -681,23 +710,29 @@ export function LiveClientsScreen() {
   ].every((permission) => capabilities.includes(permission as never));
 
   useEffect(() => {
-    const timer = globalThis.setTimeout(() => {
-      const next = new URLSearchParams(searchParams.toString());
-      if (search.trim()) next.set("search", search.trim());
-      else next.delete("search");
-      next.set("page", "1");
-      if (next.toString() !== searchParams.toString())
-        router.replace(`${pathname}?${next.toString()}`);
-    }, 300);
-    return () => globalThis.clearTimeout(timer);
-  }, [pathname, router, search, searchParams]);
+    if (searchDraft.base !== routeSearch) return;
+    const nextQuery = clientSearchQuery(queryKey, debouncedSearch);
+    if (nextQuery === null) return;
+    router.replace(`${pathname}?${nextQuery}`);
+  }, [
+    debouncedSearch,
+    pathname,
+    queryKey,
+    routeSearch,
+    router,
+    searchDraft.base,
+  ]);
 
   useEffect(() => {
+    const request = {
+      organizationId: organization.id,
+      queryKey,
+      requestId: ++requestSequence.current,
+    };
     const controller = new AbortController();
     const params = new URLSearchParams(queryKey);
     const timer = globalThis.setTimeout(() => {
-      setLoading(true);
-      setError(null);
+      setLoadState(startClientListLoad(request));
       void getClients(
         {
           search: params.get("search") || undefined,
@@ -710,12 +745,17 @@ export function LiveClientsScreen() {
         },
         controller.signal,
       )
-        .then(setPage)
-        .catch((cause) => {
-          if (!isAbortError(cause)) setError(cause);
+        .then((nextPage) => {
+          if (controller.signal.aborted) return;
+          setLoadState((current) =>
+            resolveClientListLoad(current, request, nextPage),
+          );
         })
-        .finally(() => {
-          if (!controller.signal.aborted) setLoading(false);
+        .catch((cause) => {
+          if (controller.signal.aborted || isAbortError(cause)) return;
+          setLoadState((current) =>
+            rejectClientListLoad(current, request, cause),
+          );
         });
     }, 0);
     return () => {
@@ -724,12 +764,18 @@ export function LiveClientsScreen() {
     };
   }, [organization.id, queryKey]);
 
-  function setQuery(key: string, value?: string) {
-    const next = new URLSearchParams(searchParams.toString());
-    if (value) next.set(key, value);
-    else next.delete(key);
-    if (key !== "page") next.set("page", "1");
-    router.replace(`${pathname}?${next.toString()}`);
+  function setQuery(
+    key: "page" | "status" | "sort" | "direction",
+    value?: string,
+  ) {
+    const nextQuery = clientListQueryValue(queryKey, key, value);
+    if (nextQuery !== null) router.replace(`${pathname}?${nextQuery}`);
+  }
+
+  function clearFilters() {
+    const cleared = clearClientListState(routeSearch);
+    setSearchDraft(cleared.searchDraft);
+    router.replace(pathname);
   }
 
   return (
@@ -757,7 +803,12 @@ export function LiveClientsScreen() {
           <Field label="Buscar">
             <Input
               value={search}
-              onChange={(event) => setSearch(event.target.value)}
+              maxLength={DOMAIN_SEARCH_MAX_LENGTH}
+              onChange={(event) =>
+                setSearchDraft(
+                  editClientSearchDraft(routeSearch, event.target.value),
+                )
+              }
               placeholder="Nombre o código"
               className="w-64"
             />
@@ -784,7 +835,7 @@ export function LiveClientsScreen() {
               <option value="updatedAt">Actualización</option>
             </select>
           </Field>
-          <Button variant="outline" onClick={() => router.replace(pathname)}>
+          <Button variant="outline" onClick={clearFilters}>
             Limpiar filtros
           </Button>
         </FilterBar>
