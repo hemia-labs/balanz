@@ -1,10 +1,12 @@
 import { apiClient } from "@/lib/api-client";
+import { normalizeDomainSearch } from "./entity-context";
 import type {
   AccountAssignment,
   AssignmentResponsibility,
   ClientAccount,
   ClientDetail,
   ClientPage,
+  CollectionPage,
   CreatedAssignment,
   CreatedClientAggregate,
   FiscalYear,
@@ -22,6 +24,20 @@ export interface ClientListQuery {
   direction?: "asc" | "desc";
 }
 
+export interface CollectionQuery {
+  search?: string;
+  page?: number;
+  limit?: number;
+}
+
+export interface ClientDetailQuery {
+  includeArchived?: boolean;
+  legalEntityId?: string;
+  legalEntitySearch?: string;
+  legalEntityPage?: number;
+  legalEntityLimit?: number;
+}
+
 function queryString(values: Record<string, string | number | undefined>) {
   const query = new URLSearchParams();
   Object.entries(values).forEach(([key, value]) => {
@@ -37,16 +53,36 @@ export function getClients(query: ClientListQuery, signal?: AbortSignal) {
   });
 }
 
-export function getClient(clientAccountId: string, signal?: AbortSignal) {
+export function getClient(
+  clientAccountId: string,
+  query: ClientDetailQuery = {},
+  signal?: AbortSignal,
+) {
   return apiClient<ClientDetail>(
-    `/client-accounts/${encodeURIComponent(clientAccountId)}`,
+    `/client-accounts/${encodeURIComponent(clientAccountId)}${queryString({
+      includeArchived:
+        query.includeArchived === undefined
+          ? undefined
+          : String(query.includeArchived),
+      legalEntityId: query.legalEntityId,
+      legalEntitySearch:
+        normalizeDomainSearch(query.legalEntitySearch) || undefined,
+      legalEntityPage: query.legalEntityPage,
+      legalEntityLimit: query.legalEntityLimit,
+    })}`,
     { signal },
   );
 }
 
-export function getPrimaryCandidates(signal?: AbortSignal) {
-  return apiClient<MemberCandidate[]>(
-    "/client-accounts/available-primary-members",
+export function getPrimaryCandidates(
+  query: CollectionQuery = {},
+  signal?: AbortSignal,
+) {
+  return apiClient<CollectionPage<MemberCandidate>>(
+    `/client-accounts/available-primary-members${queryString({
+      ...query,
+      search: normalizeDomainSearch(query.search) || undefined,
+    })}`,
     { signal },
   );
 }
@@ -122,20 +158,52 @@ export function archiveLegalEntity(legalEntityId: string) {
 
 export function getAvailableMembers(
   clientAccountId: string,
+  query: CollectionQuery = {},
   signal?: AbortSignal,
 ) {
-  return apiClient<MemberCandidate[]>(
-    `/client-accounts/${encodeURIComponent(clientAccountId)}/available-members`,
+  return apiClient<CollectionPage<MemberCandidate>>(
+    `/client-accounts/${encodeURIComponent(clientAccountId)}/available-members${queryString(
+      {
+        ...query,
+        search: normalizeDomainSearch(query.search) || undefined,
+      },
+    )}`,
+    { signal },
+  );
+}
+
+export function getLegalEntities(
+  clientAccountId: string,
+  query: CollectionQuery & { includeArchived?: boolean } = {},
+  signal?: AbortSignal,
+) {
+  return apiClient<CollectionPage<LegalEntity>>(
+    `/client-accounts/${encodeURIComponent(clientAccountId)}/legal-entities${queryString(
+      {
+        ...query,
+        search: normalizeDomainSearch(query.search) || undefined,
+        includeArchived:
+          query.includeArchived === undefined
+            ? undefined
+            : String(query.includeArchived),
+      },
+    )}`,
     { signal },
   );
 }
 
 export function getAssignments(
   clientAccountId: string,
+  query: CollectionQuery = {},
   signal?: AbortSignal,
 ) {
-  return apiClient<AccountAssignment[]>(
-    `/client-accounts/${encodeURIComponent(clientAccountId)}/assignments`,
+  return apiClient<CollectionPage<AccountAssignment>>(
+    `/client-accounts/${encodeURIComponent(clientAccountId)}/assignments${queryString(
+      {
+        ...query,
+        search: normalizeDomainSearch(query.search) || undefined,
+      },
+    )}`,
     { signal },
   );
 }

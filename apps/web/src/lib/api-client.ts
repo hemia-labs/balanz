@@ -70,6 +70,7 @@ export function classifyApiError(error: unknown): ApiErrorKind {
   if (!isApiError(error)) return "unknown";
   if (error.code === "NETWORK_ERROR" || error.code === "TIMEOUT")
     return "network";
+  if (error.code === "VALIDATION_ERROR") return "validation";
   if (error.status === 401 || error.code === "MFA_REQUIRED")
     return "unauthenticated";
   if (error.status === 403 || error.code === "MFA_SETUP_REQUIRED")

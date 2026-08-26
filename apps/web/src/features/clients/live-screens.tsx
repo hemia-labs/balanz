@@ -52,6 +52,7 @@ import {
   revokeAssignment,
   updateClient,
   updateLegalEntity,
+  type CollectionQuery,
 } from "./api";
 import {
   initialFiscalPeriodsLoadState,
@@ -69,13 +70,25 @@ import {
   startFiscalYearsLoad,
   type FiscalYearsQueryKey,
 } from "./fiscal-years-load-state";
+import {
+  DOMAIN_SEARCH_MAX_LENGTH,
+  entityContextSuffix,
+  fiscalEntitySelectorHref,
+  isLegalEntityRouteUnavailableError,
+  legalEntityDetailQuery,
+  normalizeCollectionPage,
+  normalizeDomainSearch,
+  resolveEntitySearchDraft,
+} from "./entity-context";
 import type {
   AccountAssignment,
   AssignmentResponsibility,
   ClientDetail,
   ClientPage,
+  CollectionPage,
   LegalEntity,
   MemberCandidate,
+  PageMeta,
 } from "./types";
 
 const selectClass =
@@ -193,7 +206,20 @@ function Dialog({
   );
 }
 
-function useClientDetail(clientId: string) {
+function useClientDetail(
+  clientId: string,
+  {
+    legalEntityId,
+    legalEntityPage = 1,
+    legalEntityLimit = DOMAIN_PAGE_LIMIT,
+    legalEntitySearch = "",
+  }: {
+    legalEntityId?: string;
+    legalEntityPage?: number;
+    legalEntityLimit?: number;
+    legalEntitySearch?: string;
+  } = {},
+) {
   const { organization, registerClientName } = useAccountingContext();
   const [revision, setRevision] = useState(0);
   const requestSequence = useRef(0);
@@ -226,7 +252,16 @@ function useClientDetail(clientId: string) {
         detail: null,
         error: null,
       });
-      void getClient(clientId, controller.signal)
+      void getClient(
+        clientId,
+        {
+          legalEntityId,
+          legalEntityPage,
+          legalEntityLimit,
+          legalEntitySearch: legalEntitySearch || undefined,
+        },
+        controller.signal,
+      )
         .then((nextDetail) => {
           if (controller.signal.aborted) return;
           setState((current) =>
@@ -267,7 +302,16 @@ function useClientDetail(clientId: string) {
       globalThis.clearTimeout(timer);
       controller.abort();
     };
-  }, [clientId, organization.id, registerClientName, revision]);
+  }, [
+    clientId,
+    legalEntityId,
+    legalEntityLimit,
+    legalEntityPage,
+    legalEntitySearch,
+    organization.id,
+    registerClientName,
+    revision,
+  ]);
   const belongsToContext =
     state.organizationId === organization.id && state.clientId === clientId;
   return {
@@ -284,11 +328,18 @@ interface ClientAssignmentsLoadState {
   clientId: string | null;
   requestId: number;
   status: "loading" | "ready" | "error";
-  assignments: AccountAssignment[];
+  assignments: CollectionPage<AccountAssignment> | null;
   error: unknown;
 }
 
-function useClientAssignments(clientId: string) {
+function useClientAssignments(
+  clientId: string,
+  {
+    search = "",
+    page = 1,
+    limit = DOMAIN_PAGE_LIMIT,
+  }: { search?: string; page?: number; limit?: number } = {},
+) {
   const { organization } = useAccountingContext();
   const [revision, setRevision] = useState(0);
   const requestSequence = useRef(0);
@@ -297,7 +348,7 @@ function useClientAssignments(clientId: string) {
     clientId: null,
     requestId: 0,
     status: "loading",
-    assignments: [],
+    assignments: null,
     error: null,
   });
   const reload = useCallback(() => setRevision((value) => value + 1), []);
@@ -311,10 +362,14 @@ function useClientAssignments(clientId: string) {
         clientId,
         requestId,
         status: "loading",
-        assignments: [],
+        assignments: null,
         error: null,
       });
-      void getAssignments(clientId, controller.signal)
+      void getAssignments(
+        clientId,
+        { search: search || undefined, page, limit },
+        controller.signal,
+      )
         .then((assignments) => {
           if (controller.signal.aborted) return;
           setState((current) =>
@@ -343,7 +398,7 @@ function useClientAssignments(clientId: string) {
                   clientId,
                   requestId,
                   status: "error",
-                  assignments: [],
+                  assignments: null,
                   error: cause,
                 }
               : current,
@@ -354,12 +409,12 @@ function useClientAssignments(clientId: string) {
       globalThis.clearTimeout(timer);
       controller.abort();
     };
-  }, [clientId, organization.id, revision]);
+  }, [clientId, limit, organization.id, page, revision, search]);
   const belongsToClient =
     state.organizationId === organization.id && state.clientId === clientId;
   return {
     assignments:
-      belongsToClient && state.status === "ready" ? state.assignments : [],
+      belongsToClient && state.status === "ready" ? state.assignments : null,
     error: belongsToClient && state.status === "error" ? state.error : null,
     loading: !belongsToClient || state.status === "loading",
     reload,
@@ -376,27 +431,19 @@ function NewClientDialog({
   base: string;
 }) {
   const router = useRouter();
-  const [members, setMembers] = useState<MemberCandidate[]>([]);
   const [name, setName] = useState("");
   const [rfc, setRfc] = useState("");
   const [membershipId, setMembershipId] = useState("");
   const [year, setYear] = useState(new Date().getFullYear());
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<unknown>(null);
-  useEffect(() => {
-    if (!open) return;
-    const controller = new AbortController();
-    void getPrimaryCandidates(controller.signal)
-      .then((items) => {
-        setError(null);
-        setMembers(items);
-        setMembershipId((current) => current || items[0]?.membershipId || "");
-      })
-      .catch((cause) => {
-        if (!isAbortError(cause)) setError(cause);
-      });
-    return () => controller.abort();
-  }, [open]);
+  const candidates = useMemberCandidatePage(getPrimaryCandidates, open);
+  const members = candidates.result?.items ?? [];
+  const selectedMembershipId = members.some(
+    (member) => member.membershipId === membershipId,
+  )
+    ? membershipId
+    : (members[0]?.membershipId ?? "");
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -405,7 +452,7 @@ function NewClientDialog({
     if (!RFC_PATTERN.test(normalizedRfc)) {
       setError(
         new ApiError(
-          422,
+          400,
           "Revisa los campos señalados e intenta de nuevo.",
           "VALIDATION_ERROR",
           {
@@ -423,12 +470,12 @@ function NewClientDialog({
       const created = await createClient({
         accountName: name.trim(),
         legalEntity: { legalName: name.trim(), rfc: normalizedRfc },
-        primaryMembershipId: membershipId,
+        primaryMembershipId: selectedMembershipId,
         fiscalYear: year,
       });
       onClose();
       router.push(
-        `${base}/clients/${created.clientAccountId}/legal-entities/${created.legalEntityId}/fiscal-years/${year}`,
+        `${base}/clients/${created.clientAccountId}/legal-entities/${created.legalEntityId}/fiscal-years/${year}${entityContextSuffix(1, normalizedRfc)}`,
       );
     } catch (cause) {
       setError(cause);
@@ -515,11 +562,21 @@ function NewClientDialog({
               </span>
             ) : null}
           </Field>
+          <Field label="Buscar responsable">
+            <Input
+              type="search"
+              maxLength={DOMAIN_SEARCH_MAX_LENGTH}
+              value={candidates.search}
+              onChange={(event) => candidates.setSearch(event.target.value)}
+              placeholder="Nombre o correo"
+            />
+          </Field>
           <Field label="Responsable principal">
             <select
               required
               className={selectClass}
-              value={membershipId}
+              value={selectedMembershipId}
+              disabled={candidates.pending}
               onChange={(event) => {
                 setMembershipId(event.target.value);
                 setError(null);
@@ -530,7 +587,11 @@ function NewClientDialog({
               }
             >
               <option value="" disabled>
-                Selecciona un responsable
+                {candidates.pending
+                  ? "Buscando responsables…"
+                  : members.length === 0
+                    ? "No hay coincidencias"
+                    : "Selecciona un responsable"}
               </option>
               {members.map((member) => (
                 <option key={member.membershipId} value={member.membershipId}>
@@ -547,6 +608,17 @@ function NewClientDialog({
               </span>
             ) : null}
           </Field>
+          <div className="sm:col-span-2">
+            <ErrorNotice
+              error={candidates.error}
+              fallback="No se pudieron buscar responsables."
+            />
+            <CollectionPagination
+              meta={candidates.result?.meta ?? null}
+              itemLabel="responsables"
+              onPageChange={candidates.setPageNumber}
+            />
+          </div>
           <Field label="Ejercicio inicial">
             <Input
               required
@@ -575,7 +647,12 @@ function NewClientDialog({
           <Button type="button" variant="outline" onClick={onClose}>
             Cancelar
           </Button>
-          <Button type="submit" disabled={pending || !membershipId}>
+          <Button
+            type="submit"
+            disabled={
+              pending || candidates.pending || !selectedMembershipId
+            }
+          >
             {pending ? "Creando…" : "Crear cliente"}
           </Button>
         </div>
@@ -625,7 +702,7 @@ export function LiveClientsScreen() {
         {
           search: params.get("search") || undefined,
           status: params.get("status") || undefined,
-          page: Number(params.get("page") || 1),
+          page: normalizeCollectionPage(params.get("page")),
           limit: 25,
           sort:
             (params.get("sort") as "name" | "status" | "updatedAt") || "name",
@@ -1042,46 +1119,53 @@ function AddLegalEntityForm({
 }
 
 function AssignmentManager({
-  assignments,
+  assignmentPage,
+  assignmentSearch,
+  onAssignmentSearchChange,
+  onAssignmentPageChange,
   clientId,
   reload,
 }: {
-  assignments: AccountAssignment[];
+  assignmentPage: CollectionPage<AccountAssignment>;
+  assignmentSearch: string;
+  onAssignmentSearchChange: (value: string) => void;
+  onAssignmentPageChange: (page: number) => void;
   clientId: string;
   reload: () => void;
 }) {
-  const [members, setMembers] = useState<MemberCandidate[]>([]);
   const [membershipId, setMembershipId] = useState("");
   const [responsibility, setResponsibility] =
     useState<AssignmentResponsibility>("collaborator");
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<unknown>(null);
-  useEffect(() => {
-    const controller = new AbortController();
-    void getAvailableMembers(clientId, controller.signal)
-      .then((items) => {
-        setError(null);
-        setMembers(items);
-        setMembershipId(
-          items.find((item) => !item.assignmentId)?.membershipId ??
-            items[0]?.membershipId ??
-            "",
-        );
-      })
-      .catch((cause) => {
-        if (!isAbortError(cause)) setError(cause);
-      });
-    return () => controller.abort();
-  }, [assignments, clientId]);
+  const [membersRevision, setMembersRevision] = useState(0);
+  const availableMemberLoader = useCallback<MemberCandidateLoader>(
+    (query, signal) => getAvailableMembers(clientId, query, signal),
+    [clientId],
+  );
+  const candidates = useMemberCandidatePage(
+    availableMemberLoader,
+    true,
+    membersRevision,
+  );
+  const members = candidates.result?.items ?? [];
+  const selectedMembershipId = members.some(
+    (member) => member.membershipId === membershipId,
+  )
+    ? membershipId
+    : (members.find((item) => !item.assignmentId)?.membershipId ??
+      members[0]?.membershipId ??
+      "");
   async function submit(event: FormEvent) {
     event.preventDefault();
     setPending(true);
     setError(null);
     try {
       await createAssignment(clientId, {
-        membershipId,
+        membershipId: selectedMembershipId,
         responsibility,
       });
+      setMembersRevision((value) => value + 1);
       reload();
     } catch (cause) {
       setError(cause);
@@ -1095,6 +1179,7 @@ function AssignmentManager({
     setError(null);
     try {
       await revokeAssignment(clientId, id);
+      setMembersRevision((value) => value + 1);
       reload();
     } catch (cause) {
       setError(cause);
@@ -1104,9 +1189,23 @@ function AssignmentManager({
   }
   return (
     <div>
+      <FilterBar>
+        <Field label="Buscar asignación">
+          <Input
+            type="search"
+            maxLength={DOMAIN_SEARCH_MAX_LENGTH}
+            value={assignmentSearch}
+            onChange={(event) =>
+              onAssignmentSearchChange(event.target.value)
+            }
+            placeholder="Nombre o correo"
+            className="w-72"
+          />
+        </Field>
+      </FilterBar>
       <ProductTable
         caption="Asignaciones activas"
-        rows={assignments.filter((row) => row.status === "active")}
+        rows={assignmentPage.items}
         rowKey={(row) => row.id}
         emptyMessage="Este cliente todavía no tiene asignaciones activas."
         columns={[
@@ -1153,54 +1252,92 @@ function AssignmentManager({
           },
         ]}
       />
+      <CollectionPagination
+        meta={assignmentPage.meta}
+        itemLabel="asignaciones"
+        onPageChange={onAssignmentPageChange}
+      />
       <form
         onSubmit={submit}
-        className="grid gap-3 border-t border-border p-5 sm:grid-cols-[1fr_14rem_auto] sm:items-end"
+        className="space-y-4 border-t border-border p-5"
       >
-        <Field label="Miembro">
-          <select
-            required
-            className={selectClass}
-            value={membershipId}
-            onChange={(event) => setMembershipId(event.target.value)}
-          >
-            {members.map((member) => (
-              <option key={member.membershipId} value={member.membershipId}>
-                {member.displayName} ·{" "}
-                {member.assignmentId
-                  ? responsibilityLabels[member.responsibility!]
-                  : "sin asignar"}
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-[1fr_1fr_14rem_auto] lg:items-end">
+          <Field label="Buscar miembro">
+            <Input
+              type="search"
+              maxLength={DOMAIN_SEARCH_MAX_LENGTH}
+              value={candidates.search}
+              onChange={(event) => candidates.setSearch(event.target.value)}
+              placeholder="Nombre o correo"
+            />
+          </Field>
+          <Field label="Miembro">
+            <select
+              required
+              className={selectClass}
+              value={selectedMembershipId}
+              disabled={candidates.pending}
+              onChange={(event) => setMembershipId(event.target.value)}
+            >
+              <option value="" disabled>
+                {candidates.pending
+                  ? "Buscando miembros…"
+                  : members.length === 0
+                    ? "No hay coincidencias"
+                    : "Selecciona un miembro"}
               </option>
-            ))}
-          </select>
-        </Field>
-        <Field label="Responsabilidad">
-          <select
-            className={selectClass}
-            value={responsibility}
-            onChange={(event) =>
-              setResponsibility(event.target.value as AssignmentResponsibility)
+              {members.map((member) => (
+                <option key={member.membershipId} value={member.membershipId}>
+                  {member.displayName} ·{" "}
+                  {member.assignmentId
+                    ? responsibilityLabels[member.responsibility!]
+                    : "sin asignar"}
+                </option>
+              ))}
+            </select>
+          </Field>
+          <Field label="Responsabilidad">
+            <select
+              className={selectClass}
+              value={responsibility}
+              onChange={(event) =>
+                setResponsibility(
+                  event.target.value as AssignmentResponsibility,
+                )
+              }
+            >
+              <option value="collaborator">Colaborador</option>
+              <option value="reviewer">Revisor</option>
+              <option value="primary">Responsable principal</option>
+            </select>
+          </Field>
+          <Button
+            type="submit"
+            disabled={
+              pending || candidates.pending || !selectedMembershipId
             }
           >
-            <option value="collaborator">Colaborador</option>
-            <option value="reviewer">Revisor</option>
-            <option value="primary">Responsable principal</option>
-          </select>
-        </Field>
-        <Button type="submit" disabled={pending || !membershipId}>
-          <UserRoundPlus />
-          {pending
-            ? "Asignando…"
-            : responsibility === "primary"
-              ? "Cambiar principal"
-              : "Asignar"}
-        </Button>
-        <div className="sm:col-span-3">
-          <ErrorNotice
-            error={error}
-            fallback="No se pudo modificar la asignación."
-          />
+            <UserRoundPlus />
+            {pending
+              ? "Asignando…"
+              : responsibility === "primary"
+                ? "Cambiar principal"
+                : "Asignar"}
+          </Button>
         </div>
+        <ErrorNotice
+          error={candidates.error}
+          fallback="No se pudieron buscar los miembros del despacho."
+        />
+        <CollectionPagination
+          meta={candidates.result?.meta ?? null}
+          itemLabel="miembros"
+          onPageChange={candidates.setPageNumber}
+        />
+        <ErrorNotice
+          error={error}
+          fallback="No se pudo modificar la asignación."
+        />
       </form>
     </div>
   );
@@ -1284,12 +1421,24 @@ function LiveResponsiblesSection({
   detail: ClientDetail;
   reloadDetail: () => void;
 }) {
+  const [assignmentSearch, setAssignmentSearch] = useState("");
+  const [assignmentPageNumber, setAssignmentPageNumber] = useState(1);
+  const debouncedAssignmentSearch = useDebouncedValue(
+    assignmentSearch.trim(),
+  );
   const {
     assignments,
     error,
     loading,
     reload: reloadAssignments,
-  } = useClientAssignments(detail.account.id);
+  } = useClientAssignments(detail.account.id, {
+    search: debouncedAssignmentSearch,
+    page: assignmentPageNumber,
+  });
+  const changeAssignmentSearch = useCallback((value: string) => {
+    setAssignmentSearch(normalizeDomainSearch(value));
+    setAssignmentPageNumber(1);
+  }, []);
   const reloadAll = useCallback(() => {
     reloadAssignments();
     reloadDetail();
@@ -1329,8 +1478,7 @@ function LiveResponsiblesSection({
               },
               {
                 label: "Asignaciones activas",
-                value: assignments.filter((row) => row.status === "active")
-                  .length,
+                value: assignments?.meta.total ?? 0,
               },
             ]}
           />
@@ -1339,16 +1487,201 @@ function LiveResponsiblesSection({
               title="Asignaciones"
               description="Solo puede existir un responsable principal activo por cliente."
             />
-            <AssignmentManager
-              assignments={assignments}
-              clientId={detail.account.id}
-              reload={reloadAll}
-            />
+            {assignments ? (
+              <AssignmentManager
+                assignmentPage={assignments}
+                assignmentSearch={assignmentSearch}
+                onAssignmentSearchChange={changeAssignmentSearch}
+                onAssignmentPageChange={setAssignmentPageNumber}
+                clientId={detail.account.id}
+                reload={reloadAll}
+              />
+            ) : null}
           </Surface>
         </>
       )}
     </div>
   );
+}
+
+const DOMAIN_PAGE_LIMIT = 10;
+
+function useDebouncedValue<T>(value: T, delay = 300) {
+  const [debounced, setDebounced] = useState(value);
+  useEffect(() => {
+    const timer = globalThis.setTimeout(() => setDebounced(value), delay);
+    return () => globalThis.clearTimeout(timer);
+  }, [delay, value]);
+  return debounced;
+}
+
+function CollectionPagination({
+  meta,
+  itemLabel,
+  onPageChange,
+}: {
+  meta: PageMeta | null;
+  itemLabel: string;
+  onPageChange: (page: number) => void;
+}) {
+  if (!meta) return null;
+  const first =
+    meta.total === 0
+      ? 0
+      : Math.min((meta.page - 1) * meta.limit + 1, meta.total);
+  const last = Math.min(meta.page * meta.limit, meta.total);
+  const previousPage = Math.max(
+    1,
+    Math.min(meta.page - 1, meta.totalPages || 1),
+  );
+  return (
+    <nav
+      aria-label={`Paginación de ${itemLabel}`}
+      className="flex flex-col gap-3 border-t border-border p-4 sm:flex-row sm:items-center sm:justify-between"
+    >
+      <p className="text-body-sm text-muted-foreground">
+        {first}–{last} de {meta.total} {itemLabel}
+      </p>
+      {meta.totalPages > 1 || meta.page > 1 ? (
+        <div className="flex gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={meta.page <= 1}
+            onClick={() => onPageChange(previousPage)}
+          >
+            Anterior
+          </Button>
+          <span className="flex min-h-9 items-center px-2 text-body-sm tabular-nums">
+            Página {meta.page} de {Math.max(meta.totalPages, 1)}
+          </span>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={meta.page >= meta.totalPages}
+            onClick={() => onPageChange(meta.page + 1)}
+          >
+            Siguiente
+          </Button>
+        </div>
+      ) : null}
+    </nav>
+  );
+}
+
+type MemberCandidateLoader = (
+  query: CollectionQuery,
+  signal?: AbortSignal,
+) => Promise<CollectionPage<MemberCandidate>>;
+
+function useMemberCandidatePage(
+  loader: MemberCandidateLoader,
+  enabled: boolean,
+  refreshKey: string | number = 0,
+) {
+  const [search, setSearchValue] = useState("");
+  const [pageNumber, setPageNumber] = useState(1);
+  const [result, setResult] = useState<CollectionPage<MemberCandidate> | null>(
+    null,
+  );
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<unknown>(null);
+  const debouncedSearch = useDebouncedValue(search.trim());
+  const searchPending = search.trim() !== debouncedSearch;
+  const setSearch = useCallback((value: string) => {
+    setSearchValue(normalizeDomainSearch(value));
+    setPageNumber(1);
+  }, []);
+  const selectPage = useCallback((page: number) => {
+    setResult(null);
+    setPageNumber(page);
+  }, []);
+  useEffect(() => {
+    if (!enabled) return;
+    const controller = new AbortController();
+    const timer = globalThis.setTimeout(() => {
+      setResult(null);
+      setLoading(true);
+      setError(null);
+      void loader(
+        {
+          search: debouncedSearch || undefined,
+          page: pageNumber,
+          limit: DOMAIN_PAGE_LIMIT,
+        },
+        controller.signal,
+      )
+        .then((next) => {
+          if (!controller.signal.aborted) setResult(next);
+        })
+        .catch((cause) => {
+          if (!controller.signal.aborted && !isAbortError(cause))
+            setError(cause);
+        })
+        .finally(() => {
+          if (!controller.signal.aborted) setLoading(false);
+        });
+    }, 0);
+    return () => {
+      globalThis.clearTimeout(timer);
+      controller.abort();
+    };
+  }, [debouncedSearch, enabled, loader, pageNumber, refreshKey]);
+  return {
+    search,
+    setSearch,
+    setPageNumber: selectPage,
+    result,
+    loading: loading || searchPending,
+    pending: loading || searchPending,
+    error,
+  };
+}
+
+function useLegalEntityRouteQuery() {
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const queryKey = searchParams.toString();
+  const rawRouteSearch = searchParams.get("entitySearch") ?? "";
+  const routeSearch = normalizeDomainSearch(rawRouteSearch);
+  const page = normalizeCollectionPage(searchParams.get("entityPage"));
+  const [draft, setDraft] = useState({ base: routeSearch, value: routeSearch });
+  const currentSearch = resolveEntitySearchDraft(draft, routeSearch);
+  const debouncedSearch = useDebouncedValue(currentSearch.trim());
+  const setSearch = (value: string) =>
+    setDraft({ base: routeSearch, value: normalizeDomainSearch(value) });
+  useEffect(() => {
+    if (draft.base !== routeSearch) return;
+    const next = new URLSearchParams(queryKey);
+    if (debouncedSearch) next.set("entitySearch", debouncedSearch);
+    else next.delete("entitySearch");
+    if (debouncedSearch !== routeSearch) next.delete("entityPage");
+    if (next.toString() !== queryKey) {
+      const serialized = next.toString();
+      router.replace(serialized ? `${pathname}?${serialized}` : pathname);
+    }
+  }, [debouncedSearch, draft.base, pathname, queryKey, routeSearch, router]);
+  const setPage = useCallback(
+    (nextPage: number) => {
+      const next = new URLSearchParams(queryKey);
+      if (nextPage > 1) next.set("entityPage", String(nextPage));
+      else next.delete("entityPage");
+      const serialized = next.toString();
+      router.replace(serialized ? `${pathname}?${serialized}` : pathname);
+    },
+    [pathname, queryKey, router],
+  );
+  return {
+    page,
+    routeSearch,
+    search: currentSearch,
+    setSearch,
+    setPage,
+    suffix: entityContextSuffix(page, routeSearch),
+  };
 }
 
 function LiveAccessSection({
@@ -1358,8 +1691,17 @@ function LiveAccessSection({
   base: string;
   detail: ClientDetail;
 }) {
+  const [assignmentSearch, setAssignmentSearch] = useState("");
+  const [assignmentPageNumber, setAssignmentPageNumber] = useState(1);
+  const debouncedAssignmentSearch = useDebouncedValue(
+    assignmentSearch.trim(),
+  );
   const { assignments, error, loading, reload } = useClientAssignments(
     detail.account.id,
+    {
+      search: debouncedAssignmentSearch,
+      page: assignmentPageNumber,
+    },
   );
   return (
     <div className="space-y-6">
@@ -1401,9 +1743,26 @@ function LiveAccessSection({
               </Button>
             }
           />
+          <FilterBar>
+            <Field label="Buscar acceso">
+              <Input
+                type="search"
+                maxLength={DOMAIN_SEARCH_MAX_LENGTH}
+                value={assignmentSearch}
+                onChange={(event) => {
+                  setAssignmentSearch(
+                    normalizeDomainSearch(event.target.value),
+                  );
+                  setAssignmentPageNumber(1);
+                }}
+                placeholder="Nombre o correo"
+                className="w-72"
+              />
+            </Field>
+          </FilterBar>
           <ProductTable
             caption="Miembros con acceso al cliente"
-            rows={assignments.filter((row) => row.status === "active")}
+            rows={assignments?.items ?? []}
             rowKey={(row) => row.id}
             emptyMessage="Este cliente todavía no tiene miembros con acceso."
             columns={[
@@ -1431,6 +1790,11 @@ function LiveAccessSection({
               },
             ]}
           />
+          <CollectionPagination
+            meta={assignments?.meta ?? null}
+            itemLabel="accesos"
+            onPageChange={setAssignmentPageNumber}
+          />
         </Surface>
       )}
     </div>
@@ -1446,7 +1810,13 @@ function LiveClientDetailContent({
 }) {
   const { organization, capabilities, locale } = useAccountingContext();
   const router = useRouter();
-  const { detail, error, loading, reload } = useClientDetail(clientId);
+  const [entitySearch, setEntitySearch] = useState("");
+  const [entityPageNumber, setEntityPageNumber] = useState(1);
+  const debouncedEntitySearch = useDebouncedValue(entitySearch.trim());
+  const { detail, error, loading, reload } = useClientDetail(clientId, {
+    legalEntityPage: entityPageNumber,
+    legalEntitySearch: debouncedEntitySearch,
+  });
   const canManage = capabilities.includes("clients.manage");
   const canManageEntities = capabilities.includes("fiscal_entities.manage");
   const canAssign = capabilities.includes("clients.assign");
@@ -1498,17 +1868,20 @@ function LiveClientDetailContent({
               value: <StatusBadge status={account.status} />,
             },
             {
-              label: "RFC activos",
-              value: detail.legalEntities.filter(
-                (entity) => entity.status === "active",
-              ).length,
+              label: "Entidades fiscales",
+              value: detail.legalEntities.meta.total,
             },
             {
               label: "Responsable principal",
               value: detail.primaryAssignment?.displayName ?? "Sin responsable",
             },
             ...(canViewFiscalYears
-              ? [{ label: "Ejercicios", value: detail.fiscalYears.length }]
+              ? [
+                  {
+                    label: "Ejercicios en esta página",
+                    value: detail.fiscalYears.length,
+                  },
+                ]
               : []),
           ]}
         />
@@ -1543,7 +1916,7 @@ function LiveClientDetailContent({
               ) : null}
               {canViewFiscalYears ? (
                 <Link
-                  href={`${base}/fiscal-years`}
+                  href={`${base}/fiscal-years${entityContextSuffix(entityPageNumber, debouncedEntitySearch)}`}
                   className="rounded-md border border-border p-4 transition-colors hover:bg-muted"
                 >
                   <p className="font-semibold">Ejercicios</p>
@@ -1562,7 +1935,11 @@ function LiveClientDetailContent({
             actions={
               canViewFiscalYears ? (
                 <Button
-                  render={<Link href={`${base}/fiscal-years`} />}
+                  render={
+                    <Link
+                      href={`${base}/fiscal-years${entityContextSuffix(entityPageNumber, debouncedEntitySearch)}`}
+                    />
+                  }
                   variant="outline"
                   size="sm"
                 >
@@ -1571,9 +1948,24 @@ function LiveClientDetailContent({
               ) : undefined
             }
           />
+          <FilterBar>
+            <Field label="Buscar entidad fiscal">
+              <Input
+                type="search"
+                maxLength={DOMAIN_SEARCH_MAX_LENGTH}
+                value={entitySearch}
+                onChange={(event) => {
+                  setEntitySearch(normalizeDomainSearch(event.target.value));
+                  setEntityPageNumber(1);
+                }}
+                placeholder="Razón social o RFC"
+                className="w-72"
+              />
+            </Field>
+          </FilterBar>
           <ProductTable
             caption="Resumen de entidades fiscales"
-            rows={detail.legalEntities}
+            rows={detail.legalEntities.items}
             rowKey={(entity) => entity.id}
             columns={[
               {
@@ -1602,6 +1994,11 @@ function LiveClientDetailContent({
                   ).length,
               },
             ]}
+          />
+          <CollectionPagination
+            meta={detail.legalEntities.meta}
+            itemLabel="entidades fiscales"
+            onPageChange={setEntityPageNumber}
           />
         </Surface>
       </div>
@@ -1656,9 +2053,24 @@ function LiveClientDetailContent({
           title="Entidades fiscales"
           description="Cada RFC conserva razón social, versión y ejercicios propios."
         />
+        <FilterBar>
+          <Field label="Buscar entidad fiscal">
+            <Input
+              type="search"
+              maxLength={DOMAIN_SEARCH_MAX_LENGTH}
+              value={entitySearch}
+              onChange={(event) => {
+                setEntitySearch(normalizeDomainSearch(event.target.value));
+                setEntityPageNumber(1);
+              }}
+              placeholder="Razón social o RFC"
+              className="w-72"
+            />
+          </Field>
+        </FilterBar>
         <ProductTable
           caption="Entidades fiscales"
-          rows={detail.legalEntities}
+          rows={detail.legalEntities.items}
           rowKey={(entity) => entity.id}
           columns={[
             {
@@ -1687,7 +2099,7 @@ function LiveClientDetailContent({
                     <Link
                       key={year.id}
                       className="mr-2 font-semibold text-primary hover:underline"
-                      href={`${base}/legal-entities/${entity.id}/fiscal-years/${year.year}`}
+                      href={`${base}/legal-entities/${entity.id}/fiscal-years/${year.year}${entityContextSuffix(entityPageNumber, debouncedEntitySearch)}`}
                     >
                       {year.year}
                     </Link>
@@ -1700,7 +2112,7 @@ function LiveClientDetailContent({
                 <Button
                   render={
                     <Link
-                      href={`${base}/legal-entities/${entity.id}/fiscal-years`}
+                      href={`${base}/legal-entities/${entity.id}/fiscal-years${entityContextSuffix(entityPageNumber, debouncedEntitySearch)}`}
                     />
                   }
                   variant="outline"
@@ -1711,6 +2123,11 @@ function LiveClientDetailContent({
               ),
             },
           ]}
+        />
+        <CollectionPagination
+          meta={detail.legalEntities.meta}
+          itemLabel="entidades fiscales"
+          onPageChange={setEntityPageNumber}
         />
         {canManageEntities ? (
           <AddLegalEntityForm clientId={clientId} reload={reload} />
@@ -1724,14 +2141,14 @@ function LegalEntitySelector({
   detail,
   base,
   suffix,
+  routeQuery,
 }: {
   detail: ClientDetail;
   base: string;
   suffix: string;
+  routeQuery: ReturnType<typeof useLegalEntityRouteQuery>;
 }) {
-  const available = detail.legalEntities.filter(
-    (entity) => entity.status !== "archived",
-  );
+  const available = detail.legalEntities.items;
   return (
     <div className="space-y-5">
       <header className="border-l-2 border-brand-mark pl-4">
@@ -1745,30 +2162,55 @@ function LegalEntitySelector({
         </p>
       </header>
       <Surface>
+        <FilterBar>
+          <Field label="Buscar entidad fiscal">
+            <Input
+              type="search"
+              maxLength={DOMAIN_SEARCH_MAX_LENGTH}
+              value={routeQuery.search}
+              onChange={(event) => routeQuery.setSearch(event.target.value)}
+              placeholder="Razón social o RFC"
+              className="w-72"
+            />
+          </Field>
+        </FilterBar>
         <div className="grid gap-3 p-5 sm:grid-cols-2">
-          {available.map((entity) => (
-            <Link
-              key={entity.id}
-              href={`${base}/legal-entities/${entity.id}/fiscal-years${suffix}`}
-              className="rounded-md border border-border p-4 hover:bg-muted"
-            >
-              <div className="flex flex-wrap items-start justify-between gap-2">
-                <p className="font-semibold">{entity.legalName}</p>
-                <StatusBadge
-                  status={entity.status === "active" ? "Activo" : "Suspendido"}
-                />
-              </div>
-              <p className="identifier text-body-sm text-muted-foreground">
-                {entity.rfc}
-              </p>
-              {entity.status === "suspended" ? (
-                <p className="mt-2 text-caption text-muted-foreground">
-                  Disponible en modo consulta.
+          {available.length === 0 ? (
+            <p className="text-body-sm text-muted-foreground sm:col-span-2">
+              No hay entidades fiscales que coincidan con la búsqueda.
+            </p>
+          ) : (
+            available.map((entity) => (
+              <Link
+                key={entity.id}
+                href={`${base}/legal-entities/${entity.id}/fiscal-years${suffix}${routeQuery.suffix}`}
+                className="rounded-md border border-border p-4 hover:bg-muted"
+              >
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                  <p className="font-semibold">{entity.legalName}</p>
+                  <StatusBadge
+                    status={
+                      entity.status === "active" ? "Activo" : "Suspendido"
+                    }
+                  />
+                </div>
+                <p className="identifier text-body-sm text-muted-foreground">
+                  {entity.rfc}
                 </p>
-              ) : null}
-            </Link>
-          ))}
+                {entity.status === "suspended" ? (
+                  <p className="mt-2 text-caption text-muted-foreground">
+                    Disponible en modo consulta.
+                  </p>
+                ) : null}
+              </Link>
+            ))
+          )}
         </div>
+        <CollectionPagination
+          meta={detail.legalEntities.meta}
+          itemLabel="entidades fiscales"
+          onPageChange={routeQuery.setPage}
+        />
       </Surface>
     </div>
   );
@@ -1783,15 +2225,21 @@ export function LiveFiscalYearsScreen({
 }) {
   const { organization, locale, capabilities } = useAccountingContext();
   const router = useRouter();
-  const { detail, error, loading } = useClientDetail(clientId);
+  const routeQuery = useLegalEntityRouteQuery();
+  const { detail, error, loading } = useClientDetail(
+    clientId,
+    legalEntityDetailQuery(
+      legalEntityId,
+      routeQuery.page,
+      routeQuery.routeSearch,
+    ),
+  );
   const [yearsState, setYearsState] = useState(initialFiscalYearsLoadState);
   const requestSequence = useRef(0);
   const [revision, setRevision] = useState(0);
   const base = `/${locale}/organizations/${encodeURIComponent(organization.slug)}/clients/${clientId}`;
   const availableEntities = useMemo(
-    () =>
-      detail?.legalEntities.filter((entity) => entity.status !== "archived") ??
-      [],
+    () => detail?.legalEntities.items ?? [],
     [detail],
   );
   const entity = legalEntityId
@@ -1810,11 +2258,22 @@ export function LiveFiscalYearsScreen({
     [clientId, entity, organization.id, revision],
   );
   useEffect(() => {
-    if (!legalEntityId && availableEntities.length === 1)
+    if (
+      !legalEntityId &&
+      detail?.legalEntities.meta.total === 1 &&
+      availableEntities.length === 1
+    )
       router.replace(
-        `${base}/legal-entities/${availableEntities[0].id}/fiscal-years`,
+        `${base}/legal-entities/${availableEntities[0].id}/fiscal-years${routeQuery.suffix}`,
       );
-  }, [availableEntities, base, legalEntityId, router]);
+  }, [
+    availableEntities,
+    base,
+    detail?.legalEntities.meta.total,
+    legalEntityId,
+    routeQuery.suffix,
+    router,
+  ]);
   useEffect(() => {
     const requestId = ++requestSequence.current;
     const controller = new AbortController();
@@ -1845,21 +2304,34 @@ export function LiveFiscalYearsScreen({
     };
   }, [yearsQuery]);
   if (loading) return <LoadingState label="Cargando ejercicios…" />;
+  if (isLegalEntityRouteUnavailableError(error, legalEntityId)) {
+    return <LegalEntityUnavailable base={base} error={error} />;
+  }
   if (error || !detail)
     return (
       <ErrorNotice error={error} fallback="No se pudo cargar el cliente." />
     );
   if (!legalEntityId)
-    return availableEntities.length === 1 ? (
+    return detail.legalEntities.meta.total === 1 &&
+      availableEntities.length === 1 ? (
       <LoadingState label="Abriendo el único RFC…" />
     ) : (
-      <LegalEntitySelector detail={detail} base={base} suffix="" />
+      <LegalEntitySelector
+        detail={detail}
+        base={base}
+        suffix=""
+        routeQuery={routeQuery}
+      />
     );
   if (!entity)
     return (
-      <ErrorNotice
-        error={new ApiError(404, "Entidad fiscal no encontrada")}
-        fallback="Entidad fiscal no encontrada."
+      <LegalEntityUnavailable
+        base={base}
+        error={new ApiError(
+          404,
+          "La entidad fiscal no está disponible.",
+          "LEGAL_ENTITY_NOT_FOUND",
+        )}
       />
     );
   const visibleYearsState = selectFiscalYearsLoad(yearsState, yearsQuery!);
@@ -1931,7 +2403,7 @@ export function LiveFiscalYearsScreen({
                 render: (year) => (
                   <Link
                     className="font-semibold text-primary hover:underline"
-                    href={`${base}/legal-entities/${entity.id}/fiscal-years/${year.year}`}
+                    href={`${base}/legal-entities/${entity.id}/fiscal-years/${year.year}${routeQuery.suffix}`}
                   >
                     {year.year}
                   </Link>
@@ -1954,7 +2426,7 @@ export function LiveFiscalYearsScreen({
                   <Button
                     render={
                       <Link
-                        href={`${base}/legal-entities/${entity.id}/fiscal-years/${year.year}`}
+                        href={`${base}/legal-entities/${entity.id}/fiscal-years/${year.year}${routeQuery.suffix}`}
                       />
                     }
                     variant="outline"
@@ -1972,6 +2444,41 @@ export function LiveFiscalYearsScreen({
   );
 }
 
+function LegalEntityUnavailable({
+  base,
+  error,
+}: {
+  base: string;
+  error: unknown;
+}) {
+  return (
+    <div className="space-y-5">
+      <header className="border-l-2 border-brand-mark pl-4">
+        <p className="text-caption font-semibold text-accent-foreground">
+          Contexto fiscal
+        </p>
+        <h1 className="text-heading-lg font-bold">
+          Entidad fiscal no disponible
+        </h1>
+        <p className="mt-1 text-body text-muted-foreground">
+          El RFC del enlace no existe, está archivado o ya no está disponible
+          para tu membresía.
+        </p>
+      </header>
+      <ErrorNotice
+        error={error}
+        fallback="No se encontró la entidad fiscal solicitada."
+      />
+      <Button
+        render={<Link href={fiscalEntitySelectorHref(base)} />}
+        variant="outline"
+      >
+        Seleccionar otro RFC
+      </Button>
+    </div>
+  );
+}
+
 export function LiveFiscalYearScreen({
   clientId,
   legalEntityId,
@@ -1985,16 +2492,22 @@ export function LiveFiscalYearScreen({
 }) {
   const { organization, locale } = useAccountingContext();
   const router = useRouter();
-  const { detail, error, loading } = useClientDetail(clientId);
+  const routeQuery = useLegalEntityRouteQuery();
+  const { detail, error, loading } = useClientDetail(
+    clientId,
+    legalEntityDetailQuery(
+      legalEntityId,
+      routeQuery.page,
+      routeQuery.routeSearch,
+    ),
+  );
   const [periodsState, setPeriodsState] = useState(
     initialFiscalPeriodsLoadState,
   );
   const requestSequence = useRef(0);
   const base = `/${locale}/organizations/${encodeURIComponent(organization.slug)}/clients/${clientId}`;
   const availableEntities = useMemo(
-    () =>
-      detail?.legalEntities.filter((entity) => entity.status !== "archived") ??
-      [],
+    () => detail?.legalEntities.items ?? [],
     [detail],
   );
   const entity = legalEntityId
@@ -2013,11 +2526,23 @@ export function LiveFiscalYearScreen({
     [clientId, entity, organization.id, year],
   );
   useEffect(() => {
-    if (!legalEntityId && availableEntities.length === 1)
+    if (
+      !legalEntityId &&
+      detail?.legalEntities.meta.total === 1 &&
+      availableEntities.length === 1
+    )
       router.replace(
-        `${base}/legal-entities/${availableEntities[0].id}/fiscal-years/${year}`,
+        `${base}/legal-entities/${availableEntities[0].id}/fiscal-years/${year}${routeQuery.suffix}`,
       );
-  }, [availableEntities, base, legalEntityId, router, year]);
+  }, [
+    availableEntities,
+    base,
+    detail?.legalEntities.meta.total,
+    legalEntityId,
+    routeQuery.suffix,
+    router,
+    year,
+  ]);
   useEffect(() => {
     const requestId = ++requestSequence.current;
     const controller = new AbortController();
@@ -2059,21 +2584,34 @@ export function LiveFiscalYearScreen({
     };
   }, [periodsQuery]);
   if (loading) return <LoadingState label="Cargando contexto fiscal…" />;
+  if (isLegalEntityRouteUnavailableError(error, legalEntityId)) {
+    return <LegalEntityUnavailable base={base} error={error} />;
+  }
   if (error || !detail)
     return (
       <ErrorNotice error={error} fallback="No se pudo cargar el cliente." />
     );
   if (!legalEntityId)
-    return availableEntities.length === 1 ? (
+    return detail.legalEntities.meta.total === 1 &&
+      availableEntities.length === 1 ? (
       <LoadingState label="Abriendo el único RFC…" />
     ) : (
-      <LegalEntitySelector detail={detail} base={base} suffix={`/${year}`} />
+      <LegalEntitySelector
+        detail={detail}
+        base={base}
+        suffix={`/${year}`}
+        routeQuery={routeQuery}
+      />
     );
   if (!entity)
     return (
-      <ErrorNotice
-        error={new ApiError(404, "Entidad fiscal no encontrada")}
-        fallback="Entidad fiscal no encontrada."
+      <LegalEntityUnavailable
+        base={base}
+        error={new ApiError(
+          404,
+          "La entidad fiscal no está disponible.",
+          "LEGAL_ENTITY_NOT_FOUND",
+        )}
       />
     );
   const visiblePeriodsState = selectFiscalPeriodsLoad(
@@ -2131,7 +2669,7 @@ export function LiveFiscalYearScreen({
           <Button
             render={
               <Link
-                href={`${base}/legal-entities/${entity.id}/fiscal-years/${year}`}
+                href={`${base}/legal-entities/${entity.id}/fiscal-years/${year}${routeQuery.suffix}`}
               />
             }
             variant="outline"
@@ -2200,7 +2738,7 @@ export function LiveFiscalYearScreen({
               render: (period) => (
                 <Link
                   className="font-semibold text-primary hover:underline"
-                  href={`${base}/legal-entities/${entity.id}/fiscal-years/${year}/periods/${String(period.month).padStart(2, "0")}/overview`}
+                  href={`${base}/legal-entities/${entity.id}/fiscal-years/${year}/periods/${String(period.month).padStart(2, "0")}/overview${routeQuery.suffix}`}
                 >
                   {monthNames[period.month - 1]}
                 </Link>

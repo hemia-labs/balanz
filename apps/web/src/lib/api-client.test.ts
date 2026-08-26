@@ -18,6 +18,10 @@ test("clasifica errores API y evita mensajes sensibles de rate limit", () => {
     "rate_limited",
   );
   assert.equal(
+    classifyApiError(new ApiError(400, "Invalid", "VALIDATION_ERROR")),
+    "validation",
+  );
+  assert.equal(
     apiErrorMessage(new ApiError(429, "internal detail"), "fallback"),
     "Ya realizaste demasiadas solicitudes. Intenta más tarde.",
   );
@@ -30,7 +34,7 @@ test("clasifica errores API y evita mensajes sensibles de rate limit", () => {
   );
   assert.equal(
     apiErrorMessage(
-      new ApiError(422, "technical detail", "VALIDATION_ERROR", {
+      new ApiError(400, "technical detail", "VALIDATION_ERROR", {
         "legalEntity.rfc": ["Ingresa un RFC válido."],
       }),
       "fallback",

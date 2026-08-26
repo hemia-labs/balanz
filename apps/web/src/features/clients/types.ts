@@ -58,6 +58,18 @@ export interface PrimaryAssignmentSummary {
   displayName: string;
 }
 
+export interface PageMeta {
+  page: number;
+  limit: number;
+  total: number;
+  totalPages: number;
+}
+
+export interface CollectionPage<T> {
+  items: T[];
+  meta: PageMeta;
+}
+
 export interface FiscalYear {
   id: string;
   clientAccountId: string;
@@ -86,14 +98,11 @@ export interface ClientListItem {
   currentPeriod: { year: number; month: number; status: PeriodStatus } | null;
 }
 
-export interface ClientPage {
-  items: ClientListItem[];
-  meta: { page: number; limit: number; total: number; totalPages: number };
-}
+export type ClientPage = CollectionPage<ClientListItem>;
 
 export interface ClientDetail {
   account: ClientAccount;
-  legalEntities: LegalEntity[];
+  legalEntities: CollectionPage<LegalEntity>;
   primaryAssignment: PrimaryAssignmentSummary | null;
   fiscalYears: FiscalYear[];
 }

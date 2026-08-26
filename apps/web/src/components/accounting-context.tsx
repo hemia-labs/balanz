@@ -150,10 +150,9 @@ export function AccountingContextProvider({
       ),
       capabilities: resolvedCapabilities,
       assignedClientIds:
-        authorization?.assignedAccountIds ??
-        (isDemo
+        isDemo
           ? (membershipFor(organization.id)?.assignedClientIds ?? [])
-          : []),
+          : [],
     };
     const clientId = routeIdentifier(pathname, "clients");
     const client =
