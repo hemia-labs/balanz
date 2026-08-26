@@ -12,6 +12,7 @@ export function proxy(request: NextRequest) {
     (locale) => pathname === `/${locale}` || pathname.startsWith(`/${locale}/`)
   );
 
+  if (pathname === "/verify-email") return NextResponse.next();
   if (hasLocale) return NextResponse.next();
 
   const url = request.nextUrl.clone();

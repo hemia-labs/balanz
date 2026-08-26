@@ -1,0 +1,223 @@
+@baseUrl = http://localhost:3001/api/v1
+@origin = http://localhost:3000
+@sessionCookieName = balanz_session
+@sessionCookie = replace-with-current-opaque-session-token
+@userId = 00000000-0000-0000-0000-000000000000
+@organizationId = 00000000-0000-0000-0000-000000000000
+@verificationToken = replace-with-email-verification-token
+
+# The API authenticates with an opaque HttpOnly session cookie, not JWT Bearer.
+# In production the default cookie name is __Host-session when Secure is enabled.
+# Update sessionCookie after login, email confirmation or any MFA response that
+# rotates Set-Cookie. Unsafe methods include Origin for the global CSRF guard;
+# origin must be present in APP_CORS_ORIGINS when that allowlist is configured.
+
+### Health / smoke check
+GET {{baseUrl}}/
+Accept: text/plain
+
+### Register organization owner
+# Required body fields: firstName, lastName, email, password, organizationName,
+# slug, subscriptionType.
+# Optional body fields: phoneE164, locale, timezone, legalName, billingEmail,
+# organizationTimezone.
+POST {{baseUrl}}/auth/register
+Origin: {{origin}}
+Content-Type: application/json
+
+{
+  "firstName": "Ana",
+  "lastName": "López",
+  "email": "ana@example.test",
+  "password": "Secret123!",
+  "phoneE164": "+525512345678",
+  "locale": "es-MX",
+  "timezone": "America/Mexico_City",
+  "organizationName": "Despacho López",
+  "legalName": "Despacho López, S.C.",
+  "slug": "despacho-lopez",
+  "billingEmail": "facturacion@example.test",
+  "organizationTimezone": "America/Mexico_City",
+  "subscriptionType": "starter"
+}
+
+### Resend email verification
+# Response: 202. It is intentionally generic to prevent account enumeration.
+# Required body field: email.
+POST {{baseUrl}}/auth/email/verification/resend
+Origin: {{origin}}
+Content-Type: application/json
+
+{
+  "email": "ana@example.test"
+}
+
+### Login (TOTP only when the user has an active factor)
+POST {{baseUrl}}/auth/login
+Origin: {{origin}}
+Content-Type: application/json
+
+{
+  "email": "ana@example.test",
+  "password": "Secret123!"
+}
+
+### Complete preliminary login with TOTP
+POST {{baseUrl}}/auth/login/mfa
+Origin: {{origin}}
+Cookie: {{sessionCookieName}}={{sessionCookie}}
+Content-Type: application/json
+
+{
+  "code": "123456"
+}
+
+### Confirm email verification
+# The response sets the configured HttpOnly session cookie for onboarding.
+# Required body field: token.
+POST {{baseUrl}}/auth/email/verification/confirm
+Origin: {{origin}}
+Content-Type: application/json
+
+{
+  "token": "{{verificationToken}}"
+}
+
+### Get onboarding status
+# Required: Cookie from email confirmation.
+# No body. MFA is optional; the response includes mfaStatus.
+GET {{baseUrl}}/auth/onboarding
+Cookie: {{sessionCookieName}}={{sessionCookie}}
+Accept: application/json
+
+### Start optional local TOTP setup
+# Required: session cookie for a user with verified email.
+# No body.
+POST {{baseUrl}}/auth/mfa/totp/setup
+Origin: {{origin}}
+Cookie: {{sessionCookieName}}={{sessionCookie}}
+Accept: application/json
+Cache-Control: no-store
+
+### Verify TOTP and activate MFA
+# The response rotates the session cookie and revokes other sessions.
+POST {{baseUrl}}/auth/mfa/totp/verify
+Origin: {{origin}}
+Cookie: {{sessionCookieName}}={{sessionCookie}}
+Content-Type: application/json
+
+{
+  "code": "000000"
+}
+
+### Disable TOTP
+# Required: active MFA session, current password and a fresh TOTP code.
+# The response rotates the session cookie and revokes the user's other sessions.
+POST {{baseUrl}}/auth/mfa/totp/disable
+Origin: {{origin}}
+Cookie: {{sessionCookieName}}={{sessionCookie}}
+Content-Type: application/json
+
+{
+  "password": "Secret123!",
+  "code": "000000"
+}
+
+### Get current session
+# Required: active session cookie.
+# No body.
+GET {{baseUrl}}/auth/session
+Cookie: {{sessionCookieName}}={{sessionCookie}}
+Accept: application/json
+
+### List current user's active organizations
+# Required: active session cookie.
+# No body.
+GET {{baseUrl}}/me/organizations
+Cookie: {{sessionCookieName}}={{sessionCookie}}
+Accept: application/json
+
+### Get current tenant authorization
+# Required: active session cookie and active tenant. MFA remains optional unless
+# the requested capability is covered by the sensitive-permission policy.
+# No body.
+GET {{baseUrl}}/me/authorization
+Cookie: {{sessionCookieName}}={{sessionCookie}}
+Accept: application/json
+
+### Change active organization
+# Required: active, non-preliminary session cookie and body field organizationId.
+# The organizationId must belong to an active membership of the current user.
+PATCH {{baseUrl}}/auth/session/organization
+Origin: {{origin}}
+Cookie: {{sessionCookieName}}={{sessionCookie}}
+Content-Type: application/json
+
+{
+  "organizationId": "{{organizationId}}"
+}
+
+### Logout current session
+# Required: active session cookie.
+# No body.
+DELETE {{baseUrl}}/auth/session
+Origin: {{origin}}
+Cookie: {{sessionCookieName}}={{sessionCookie}}
+
+### List users
+# Required: active tenant session with team.view.
+# Returns only users with a membership in the active organization.
+# Optional query params: search, status, page (default 1), limit (default 20, max 100).
+GET {{baseUrl}}/users?search=ana&status=active&page=1&limit=20
+Cookie: {{sessionCookieName}}={{sessionCookie}}
+Accept: application/json
+
+### Get one user
+# Required: active tenant session with team.view and path param userId.
+# A user outside the active organization is not returned.
+GET {{baseUrl}}/users/{{userId}}
+Cookie: {{sessionCookieName}}={{sessionCookie}}
+Accept: application/json
+
+### Create user
+# Required: active tenant session with team.manage.
+# Required body fields: firstName, lastName, email, password.
+# Optional body fields: phoneE164, locale, timezone.
+# Creates a pending collaborator membership in the active organization.
+POST {{baseUrl}}/users
+Origin: {{origin}}
+Cookie: {{sessionCookieName}}={{sessionCookie}}
+Content-Type: application/json
+
+{
+  "firstName": "Luis",
+  "lastName": "Pérez",
+  "email": "luis@example.test",
+  "password": "Secret123!",
+  "phoneE164": "+525587654321",
+  "locale": "es-MX",
+  "timezone": "America/Mexico_City"
+}
+
+### Update user
+# Required: active tenant session with team.manage and path param userId.
+# Optional body fields: firstName, lastName, email, password, phoneE164,
+# locale, timezone, status.
+# Changing password or status revokes the target user's active sessions.
+PUT {{baseUrl}}/users/{{userId}}
+Origin: {{origin}}
+Cookie: {{sessionCookieName}}={{sessionCookie}}
+Content-Type: application/json
+
+{
+  "firstName": "Ana María",
+  "status": "active",
+  "timezone": "America/Mexico_City"
+}
+
+### Delete user
+# Required: active tenant session with team.manage and path param userId.
+# No body.
+DELETE {{baseUrl}}/users/{{userId}}
+Origin: {{origin}}
+Cookie: {{sessionCookieName}}={{sessionCookie}}

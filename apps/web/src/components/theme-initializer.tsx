@@ -11,10 +11,7 @@ function getInitialTheme(): Theme {
   const storedTheme = localStorage.getItem("theme");
   if (storedTheme === "light" || storedTheme === "dark") return storedTheme;
 
-  return document.documentElement.dataset.theme === "dark" ||
-    window.matchMedia("(prefers-color-scheme: dark)").matches
-    ? "dark"
-    : "light";
+  return "light";
 }
 
 export function ThemeInitializer() {

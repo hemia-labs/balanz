@@ -6,7 +6,7 @@
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
-    "rootDir": "src/lib",
+    "rootDir": "src",
     "outDir": ".test-dist",
     "incremental": false
   },
@@ -15,6 +15,13 @@
     "src/lib/navigation-core.ts",
     "src/lib/permissions.ts",
     "src/lib/product-route.ts",
-    "src/lib/navigation.test.ts"
+    "src/lib/auth-types.ts",
+    "src/lib/auth-types.test.ts",
+    "src/lib/navigation.test.ts",
+    "src/lib/api-client.ts",
+    "src/lib/api-client.test.ts",
+    "src/lib/navigation-security.ts",
+    "src/lib/navigation-security.test.ts",
+    "src/features/session/types.ts"
   ]
 }

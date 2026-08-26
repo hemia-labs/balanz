@@ -13,8 +13,8 @@ export const demoData: DemoFixtureSet = {
   mode: "demo",
   account: { id: "cuenta-demo-mariana", name: "Mariana Torres", email: "mariana@example.test" },
   organizations: [
-    { id: "estudio-norte", name: "Estudio Contable Norte", shortName: "Estudio Norte" },
-    { id: "colectivo-centro", name: "Colectivo Fiscal Centro", shortName: "Colectivo Centro" },
+    { id: "estudio-norte", slug: "estudio-norte", name: "Estudio Contable Norte", shortName: "Estudio Norte" },
+    { id: "colectivo-centro", slug: "colectivo-centro", name: "Colectivo Fiscal Centro", shortName: "Colectivo Centro" },
   ],
   memberships: [
     {
@@ -79,10 +79,10 @@ export const demoData: DemoFixtureSet = {
     { uuid: "DEMO-5A08-13D4-63E7", clientId: "comercial-sur", type: "Nómina", direction: "Emitido", rfc: "DEM010101AA1", name: "Comercial del Sur Demo", date: "15/08/2026", method: "PUE", total: 129800, currency: "MXN", status: "Cancelado", paymentComplement: "No aplica" },
   ],
   notifications: [
-    { id: "n1", title: "Descarga SAT en proceso", detail: "Comercial del Sur Demo · Agosto 2026", kind: "info", href: "/despachos/estudio-norte/procesos", time: "Hace 2 min" },
-    { id: "n2", title: "4 XML requieren revisión", detail: "Servicios del Bajío Demo", kind: "danger", href: "/despachos/estudio-norte/procesos", time: "Hace 1 h" },
-    { id: "n3", title: "e.firma próxima a vencer", detail: "Servicios del Bajío Demo · 18 días", kind: "warning", href: "/despachos/estudio-norte/clientes/servicios-bajio/configuracion/e-firma-sat", time: "Ayer" },
-    { id: "n4", title: "Período listo para cerrar", detail: "Taller Orión Demo · Julio 2026", kind: "success", href: "/despachos/estudio-norte/clientes/taller-orion/ejercicios/2026/periodos/07/cierre", time: "Ayer" },
+    { id: "n1", title: "Descarga SAT en proceso", detail: "Comercial del Sur Demo · Agosto 2026", kind: "info", href: "/organizations/estudio-norte/processes", time: "Hace 2 min" },
+    { id: "n2", title: "4 XML requieren revisión", detail: "Servicios del Bajío Demo", kind: "danger", href: "/organizations/estudio-norte/processes", time: "Hace 1 h" },
+    { id: "n3", title: "e.firma próxima a vencer", detail: "Servicios del Bajío Demo · 18 días", kind: "warning", href: "/organizations/estudio-norte/clients/servicios-bajio/settings/e-signature-sat", time: "Ayer" },
+    { id: "n4", title: "Período listo para cerrar", detail: "Taller Orión Demo · Julio 2026", kind: "success", href: "/organizations/estudio-norte/clients/taller-orion/fiscal-years/2026/periods/07/close", time: "Ayer" },
   ],
 };
 
@@ -93,6 +93,9 @@ export const demoPeriod = "08";
 
 export function organizationById(id: string) {
   return demoData.organizations.find((organization) => organization.id === id);
+}
+export function organizationBySlug(slug: string) {
+  return demoData.organizations.find((organization) => organization.slug === slug);
 }
 export function membershipFor(organizationId: string) {
   return demoData.memberships.find((membership) => membership.organizationId === organizationId);

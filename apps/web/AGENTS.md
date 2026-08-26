@@ -4,7 +4,7 @@ Antes de cambiar UI, UX, estilos, componentes, layout, responsive, iconografía,
 
 Antes de cambiar navegación, rutas, sidebars, layouts, contextos de despacho/cliente o pantallas contables, lee también ../../docs/product/ACCOUNTING_INFORMATION_ARCHITECTURE.md.
 
-- Ese documento es normativo para apps/web.
+- Estos documentos son normativos para apps/web.
 - No introduzcas colores, radios, sombras ni espaciados arbitrarios.
 - Revisa las dependencias visuales existentes antes de agregar otra.
 - No hagas cambios masivos de formato ni edites código no relacionado.

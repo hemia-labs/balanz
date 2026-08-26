@@ -8,14 +8,16 @@
     "start": "next start",
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
-    "test": "tsc -p tsconfig.tests.json && node --test .test-dist/navigation.test.js"
+    "test": "tsc -p tsconfig.tests.json && node --test .test-dist/lib/navigation.test.js .test-dist/lib/auth-types.test.js .test-dist/lib/api-client.test.js .test-dist/lib/navigation-security.test.js"
   },
   "dependencies": {
     "@base-ui/react": "^1.5.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "input-otp": "^1.5.0",
     "lucide-react": "^1.20.0",
     "next": "16.2.12",
+    "qrcode.react": "^4.2.0",
     "react": "19.2.4",
     "react-dom": "19.2.4",
     "shadcn": "^4.11.0",

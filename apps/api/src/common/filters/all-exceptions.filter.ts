@@ -12,6 +12,7 @@ interface ErrorBody {
   statusCode: number;
   message: string | string[];
   error: string;
+  code?: string;
   path: string;
   timestamp: string;
 }
@@ -33,6 +34,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
 
     let message: string | string[] = 'Internal server error';
     let error = 'InternalServerError';
+    let code: string | undefined;
 
     if (exception instanceof HttpException) {
       const res = exception.getResponse();
@@ -42,6 +44,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
         const body = res as Record<string, unknown>;
         message = (body.message as string | string[]) ?? exception.message;
         error = (body.error as string) ?? exception.name;
+        code = typeof body.code === 'string' ? body.code : undefined;
       }
     } else if (exception instanceof Error) {
       // 5xx inesperado: loguear stack, no filtrarlo al cliente.
@@ -52,6 +55,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
       statusCode: status,
       message,
       error,
+      ...(code ? { code } : {}),
       path: request.url,
       timestamp: new Date().toISOString(),
     };
