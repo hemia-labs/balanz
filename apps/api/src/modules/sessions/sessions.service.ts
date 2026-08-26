@@ -121,9 +121,13 @@ export class SessionsService {
     });
     if (!session) throw new UnauthorizedException('Invalid session');
 
+    // PostgreSQL can lag behind the live Redis activity timestamp by at most
+    // one configured persistence interval. On cache recovery, allow exactly
+    // that bounded idle grace; absolute expiry is never extended.
+    const databaseRecoveryGraceMs = this.activityPersistIntervalMs();
     if (
       session.status !== AuthSessionStatus.ACTIVE ||
-      this.isExpired(session)
+      this.isExpired(session, databaseRecoveryGraceMs)
     ) {
       if (session.status === AuthSessionStatus.ACTIVE) {
         await this.repository.update(session.id, {
@@ -293,16 +297,22 @@ export class SessionsService {
     return this.config.get<number>('auth.sessionTtlSeconds', 28_800) * 1_000;
   }
 
-  private isExpired(value: {
-    expiresAt: Date | string;
-    lastActivityAt: Date | string;
-  }): boolean {
+  private isExpired(
+    value: {
+      expiresAt: Date | string;
+      lastActivityAt: Date | string;
+    },
+    idleRecoveryGraceMs = 0,
+  ): boolean {
     const now = Date.now();
     const idleTtl =
       this.config.get<number>('auth.sessionIdleTtlSeconds', 1_800) * 1_000;
     return (
       new Date(value.expiresAt).getTime() <= now ||
-      new Date(value.lastActivityAt).getTime() + idleTtl <= now
+      new Date(value.lastActivityAt).getTime() +
+        idleTtl +
+        idleRecoveryGraceMs <=
+        now
     );
   }
 
@@ -327,7 +337,7 @@ export class SessionsService {
     persistedLastActivityAt = session.lastActivityAt,
   ): CachedSessionEntry {
     return {
-      version: 3,
+      version: 4,
       sessionId: session.id,
       userId: session.userId,
       organizationId: session.organizationId ?? null,
@@ -342,7 +352,6 @@ export class SessionsService {
       tenantActive: context.tenantActive,
       role: context.role,
       permissions: context.permissions,
-      assignedAccountIds: context.assignedAccountIds,
       accountAccessMode: context.accountAccessMode,
     };
   }
@@ -372,7 +381,7 @@ export class SessionsService {
       membershipId: entry.membershipId,
       role: entry.role,
       permissions: entry.permissions,
-      assignedAccountIds: entry.assignedAccountIds,
+      assignedAccountIds: [],
       accountAccessMode: entry.accountAccessMode,
       mfaVerifiedAt: entry.mfaVerifiedAt ? new Date(entry.mfaVerifiedAt) : null,
       requiresMfa: entry.requiresMfa,

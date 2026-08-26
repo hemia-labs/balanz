@@ -7,8 +7,9 @@
 La implementación del módulo de clientes, las migraciones, los seeds, el
 aislamiento tenant, la política MFA/CSRF, la concurrencia principal y el
 frontend compilan y pasan las validaciones automatizadas ejecutadas el
-2026-08-26. No se encontraron migraciones pendientes ni drift entre las
-entidades TypeORM y el esquema aplicado.
+2026-08-26. Las cuatro migraciones pasaron el lifecycle efímero sin drift; las
+tres migraciones base ya están en `dev` y la migración trigram queda para el
+flujo normal de despliegue.
 
 Este veredicto habilita revisión de código y merge sujeto a la revisión normal
 del equipo. No sustituye el checklist de despliegue productivo: antes de
@@ -26,7 +27,7 @@ ambiente destino y observación de la migración.
   disponible.
 - Entorno efímero: base PostgreSQL con prefijo
   `balanz_migration_qa_`, creada y eliminada por el runner de QA.
-- No se creó commit, no se hizo push y no se abrió PR.
+- La publicación se prepara sobre las PR existentes de backend y frontend.
 
 No se registran host, usuario, contraseña, tokens, cookies ni identificadores
 de datos reales en este reporte.
@@ -35,21 +36,21 @@ de datos reales en este reporte.
 
 | Área | Resultado | Evidencia |
 | --- | --- | --- |
-| Estado de migraciones en `dev` | PASS | Las tres migraciones están aplicadas; `migration:run` responde `No migrations are pending`. |
+| Estado de migraciones | PASS | Cuatro migraciones validadas en el lifecycle efímero; trigram queda para el flujo de despliegue. |
 | DataSource de CLI + Vault | PASS | `migration:show`, `migration:run` y `seed:run` resuelven el mismo secreto PostgreSQL que Nest. |
-| Migración desde base vacía | PASS | Se aplicaron las tres migraciones en una base temporal. |
-| Rollback y reaplicación | PASS | Se revirtió primero clientes, luego todo el esquema, y se reaplicaron las tres migraciones. |
+| Migración desde base vacía | PASS | Se aplicaron las cuatro migraciones en una base temporal. |
+| Rollback y reaplicación | PASS | Se revirtieron trigram y clientes, luego todo el esquema, y se reaplicaron cuatro migraciones. |
 | Drift TypeORM | PASS | `upQueries = 0`, `downQueries = 0`. |
-| Seeds | PASS | Dos ejecuciones consecutivas: 4 roles, 27 permisos únicos y 51 relaciones rol-permiso. |
+| Seeds | PASS | Dos ejecuciones consecutivas: 4 roles, 27 permisos únicos y 55 relaciones rol-permiso. |
 | Integridad persistente | PASS | Cero huérfanos o cadenas tenant inconsistentes en 17 comprobaciones. |
 | Períodos | PASS | Todos los ejercicios persistentes tienen exactamente los meses 1–12. |
-| Unitarias API | PASS | 25 suites, 84 pruebas. |
-| E2E API | PASS | 3 suites, 14 pruebas; 10 corresponden al dominio de clientes. |
+| Unitarias API | PASS | 27 suites, 102 pruebas. |
+| E2E API | PASS | 3 suites, 18 pruebas; 13 corresponden al dominio de clientes. |
 | Lint API | PASS | Cero errores y cero warnings en el alcance completo configurado. |
 | Build API | PASS | Compilación Nest/TypeScript completa. |
 | Lint frontend | PASS | Sin errores. |
 | Typecheck frontend | PASS | Sin errores. |
-| Pruebas frontend | PASS | 13 pruebas. |
+| Pruebas frontend | PASS | 31 pruebas. |
 | Build frontend | PASS | Build productivo Next.js 16.2.12. |
 | Smoke HTTP | PASS | Web 200, API 200, ruta privada sin sesión 401, preflight CORS 204 con credenciales. |
 | Smoke visual público | PASS | Login y verificación de correo renderizan; la tarjeta de verificación está centrada. |
@@ -62,11 +63,11 @@ de datos reales en este reporte.
 1. `Migration1787601284711`
 2. `IdentityIntegrity1787690000000`
 3. `ClientAccountsDomain1787690100000`
+4. `ClientAccountSearchTrigram1787690200000`
 
-El snapshot inicial de esta pasada ya mostraba las tres como ejecutadas porque
-habían sido aplicadas durante el trabajo previo del mismo módulo. No había una
-migración pendiente que ejecutar: se volvió a correr `migration:run` y confirmó
-el estado idempotente sin modificar la base persistente.
+El snapshot persistente inicial ya contenía las tres migraciones base. La cuarta
+es append-only y se validó desde cero, con rollback y reaplicación, en una base
+efímera; su aplicación a cada ambiente corresponde al flujo normal de despliegue.
 
 Comandos verificados con un runtime Node soportado por TypeORM:
 
@@ -102,12 +103,14 @@ bun run --cwd apps/api qa:migrations
 
 Resultados:
 
-- aplicación inicial: 3 migraciones;
+- aplicación inicial: 4 migraciones;
+- rollback de búsqueda: los dos índices trigram se eliminaron y las tablas de
+  clientes se conservaron;
 - rollback de clientes: las cinco tablas se eliminaron y la identidad se
   conservó;
 - rollback total: `users`, `memberships` y el dominio de clientes quedaron
   eliminados;
-- reaplicación: 3 migraciones;
+- reaplicación: 4 migraciones;
 - drift final: 0 operaciones;
 - base temporal eliminada: sí.
 
@@ -154,7 +157,7 @@ Los datos persistentes existentes conservaron sus conteos después de QA:
 bunx jest --runInBand --no-cache --testPathIgnorePatterns=e2e-spec
 ```
 
-Resultado: 25 suites y 84 pruebas aprobadas. El log `provider down` pertenece a
+Resultado: 27 suites y 102 pruebas aprobadas. El log `provider down` pertenece a
 un caso controlado de fallo del adaptador de correo.
 
 ### E2E
@@ -163,19 +166,22 @@ un caso controlado de fallo del adaptador de correo.
 bunx jest --config ./test/jest-e2e.json --runInBand --no-cache --silent
 ```
 
-Resultado: 3 suites y 14 pruebas aprobadas. La suite de clientes cubre 10
+Resultado: 3 suites y 18 pruebas aprobadas. La suite de clientes cubre 13
 escenarios integrales:
 
 - 401 sin sesión;
 - CSRF sin origen y con origen hostil;
 - `MFA_SETUP_REQUIRED` y `MFA_REQUIRED`;
-- validación 422 amigable y rechazo de mass assignment;
+- validación 400 compatible con v1, errores por campo y rechazo de mass assignment;
 - creación atómica de cuenta, RFC, primary, ejercicio, 12 períodos y cuatro
   eventos de auditoría;
 - rollback total si falla la persistencia de auditoría;
 - propagación del mismo correlation ID en respuesta y auditoría;
 - owner tenant-wide, contador asignado, colaborador no asignado y acceso
   cross-tenant enmascarado como 404;
+- contador con MFA y los cuatro permisos de alta: puede crear y operar su cuenta
+  asignada, pero una cuenta no asignada del mismo tenant permanece enmascarada
+  como 404;
 - aislamiento cross-tenant en cuenta, RFC, asignaciones, ejercicios y períodos;
 - permisos de mutación;
 - asignación, cache caliente, revocación y pérdida inmediata de acceso;
@@ -215,15 +221,15 @@ append-only; las migraciones nuevas continúan dentro del alcance normal.
 bun run --cwd apps/web lint
 bun run --cwd apps/web typecheck
 bun run --cwd apps/web test
-bun run --cwd apps/web build
+npm --prefix apps/web run build -- --webpack
 ```
 
 Resultados:
 
 - lint: PASS;
 - TypeScript: PASS;
-- tests: 13 PASS;
-- build Next.js: PASS, 14 páginas generadas y ruta privada dinámica compilada.
+- tests: 31 PASS;
+- build Next.js con Webpack: PASS, 14 páginas generadas y ruta privada dinámica compilada.
 
 Las pruebas cubren clasificación de errores, transporte/cancelación, slugs,
 `returnTo`, filtrado por capacidades, ruta activa, rutas multi-RFC, separación
@@ -300,18 +306,18 @@ recorrido manual de abajo.
 
 | Comando | Código | Duración aprox. | Resultado |
 | --- | ---: | ---: | --- |
-| TypeORM `migration:show` con Node 22.19 | 0 | 18.6 s | 3 aplicadas |
-| TypeORM `migration:run --transaction all` con Node 22.19 | 0 | 8.4 s | sin pendientes |
+| TypeORM `migration:show` con Node 22.19 | 0 | 18.6 s | 3 base aplicadas |
+| TypeORM `migration:run --transaction all` con Node 22.19 | 0 | 8.4 s | 3 base sin pendientes |
 | `bun run --cwd apps/api seed:run` (primera repetición final) | 0 | 2.7 s | idempotente |
 | `bun run --cwd apps/api seed:run` (segunda repetición final) | 0 | 2.6 s | idempotente |
 | `bunx eslint "{src,apps,libs,test}/**/*.ts"` | 0 | 9.2 s | PASS |
-| Unitarias API, `--runInBand --no-cache` | 0 | 9.6 s | 25 suites / 84 pruebas |
-| E2E API completo, `--runInBand --no-cache` | 0 | 55.1 s | 3 suites / 14 pruebas |
+| Unitarias API, `--runInBand --no-cache` | 0 | 9.6 s | 27 suites / 102 pruebas |
+| E2E API completo, `--runInBand --no-cache` | 0 | 60.2 s | 3 suites / 18 pruebas |
 | `bun run --cwd apps/api build` | 0 | 8.6 s | PASS |
 | `bun run --cwd apps/web lint` | 0 | ejecución previa de esta validación | PASS |
 | `bun run --cwd apps/web typecheck` | 0 | ejecución previa de esta validación | PASS |
-| `bun run --cwd apps/web test` | 0 | ejecución previa de esta validación | 13 pruebas |
-| `bun run --cwd apps/web build` | 0 | ejecución previa de esta validación | 14 páginas; PASS |
+| `bun run --cwd apps/web test` | 0 | validación final frontend | 31 pruebas |
+| `npm --prefix apps/web run build -- --webpack` | 0 | validación final frontend | 14 páginas; PASS |
 | `git diff --check` | 0 | < 1 s | sin errores de whitespace |
 
 Los logs `provider down` y `forced audit persistence failure` corresponden a
@@ -363,7 +369,7 @@ bun run --cwd apps/web dev
 | [ ] Confirmar pérdida inmediata | detalle devuelve 404 seguro | captura colaborador |
 | [ ] Probar ID de otro tenant | 404 sin nombre, RFC ni estado ajenos | red/body seguro |
 | [ ] Probar RFC duplicado | 409 con mensaje usable | captura del formulario |
-| [ ] Probar datos inválidos | 422 con errores por campo en español | captura |
+| [ ] Probar datos inválidos | 400 con errores por campo en español | captura |
 | [ ] Recargar URL profunda | restaura cliente/RFC/ejercicio/período | URL/captura |
 | [ ] Cambiar de tenant | se limpia el contexto anterior | captura antes/después |
 

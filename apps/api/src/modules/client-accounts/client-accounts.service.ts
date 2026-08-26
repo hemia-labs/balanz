@@ -15,6 +15,7 @@ import type { SessionAuthorizationContext } from '../sessions/session.types';
 import { SessionsService } from '../sessions/sessions.service';
 import type { RequestContext } from '../../common/decorators/request-context.decorator';
 import {
+  ClientAccountDetailDto,
   CreateClientAccountDto,
   ListClientAccountsDto,
   UpdateClientAccountDto,
@@ -99,7 +100,7 @@ export class ClientAccountsService {
       builder.andWhere('account.status = :status', { status: query.status });
     if (query.search) {
       builder.andWhere(
-        `(lower(account.name) LIKE :search ESCAPE '\\' OR lower(coalesce(account.code, '')) LIKE :search ESCAPE '\\')`,
+        `(lower(account.name) LIKE :search ESCAPE '\\' OR lower(account.code) LIKE :search ESCAPE '\\')`,
         { search: `%${this.escapeLike(query.search.toLowerCase())}%` },
       );
     }
@@ -227,56 +228,54 @@ export class ClientAccountsService {
             lockVersion: 0,
           })),
         );
-        await Promise.all([
-          this.record(
-            manager,
-            tenant,
-            request,
-            'CLIENT_ACCOUNT_CREATED',
-            'clients.manage',
-            'client_account',
-            ids.clientAccountId,
-            ids.clientAccountId,
-            null,
-            { version: 1 },
-          ),
-          this.record(
-            manager,
-            tenant,
-            request,
-            'LEGAL_ENTITY_CREATED',
-            'fiscal_entities.manage',
-            'legal_entity',
-            ids.legalEntityId,
-            ids.clientAccountId,
-            ids.legalEntityId,
-            { version: 1 },
-          ),
-          this.record(
-            manager,
-            tenant,
-            request,
-            'ACCOUNT_ASSIGNMENT_CREATED',
-            'clients.assign',
-            'account_assignment',
-            ids.assignmentId,
-            ids.clientAccountId,
-            ids.legalEntityId,
-            { responsibility: AssignmentResponsibility.PRIMARY },
-          ),
-          this.record(
-            manager,
-            tenant,
-            request,
-            'FISCAL_YEAR_CREATED',
-            'fiscal_years.manage',
-            'fiscal_year',
-            ids.fiscalYearId,
-            ids.clientAccountId,
-            ids.legalEntityId,
-            { year: dto.fiscalYear },
-          ),
-        ]);
+        await this.record(
+          manager,
+          tenant,
+          request,
+          'CLIENT_ACCOUNT_CREATED',
+          'clients.manage',
+          'client_account',
+          ids.clientAccountId,
+          ids.clientAccountId,
+          null,
+          { version: 1 },
+        );
+        await this.record(
+          manager,
+          tenant,
+          request,
+          'LEGAL_ENTITY_CREATED',
+          'fiscal_entities.manage',
+          'legal_entity',
+          ids.legalEntityId,
+          ids.clientAccountId,
+          ids.legalEntityId,
+          { version: 1 },
+        );
+        await this.record(
+          manager,
+          tenant,
+          request,
+          'ACCOUNT_ASSIGNMENT_CREATED',
+          'clients.assign',
+          'account_assignment',
+          ids.assignmentId,
+          ids.clientAccountId,
+          ids.legalEntityId,
+          { responsibility: AssignmentResponsibility.PRIMARY },
+        );
+        await this.record(
+          manager,
+          tenant,
+          request,
+          'FISCAL_YEAR_CREATED',
+          'fiscal_years.manage',
+          'fiscal_year',
+          ids.fiscalYearId,
+          ids.clientAccountId,
+          ids.legalEntityId,
+          { year: dto.fiscalYear },
+        );
       });
     } catch (error) {
       this.translateConstraint(error);
@@ -290,10 +289,10 @@ export class ClientAccountsService {
 
   async detail(
     clientAccountId: string,
-    includeArchived: boolean,
+    query: ClientAccountDetailDto,
     tenant: SessionAuthorizationContext,
   ) {
-    if (includeArchived && !this.scope.canIncludeArchived(tenant)) {
+    if (query.includeArchived && !this.scope.canIncludeArchived(tenant)) {
       throw domainError(
         HttpStatus.FORBIDDEN,
         'ARCHIVED_ACCESS_FORBIDDEN',
@@ -303,7 +302,7 @@ export class ClientAccountsService {
     const account = await this.scope.requireAccessibleAccount(
       clientAccountId,
       tenant,
-      includeArchived,
+      query.includeArchived,
     );
     const organizationId = this.organizationId(tenant);
     const legalBuilder = this.legalEntities
@@ -312,19 +311,43 @@ export class ClientAccountsService {
         'entity.organization_id = :organizationId AND entity.client_account_id = :clientAccountId',
         { organizationId, clientAccountId },
       );
-    if (!includeArchived)
+    if (!query.includeArchived)
       legalBuilder.andWhere('entity.status <> :archived', {
         archived: LegalEntityStatus.ARCHIVED,
       });
+    if (query.legalEntityId) {
+      legalBuilder.andWhere('entity.id = :legalEntityId', {
+        legalEntityId: query.legalEntityId,
+      });
+    } else if (query.legalEntitySearch) {
+      legalBuilder.andWhere(
+        `(lower(entity.legal_name) LIKE :search ESCAPE '\\' OR lower(entity.rfc) LIKE :search ESCAPE '\\')`,
+        {
+          search: `%${this.escapeLike(query.legalEntitySearch.toLowerCase())}%`,
+        },
+      );
+    }
+    const legalEntityPage = query.legalEntityId ? 1 : query.legalEntityPage;
+    const legalEntityLimit = query.legalEntityId ? 1 : query.legalEntityLimit;
     const primaryAssignmentsPromise = this.primaryAssignmentProjections(
       organizationId,
       [clientAccountId],
     );
-    const legalEntities = await legalBuilder
+    const [legalEntities, legalEntityTotal] = await legalBuilder
       .orderBy('entity.created_at', 'ASC')
-      .getMany();
+      .addOrderBy('entity.id', 'ASC')
+      .skip((legalEntityPage - 1) * legalEntityLimit)
+      .take(legalEntityLimit)
+      .getManyAndCount();
+    if (query.legalEntityId && legalEntities.length === 0) {
+      throw domainError(
+        HttpStatus.NOT_FOUND,
+        'LEGAL_ENTITY_NOT_FOUND',
+        'Legal entity not found',
+      );
+    }
     let fiscalYearsPromise: Promise<FiscalYear[]>;
-    if (!includeArchived && legalEntities.length === 0) {
+    if (legalEntities.length === 0) {
       fiscalYearsPromise = Promise.resolve([]);
     } else {
       const builder = this.fiscalYears
@@ -332,17 +355,17 @@ export class ClientAccountsService {
         .where(
           'year.organization_id = :organizationId AND year.client_account_id = :clientAccountId',
           { organizationId, clientAccountId },
-        );
-      if (!includeArchived) {
+        )
+        .andWhere('year.legal_entity_id IN (:...legalEntityIds)', {
+          legalEntityIds: legalEntities.map((entity) => entity.id),
+        });
+      if (!query.includeArchived) {
         builder
           .innerJoin(
             LegalEntity,
             'year_entity',
             'year_entity.organization_id = year.organization_id AND year_entity.client_account_id = year.client_account_id AND year_entity.id = year.legal_entity_id',
           )
-          .andWhere('year.legal_entity_id IN (:...legalEntityIds)', {
-            legalEntityIds: legalEntities.map((entity) => entity.id),
-          })
           .andWhere('year.status <> :archivedYearStatus', {
             archivedYearStatus: FiscalYearStatus.ARCHIVED,
           })
@@ -350,7 +373,10 @@ export class ClientAccountsService {
             archivedEntityStatus: LegalEntityStatus.ARCHIVED,
           });
       }
-      fiscalYearsPromise = builder.orderBy('year.year', 'DESC').getMany();
+      fiscalYearsPromise = builder
+        .orderBy('year.year', 'DESC')
+        .addOrderBy('year.id', 'ASC')
+        .getMany();
     }
     const [primaryAssignments, fiscalYears] = await Promise.all([
       primaryAssignmentsPromise,
@@ -358,9 +384,18 @@ export class ClientAccountsService {
     ]);
     return {
       account: this.accountResponse(account),
-      legalEntities: legalEntities.map((entity) =>
-        this.legalEntityResponse(entity),
-      ),
+      legalEntities: {
+        items: legalEntities.map((entity) => this.legalEntityResponse(entity)),
+        meta: {
+          page: legalEntityPage,
+          limit: legalEntityLimit,
+          total: legalEntityTotal,
+          totalPages:
+            legalEntityTotal === 0
+              ? 0
+              : Math.ceil(legalEntityTotal / legalEntityLimit),
+        },
+      },
       primaryAssignment: this.primaryAssignmentResponse(
         primaryAssignments.find(
           (item) => item.clientAccountId === clientAccountId,

@@ -12,9 +12,9 @@
 ## Decisiones aplicadas
 
 - El tenant sólo se obtiene de la sesión autenticada. Los DTOs tienen whitelist estricta y rechazan propiedades adicionales como `organizationId`, actor, timestamps o estado no permitido.
-- El titular real se determina por `organizations.owner_user_id`; su scope se representa como `accountAccessMode = tenant` sin cargar una lista de cuentas. El resto de membresías usa `accountAccessMode = assigned` y debe tener una asignación activa comprobada en PostgreSQL.
+- El titular real se determina por `organizations.owner_user_id`; su scope se representa como `accountAccessMode = tenant` sin cargar una lista de cuentas. El resto de membresías usa `accountAccessMode = assigned` y debe tener una asignación activa comprobada en PostgreSQL. La sesión no carga la cartera completa: `assignedAccountIds` se conserva vacío sólo por compatibilidad y la cartera se obtiene paginada.
 - Las lecturas y mutaciones vuelven a validar el scope en base de datos. Las mutaciones sensibles repiten la validación dentro de la misma transacción y toman locks donde hay invariantes concurrentes.
-- Los UUID se generan en la aplicación con `randomUUID()`. Las tablas nuevas no dependen de extensiones ni defaults UUID del motor.
+- Los UUID se generan en la aplicación con `randomUUID()` y no dependen de extensiones o defaults del motor. La búsqueda `contains` sí declara `pg_trgm` de forma append-only.
 - El borrado funcional es archivado o revocación; no se añadió reactivación ni cascadas amplias.
 - El camino real de `/clients` consume exclusivamente la API. Los componentes demo continúan disponibles sólo bajo el modo demo existente.
 - Se mantuvo fuera de alcance CFDI, SAT, e.firma, DIOT, IEPS y cualquier dato fiscal simulado.
@@ -22,8 +22,8 @@
 ## Seguridad y plataforma
 
 - CSRF: `GET`, `HEAD` y `OPTIONS` son seguros; una mutación requiere un `Origin` exacto permitido o, si no hay `Origin`, un origen exacto obtenido de un `Referer` válido. Ausencia, URL malformada, host parecido o coincidencia por sufijo devuelve 403.
-- CORS: desarrollo usa por defecto `http://localhost:3000`; producción conserva configuración explícita por entorno.
-- Sesión deslizante: cada request válido avanza `lastActivityAt` en cache. La persistencia a PostgreSQL se limita mediante `AUTH_SESSION_ACTIVITY_PERSIST_INTERVAL_SECONDS` (300 s por defecto), sin extender `expiresAt`, y se conservan los límites idle y absoluto.
+- CORS: desarrollo usa por defecto `http://localhost:3000`; producción conserva configuración explícita por entorno. Cada entrada se canonicaliza como origin HTTP(S) y se rechazan credenciales, paths significativos, query y fragment.
+- Sesión deslizante: cada request válido avanza `lastActivityAt` en cache. La persistencia a PostgreSQL se limita mediante `AUTH_SESSION_ACTIVITY_PERSIST_INTERVAL_SECONDS` (300 s por defecto), que debe ser menor que el idle. Al recuperar desde PostgreSQL se admite como máximo esa misma gracia para no expulsar actividad aún no persistida, sin extender `expiresAt`.
 - Correlation ID: middleware valida `x-correlation-id` como UUID o genera uno, lo expone en la respuesta, request, errores y logs, y lo propaga a auditoría mediante `AsyncLocalStorage`.
 - Trust proxy: `TRUST_PROXY_HOPS` está tipado y validado; Express sólo lo habilita cuando el valor es mayor que cero.
 - Cache: las mutaciones de asignaciones y el archivado invalidan las sesiones activas de las membresías afectadas por hashes exactos obtenidos de PostgreSQL, sin `KEYS` ni barridos globales.
@@ -58,7 +58,19 @@ Crea las cinco tablas del dominio:
 
 Los índices cubren listados por tenant/estado/actualización, búsqueda por nombre, RFC, asignaciones por membresía/cuenta, ejercicios por entidad/cuenta y períodos por ejercicio/estado/entidad. `synchronize` continúa deshabilitado.
 
-Las migraciones se ejecutaron el 2026-08-26 en el entorno Vault `dev`, después de autorización explícita. El preflight de identidad pasó, ambas migraciones hicieron commit en una sola transacción y `showMigrations()` confirmó que no quedan pendientes. El seed idempotente dejó 27 permisos y 51 relaciones rol-permiso; después se invalidó la autorización cacheada de las membresías activas.
+### `1787690200000-ClientAccountSearchTrigram.ts`
+
+Migración append-only que habilita `pg_trgm` y agrega índices GIN sobre
+`lower(name)` y `lower(code)` para que la búsqueda `LIKE '%texto%'` no dependa de
+un recorrido completo del rango tenant. El índice B-tree existente se conserva
+para filtros y ordenamientos normales.
+
+El preflight de despliegue debe confirmar que `pg_trgm` ya está instalada o que
+el rol de migraciones puede instalarla en la base objetivo. Si el proveedor
+administrado restringe `CREATE EXTENSION`, la provisión corresponde al DBA; no
+se elevan por este motivo los privilegios permanentes del usuario runtime.
+
+Las migraciones base se ejecutaron el 2026-08-26 en el entorno Vault `dev`, después de autorización explícita. El preflight de identidad pasó y `showMigrations()` confirmó su aplicación. Con la matriz corregida, el seed idempotente define 27 permisos y 55 relaciones rol-permiso. El cache de sesión sube a v4: las entradas v3 hacen fallback a PostgreSQL y refrescan los permisos sin una invalidación manual. La migración trigram nueva se valida primero mediante el lifecycle efímero y se aplica por el flujo normal de despliegue.
 
 ## Backend
 
@@ -86,7 +98,7 @@ Endpoints bajo el prefijo global existente de la API:
 - `POST /legal-entities/:legalEntityId/fiscal-years`
 - `GET /fiscal-years/:fiscalYearId/periods`
 
-La lista tiene paginación con máximo 100, orden estable y allowlist, búsqueda escapada y parametrizada, y sólo agrega la entidad fiscal primaria, asignación primaria, último ejercicio y estado del mes actual. No fabrica métricas fiscales.
+La cartera y las colecciones no acotadas —asignaciones, candidatos, responsables y entidades fiscales— tienen paginación con máximo 100, búsqueda escapada y orden estable. El detalle pagina sus entidades fiscales y sólo devuelve ejercicios de esa página; para deep links acepta un `legalEntityId` validado y resuelve exactamente esa entidad dentro del mismo tenant/scope. Períodos conserva exactamente 12 elementos y los ejercicios permanecen completos por entidad por su cota temporal. La cartera sólo agrega la entidad fiscal primaria, asignación primaria, último ejercicio y estado del mes actual; no fabrica métricas fiscales.
 
 ### Permisos y defaults
 
@@ -100,7 +112,7 @@ Se añadieron:
 `fiscal_entities.manage` y el permiso existente `clients.assign` requieren MFA. Los seeds son idempotentes y dejan estos defaults:
 
 - owner: todos los permisos tenant;
-- accountant: `clients.view`, `fiscal_entities.view` y `fiscal_years.view`, además de sus permisos operativos previos; no recibe `clients.manage` ni `clients.assign`;
+- accountant: conserva `clients.view`, `clients.manage` y `clients.assign`, y recibe `fiscal_entities.view/manage` y `fiscal_years.view/manage` para operar sus cuentas asignadas;
 - collaborator: los tres permisos de lectura;
 - platform admin: no obtiene acceso tenant implícito.
 
@@ -108,13 +120,13 @@ Los controllers aplican, en orden, sesión, acceso tenant y permisos. El scope a
 
 ### Flujo atómico, auditoría y concurrencia
 
-La creación inicial valida que el primary sea una membresía activa del mismo tenant con rol owner/accountant y, en una transacción, crea cuenta, primera persona fiscal, asignación primary, ejercicio, 12 períodos y cuatro eventos de auditoría. Devuelve los cuatro identificadores de servidor. Un fallo de auditoría revierte toda la transacción.
+La creación inicial valida que el primary sea una membresía activa del mismo tenant con rol owner/accountant y, en una transacción, crea cuenta, primera persona fiscal, asignación primary, ejercicio, 12 períodos y cuatro eventos de auditoría secuenciales sobre la misma conexión. Devuelve los cuatro identificadores de servidor. Un fallo de auditoría revierte toda la transacción.
 
 El reemplazo de primary bloquea y revoca las asignaciones activas necesarias antes de crear la nueva; la restricción parcial respalda la invariante. Se rechaza revocar el último primary con `LAST_PRIMARY_ASSIGNMENT`. El archivado de personas fiscales bloquea el conjunto activo y rechaza archivar la última. Las actualizaciones usan versión optimista. Las restricciones se traducen a códigos como `LEGAL_ENTITY_RFC_CONFLICT` y `FISCAL_YEAR_CONFLICT`.
 
 La invalidación de las sesiones afectadas ocurre después del commit para no publicar un estado de cache previo a una transacción fallida.
 
-La validación global devuelve `VALIDATION_ERROR` con status 422 y `fieldErrors` por ruta de campo. Los mensajes funcionales del módulo están traducidos a español y los errores 5xx nunca exponen detalles internos.
+La validación global conserva el status 400 de la API v1 y devuelve `VALIDATION_ERROR` con `fieldErrors` por ruta de campo. Los mensajes funcionales del módulo están traducidos a español y los errores 5xx nunca exponen detalles internos.
 
 ## Frontend
 
@@ -137,17 +149,17 @@ El detalle separa cuenta, múltiples RFC, asignaciones, ejercicios y períodos. 
 
 | Comando | Resultado | Cantidad/observación |
 | --- | --- | --- |
-| `bun run --cwd apps/api jest --runInBand --no-cache --testPathIgnorePatterns=e2e-spec` | PASS | 25 suites, 84 tests. El log controlado `provider down` pertenece a un fixture de `EmailService`; no es fallo. |
-| `bun run --cwd apps/api test:e2e` | PASS | 3 suites, 14 tests; 10 cubren clientes, tenant, MFA, CSRF, concurrencia, rollback de auditoría, cache y archivo. |
+| `bun run --cwd apps/api jest --runInBand --no-cache --testPathIgnorePatterns=e2e-spec` | PASS | 27 suites, 102 tests. El log controlado `provider down` pertenece a un fixture de `EmailService`; no es fallo. |
+| `bun run --cwd apps/api test:e2e` | PASS | 3 suites, 18 tests; 13 cubren clientes, tenant, MFA, CSRF, concurrencia, rollback de auditoría, cache y archivo. |
 | `bun run --cwd apps/api build` | PASS | Compilación Nest/TypeScript completa. |
 | `bunx eslint "{src,apps,libs,test}/**/*.ts"` | PASS | Cero errores y cero warnings. La migración inicial ya aplicada tiene una exclusión exacta para no reescribirla. |
 | Prettier `--check` sobre archivos API nuevos/modificados | PASS | Todos los archivos tocados usan el formato configurado. |
 | `bun run --cwd apps/web lint` | PASS | Sin errores. |
 | `bun run --cwd apps/web typecheck` | PASS | TypeScript sin errores. |
-| `bun run --cwd apps/web test` | PASS | 13 tests, incluidas rutas multi-RFC, secciones de cliente y período activo. |
-| `bun run --cwd apps/web build` | PASS | Build de producción Next.js 16. |
+| `bun run --cwd apps/web test` | PASS | 31 tests, incluidas rutas multi-RFC, paginación acotada, deep links y recuperación de entidad fiscal. |
+| `npm --prefix apps/web run build -- --webpack` | PASS | Build de producción Next.js 16 con Webpack. |
 | `git diff --check` | PASS | Sin whitespace errors. |
-| Migraciones y seed en Vault `dev` | PASS | Tres migraciones aplicadas, 27 permisos y 51 relaciones rol-permiso; sin pendientes. |
+| Migraciones y seed | PASS | Cuatro migraciones validadas en lifecycle efímero; 27 permisos y 55 relaciones rol-permiso. |
 | `bun run --cwd apps/api qa:migrations` | PASS | Base temporal: apply desde cero, seed doble, rollback parcial/total, reapply y drift 0; base eliminada. |
 
 Se agregaron pruebas unitarias para la matriz CSRF, correlation ID y auditoría, actividad deslizante e idle/absolute expiry, autorización owner/asignado, invalidación exacta de sesiones, DTOs y mass assignment, permisos default, RFC/rango fiscal, sorting, elegibilidad del primary, último primary y mapeo de constraints.
@@ -173,12 +185,17 @@ la resolución e invalidación de sesiones de la suite E2E.
 Antes de desplegar, actualizar Node, hacer backup, verificar variables de
 producción y ejecutar en una instancia controlada:
 
+- comprobar que `pg_trgm` esté instalada o que el rol de migraciones pueda
+  instalarla;
+- mantener el usuario runtime con privilegios mínimos y provisionar la
+  extensión mediante DBA si el proveedor lo exige.
+
 ```bash
 bun run --cwd apps/api typeorm migration:show
 bun run --cwd apps/api migration:run
 bun run --cwd apps/api seed:run
 bun run --cwd apps/api build
-bun run --cwd apps/web build
+npm --prefix apps/web run build -- --webpack
 ```
 
 `start:prod` ya ejecuta la preparación de DB existente, pero se recomienda separar y observar migración/seed durante el primer despliegue de este módulo.

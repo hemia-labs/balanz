@@ -8,6 +8,7 @@ import {
   Param,
   ParseUUIDPipe,
   Post,
+  Query,
   UseGuards,
 } from '@nestjs/common';
 import { CurrentRequestContext } from '../../common/decorators/request-context.decorator';
@@ -20,6 +21,7 @@ import { TenantAccessGuard } from '../../common/guards/tenant-access.guard';
 import type { SessionAuthorizationContext } from '../sessions/session.types';
 import { AccountAssignmentsService } from './account-assignments.service';
 import { CreateAccountAssignmentDto } from './dtos/assignment.dtos';
+import { ListDomainCollectionDto } from './dtos/client-account.dtos';
 
 @Controller('client-accounts/:clientAccountId')
 @UseGuards(SessionGuard, TenantAccessGuard, PermissionsGuard)
@@ -30,18 +32,20 @@ export class AccountAssignmentsController {
   @Permissions('clients.assign')
   list(
     @Param('clientAccountId', ParseUUIDPipe) clientAccountId: string,
+    @Query() query: ListDomainCollectionDto,
     @CurrentTenant() tenant: SessionAuthorizationContext,
   ) {
-    return this.service.list(clientAccountId, tenant);
+    return this.service.list(clientAccountId, query, tenant);
   }
 
   @Get('available-members')
   @Permissions('clients.assign')
   availableMembers(
     @Param('clientAccountId', ParseUUIDPipe) clientAccountId: string,
+    @Query() query: ListDomainCollectionDto,
     @CurrentTenant() tenant: SessionAuthorizationContext,
   ) {
-    return this.service.availableMembers(clientAccountId, tenant);
+    return this.service.availableMembers(clientAccountId, query, tenant);
   }
 
   @Post('assignments')

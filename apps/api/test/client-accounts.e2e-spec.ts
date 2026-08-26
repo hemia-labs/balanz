@@ -9,7 +9,7 @@ import type { App } from 'supertest/types';
 import { DataSource } from 'typeorm';
 import { AppModule } from '../src/app.module';
 import { AllExceptionsFilter } from '../src/common/filters/all-exceptions.filter';
-import { validationExceptionFactory } from '../src/common/validation/validation-exception.factory';
+import { API_VALIDATION_PIPE_OPTIONS } from '../src/common/validation/validation-exception.factory';
 import {
   AuthFactor,
   AuthFactorStatus,
@@ -44,6 +44,14 @@ type ErrorResponse = {
   fieldErrors?: Record<string, string[]>;
 };
 
+type ClientDetailResponse = {
+  legalEntities: {
+    items: Array<{ id: string }>;
+    meta: { page: number; limit: number; total: number; totalPages: number };
+  };
+  fiscalYears: Array<{ id: string; legalEntityId: string }>;
+};
+
 describe('Client accounts domain (e2e)', () => {
   const apiPrefix = '/api/v1';
   const fixtureTag = randomUUID();
@@ -74,14 +82,7 @@ describe('Client accounts domain (e2e)', () => {
     app = moduleFixture.createNestApplication();
     app.use(cookieParser());
     app.setGlobalPrefix(apiPrefix.slice(1));
-    app.useGlobalPipes(
-      new ValidationPipe({
-        whitelist: true,
-        forbidNonWhitelisted: true,
-        transform: true,
-        exceptionFactory: validationExceptionFactory,
-      }),
-    );
+    app.useGlobalPipes(new ValidationPipe(API_VALIDATION_PIPE_OPTIONS));
     app.useGlobalFilters(new AllExceptionsFilter());
     await app.init();
 
@@ -171,7 +172,7 @@ describe('Client accounts domain (e2e)', () => {
         organizationId: foreignOwner.organizationId,
         legalEntity: { legalName: 'Entidad de prueba', rfc: 'RFC INVALIDO' },
       })
-      .expect(422);
+      .expect(400);
 
     const body = responseBody<ErrorResponse>(response);
     expect(body).toEqual(
@@ -270,6 +271,100 @@ describe('Client accounts domain (e2e)', () => {
     expect(counts).toEqual({ accounts: 0, entities: 0 });
   });
 
+  it('paginates expandable domain collections with explicit metadata', async () => {
+    const assignments = await request(app.getHttpServer())
+      .get(
+        `${apiPrefix}/client-accounts/${mainClient.clientAccountId}/assignments?page=1&limit=1`,
+      )
+      .set('Cookie', owner.cookie)
+      .expect(200);
+    expect(responseBody(assignments)).toEqual({
+      items: [expect.objectContaining({ responsibility: 'primary' })],
+      meta: { page: 1, limit: 1, total: 1, totalPages: 1 },
+    });
+
+    const availableMembers = await request(app.getHttpServer())
+      .get(
+        `${apiPrefix}/client-accounts/${mainClient.clientAccountId}/available-members?search=accountant&page=1&limit=1`,
+      )
+      .set('Cookie', owner.cookie)
+      .expect(200);
+    expect(responseBody(availableMembers)).toEqual({
+      items: [
+        expect.objectContaining({ membershipId: accountant.membershipId }),
+      ],
+      meta: { page: 1, limit: 1, total: 1, totalPages: 1 },
+    });
+
+    const primaryMembers = await request(app.getHttpServer())
+      .get(
+        `${apiPrefix}/client-accounts/available-primary-members?search=accountant&page=1&limit=1`,
+      )
+      .set('Cookie', owner.cookie)
+      .expect(200);
+    expect(responseBody(primaryMembers)).toEqual({
+      items: [
+        expect.objectContaining({ membershipId: accountant.membershipId }),
+      ],
+      meta: { page: 1, limit: 1, total: 1, totalPages: 1 },
+    });
+
+    const legalEntities = await request(app.getHttpServer())
+      .get(
+        `${apiPrefix}/client-accounts/${mainClient.clientAccountId}/legal-entities?search=Entidad&page=1&limit=1`,
+      )
+      .set('Cookie', owner.cookie)
+      .expect(200);
+    expect(responseBody(legalEntities)).toEqual({
+      items: [expect.objectContaining({ id: mainClient.legalEntityId })],
+      meta: { page: 1, limit: 1, total: 1, totalPages: 1 },
+    });
+
+    const deepLinkEntityResponse = await request(app.getHttpServer())
+      .post(
+        `${apiPrefix}/client-accounts/${mainClient.clientAccountId}/legal-entities`,
+      )
+      .set('Cookie', owner.cookie)
+      .set('Origin', allowedOrigin)
+      .send({
+        legalName: `Entidad deep link ${fixtureTag}`,
+        rfc: nextRfc(),
+      })
+      .expect(201);
+    const deepLinkEntityId = responseBody<{ id: string }>(
+      deepLinkEntityResponse,
+    ).id;
+
+    const deepLinkDetail = await request(app.getHttpServer())
+      .get(
+        `${apiPrefix}/client-accounts/${mainClient.clientAccountId}?legalEntityId=${deepLinkEntityId}&legalEntityPage=99&legalEntityLimit=100&legalEntitySearch=no-coincide`,
+      )
+      .set('Cookie', owner.cookie)
+      .expect(200);
+    expect(
+      responseBody<ClientDetailResponse>(deepLinkDetail).legalEntities,
+    ).toEqual({
+      items: [expect.objectContaining({ id: deepLinkEntityId })],
+      meta: { page: 1, limit: 1, total: 1, totalPages: 1 },
+    });
+
+    await request(app.getHttpServer())
+      .delete(`${apiPrefix}/legal-entities/${deepLinkEntityId}`)
+      .set('Cookie', owner.cookie)
+      .set('Origin', allowedOrigin)
+      .expect(204);
+
+    const archivedDeepLink = await request(app.getHttpServer())
+      .get(
+        `${apiPrefix}/client-accounts/${mainClient.clientAccountId}?legalEntityId=${deepLinkEntityId}`,
+      )
+      .set('Cookie', owner.cookie)
+      .expect(404);
+    expect(responseBody<ErrorResponse>(archivedDeepLink).code).toBe(
+      'LEGAL_ENTITY_NOT_FOUND',
+    );
+  });
+
   it('applies tenant scope, assignment scope and permissions', async () => {
     const ownerList = await listClients(owner.cookie);
     expect(clientIds(responseBody(ownerList))).toContain(
@@ -341,6 +436,44 @@ describe('Client accounts domain (e2e)', () => {
     ]);
   });
 
+  it('lets an MFA-verified accountant mutate assigned accounts while masking unassigned ones', async () => {
+    const assignedCreation = await request(app.getHttpServer())
+      .post(`${apiPrefix}/client-accounts`)
+      .set('Cookie', accountant.cookie)
+      .set('Origin', allowedOrigin)
+      .send(validClientPayload(accountant.membershipId))
+      .expect(201);
+    const assignedAccountId =
+      responseBody<CreatedClient>(assignedCreation).clientAccountId;
+
+    const assignedUpdate = await request(app.getHttpServer())
+      .patch(`${apiPrefix}/client-accounts/${assignedAccountId}`)
+      .set('Cookie', accountant.cookie)
+      .set('Origin', allowedOrigin)
+      .send({ name: `Cliente operado ${fixtureTag}`, expectedVersion: 1 })
+      .expect(200);
+    expect(responseBody<{ version: number }>(assignedUpdate).version).toBe(2);
+
+    const unassignedCreation = await request(app.getHttpServer())
+      .post(`${apiPrefix}/client-accounts`)
+      .set('Cookie', owner.cookie)
+      .set('Origin', allowedOrigin)
+      .send(validClientPayload(owner.membershipId))
+      .expect(201);
+    const unassignedAccountId =
+      responseBody<CreatedClient>(unassignedCreation).clientAccountId;
+
+    const denied = await request(app.getHttpServer())
+      .patch(`${apiPrefix}/client-accounts/${unassignedAccountId}`)
+      .set('Cookie', accountant.cookie)
+      .set('Origin', allowedOrigin)
+      .send({ name: 'Fuera de alcance', expectedVersion: 1 })
+      .expect(404);
+    expect(responseBody<ErrorResponse>(denied).code).toBe(
+      'CLIENT_ACCOUNT_NOT_FOUND',
+    );
+  });
+
   it('removes assigned access immediately after revocation with a warm session cache', async () => {
     await request(app.getHttpServer())
       .get(`${apiPrefix}/client-accounts/${mainClient.clientAccountId}`)
@@ -374,9 +507,10 @@ describe('Client accounts domain (e2e)', () => {
       )
       .set('Cookie', owner.cookie)
       .expect(200);
-    const primary = responseBody<Array<Record<string, unknown>>>(
-      assignments,
-    ).find((item) => item.responsibility === 'primary');
+    const primary = responseBody<{
+      items: Array<Record<string, unknown>>;
+      meta: { page: number; limit: number; total: number; totalPages: number };
+    }>(assignments).items.find((item) => item.responsibility === 'primary');
     expect(primary).toBeDefined();
 
     const primaryId = String(primary?.id);
@@ -448,6 +582,68 @@ describe('Client accounts domain (e2e)', () => {
     expect(periodBody.periods.map((period) => period.month)).toEqual([
       1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12,
     ]);
+  });
+
+  it('hides archived fiscal chains from an assigned user detail', async () => {
+    const currentYear = new Date().getFullYear();
+    const archivedYearResponse = await request(app.getHttpServer())
+      .post(
+        `${apiPrefix}/legal-entities/${mainClient.legalEntityId}/fiscal-years`,
+      )
+      .set('Cookie', owner.cookie)
+      .set('Origin', allowedOrigin)
+      .send({ year: currentYear - 2 })
+      .expect(201);
+    const archivedYearId = responseBody<{ id: string }>(
+      archivedYearResponse,
+    ).id;
+    await dataSource.query(
+      `UPDATE fiscal_years
+          SET status = 'archived', archived_at = now(), updated_at = now()
+        WHERE organization_id = $1 AND id = $2`,
+      [owner.organizationId, archivedYearId],
+    );
+
+    const archivedEntityResponse = await request(app.getHttpServer())
+      .post(
+        `${apiPrefix}/client-accounts/${mainClient.clientAccountId}/legal-entities`,
+      )
+      .set('Cookie', owner.cookie)
+      .set('Origin', allowedOrigin)
+      .send({
+        legalName: `Entidad archivada ${fixtureTag}`,
+        rfc: nextRfc(),
+      })
+      .expect(201);
+    const archivedEntityId = responseBody<{ id: string }>(
+      archivedEntityResponse,
+    ).id;
+    const archivedEntityYearResponse = await request(app.getHttpServer())
+      .post(`${apiPrefix}/legal-entities/${archivedEntityId}/fiscal-years`)
+      .set('Cookie', owner.cookie)
+      .set('Origin', allowedOrigin)
+      .send({ year: currentYear - 3 })
+      .expect(201);
+    const archivedEntityYearId = responseBody<{ id: string }>(
+      archivedEntityYearResponse,
+    ).id;
+    await request(app.getHttpServer())
+      .delete(`${apiPrefix}/legal-entities/${archivedEntityId}`)
+      .set('Cookie', owner.cookie)
+      .set('Origin', allowedOrigin)
+      .expect(204);
+
+    const detail = await request(app.getHttpServer())
+      .get(`${apiPrefix}/client-accounts/${mainClient.clientAccountId}`)
+      .set('Cookie', accountant.cookie)
+      .expect(200);
+    const body = responseBody<ClientDetailResponse>(detail);
+    expect(body.legalEntities.items.map((entity) => entity.id)).not.toContain(
+      archivedEntityId,
+    );
+    expect(body.fiscalYears.map((year) => year.id)).not.toEqual(
+      expect.arrayContaining([archivedYearId, archivedEntityYearId]),
+    );
   });
 
   it('keeps a duplicate RFC race to one committed aggregate', async () => {
@@ -553,7 +749,23 @@ describe('Client accounts domain (e2e)', () => {
     await request(app.getHttpServer())
       .get(`${apiPrefix}/client-accounts?limit=101`)
       .set('Cookie', owner.cookie)
-      .expect(422);
+      .expect(400);
+    await request(app.getHttpServer())
+      .get(`${apiPrefix}/client-accounts?page=10001`)
+      .set('Cookie', owner.cookie)
+      .expect(400);
+    await request(app.getHttpServer())
+      .get(
+        `${apiPrefix}/client-accounts/${mainClient.clientAccountId}/assignments?page=10001`,
+      )
+      .set('Cookie', owner.cookie)
+      .expect(400);
+    await request(app.getHttpServer())
+      .get(
+        `${apiPrefix}/client-accounts/${mainClient.clientAccountId}?legalEntityPage=10001`,
+      )
+      .set('Cookie', owner.cookie)
+      .expect(400);
     const injectionSearch = await request(app.getHttpServer())
       .get(
         `${apiPrefix}/client-accounts?search=${encodeURIComponent("' OR 1=1 --")}`,

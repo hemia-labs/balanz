@@ -67,6 +67,10 @@ Si ese secret no existe o es inválido, se intenta la configuración `REDIS_*` d
 No se utiliza `REDIS_URL`. Si Redis no está disponible, las sesiones hacen
 fallback a PostgreSQL sin utilizar valores locales obsoletos.
 
+`AUTH_SESSION_ACTIVITY_PERSIST_INTERVAL_SECONDS` debe ser estrictamente menor
+que `AUTH_SESSION_IDLE_TTL_SECONDS`. La API falla al arrancar si la combinación
+puede cerrar sesiones activas durante una recuperación de cache.
+
 ## Cookies
 
 La API registra `cookie-parser` y expone la configuración en el namespace
@@ -125,6 +129,13 @@ bun run --cwd apps/api migration:revert
 El DataSource del CLI resuelve Vault cuando `SECRETS_ENABLED=true`; no usa un
 fallback silencioso a PostgreSQL local.
 
+La migración de búsqueda ejecuta `CREATE EXTENSION IF NOT EXISTS pg_trgm`. Antes
+del despliegue, el rol que corre migraciones debe tener permiso para instalar
+esa extensión en la base objetivo, o un DBA/proveedor administrado debe dejarla
+preinstalada. Conviene verificarlo en el preflight; no se deben ampliar los
+privilegios permanentes del usuario de ejecución de la API sólo para desplegar
+este índice.
+
 Para validar aplicación desde cero, seed idempotente, rollback, reaplicación y
 drift en una base temporal de desarrollo:
 
@@ -166,6 +177,8 @@ La sesión usa una cookie `HttpOnly` con token opaco persistido como hash en
 `auth_sessions`. Redis cachea la sesión y el contexto de autorización usando el
 hash como llave; el TTL nunca extiende `expires_at`. `last_activity_at` se
 persiste en PostgreSQL como máximo una vez cada cinco minutos por sesión.
+La sesión y Redis no almacenan la cartera completa de cuentas; el scope sólo
+conserva `accountAccessMode` y cada acceso se valida nuevamente en PostgreSQL.
 MFA es opcional y se implementa localmente con TOTP RFC 6238 (issuer `Balanz`,
 SHA-1, seis dígitos, período de 30 segundos y tolerancia de ±30 segundos).
 El secreto se cifra con AES-256-GCM y la llave del mecanismo de secretos;
@@ -192,6 +205,20 @@ operaciones sensibles y scope real por titular o asignación activa:
 - `GET|POST /api/v1/legal-entities/:legalEntityId/fiscal-years`
 - `GET /api/v1/fiscal-years/:fiscalYearId/periods`
 
+Las colecciones de asignaciones, candidatos, responsables y entidades fiscales
+aceptan `page` (máximo 10 000), `limit` (máximo 100) y `search`, y devuelven
+`{ items, meta }`.
+El detalle usa `legalEntityPage`, `legalEntityLimit` y `legalEntitySearch` para
+su página anidada. Un deep link fiscal puede enviar `legalEntityId`; en ese modo
+el backend devuelve sólo esa entidad, siempre bajo el mismo scope de cuenta y
+tenant. Los períodos permanecen como una lista fija de 12 y los ejercicios como
+una lista temporalmente acotada por entidad.
+
 Las mutaciones por cookie exigen un `Origin` exacto autorizado o, si falta,
 un `Referer` cuyo origin sea exacto. Cada respuesta expone
 `x-correlation-id`; el mismo UUID se reutiliza en errores y auditoría.
+`APP_CORS_ORIGINS` es CSV de origins HTTP(S) sin credenciales, paths, query ni
+fragment; las variantes equivalentes se canonicalizan antes de CORS y CSRF.
+
+La búsqueda `contains` de cuentas requiere la extensión PostgreSQL `pg_trgm`;
+la migración append-only crea índices GIN para nombre y código.

@@ -4,7 +4,7 @@ import type { RedisClient } from './redis.module';
 import { REDIS_CLIENT } from './redis.tokens';
 
 export interface CachedSessionEntry {
-  version: 3;
+  version: 4;
   sessionId: string;
   userId: string;
   organizationId: string | null;
@@ -19,7 +19,6 @@ export interface CachedSessionEntry {
   tenantActive: boolean;
   role: string | null;
   permissions: string[];
-  assignedAccountIds: string[];
   accountAccessMode: 'tenant' | 'assigned';
 }
 
@@ -140,7 +139,7 @@ export class SessionCacheService {
     if (!value || typeof value !== 'object') return false;
     const entry = value as Partial<CachedSessionEntry>;
     return (
-      entry.version === 3 &&
+      entry.version === 4 &&
       typeof entry.sessionId === 'string' &&
       typeof entry.userId === 'string' &&
       (entry.organizationId === null ||
@@ -162,8 +161,6 @@ export class SessionCacheService {
       (entry.role === null || typeof entry.role === 'string') &&
       Array.isArray(entry.permissions) &&
       entry.permissions.every((permission) => typeof permission === 'string') &&
-      Array.isArray(entry.assignedAccountIds) &&
-      entry.assignedAccountIds.every((id) => typeof id === 'string') &&
       (entry.accountAccessMode === 'tenant' ||
         entry.accountAccessMode === 'assigned')
     );

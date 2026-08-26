@@ -1,4 +1,7 @@
-import { UnprocessableEntityException } from '@nestjs/common';
+import {
+  BadRequestException,
+  type ValidationPipeOptions,
+} from '@nestjs/common';
 import type { ValidationError } from 'class-validator';
 
 export type ValidationFieldErrors = Record<string, string[]>;
@@ -87,10 +90,17 @@ function constraintPriority(constraint: string): number {
 export function validationExceptionFactory(errors: ValidationError[]) {
   const fieldErrors: ValidationFieldErrors = {};
   collectErrors(errors, fieldErrors);
-  return new UnprocessableEntityException({
+  return new BadRequestException({
     code: 'VALIDATION_ERROR',
     error: 'ValidationError',
     message: 'Revisa los campos señalados e intenta de nuevo.',
     fieldErrors,
   });
 }
+
+export const API_VALIDATION_PIPE_OPTIONS = {
+  whitelist: true,
+  forbidNonWhitelisted: true,
+  transform: true,
+  exceptionFactory: validationExceptionFactory,
+} as const satisfies ValidationPipeOptions;

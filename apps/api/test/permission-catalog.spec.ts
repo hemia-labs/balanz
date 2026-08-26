@@ -19,23 +19,34 @@ describe('client module permission defaults', () => {
     expect(MFA_SENSITIVE_PERMISSION_KEYS).toContain('fiscal_entities.manage');
   });
 
-  it('keeps client mutation owner-only while granting assigned read defaults', () => {
+  it('keeps accountants operational while collaborators remain read-only', () => {
     expect(ROLE_PERMISSION_KEYS[RoleKey.OWNER]).toEqual(PERMISSION_CATALOG);
-    for (const role of [RoleKey.ACCOUNTANT, RoleKey.COLLABORATOR] as const) {
-      expect(ROLE_PERMISSION_KEYS[role]).toEqual(
-        expect.arrayContaining([
-          'clients.view',
-          'fiscal_entities.view',
-          'fiscal_years.view',
-        ]),
-      );
-      expect(ROLE_PERMISSION_KEYS[role]).not.toEqual(
-        expect.arrayContaining([
-          'clients.manage',
-          'clients.assign',
-          'fiscal_entities.manage',
-          'fiscal_years.manage',
-        ]),
+    expect(ROLE_PERMISSION_KEYS[RoleKey.ACCOUNTANT]).toEqual(
+      expect.arrayContaining([
+        'clients.view',
+        'clients.manage',
+        'clients.assign',
+        'fiscal_entities.view',
+        'fiscal_entities.manage',
+        'fiscal_years.view',
+        'fiscal_years.manage',
+      ]),
+    );
+    expect(ROLE_PERMISSION_KEYS[RoleKey.COLLABORATOR]).toEqual(
+      expect.arrayContaining([
+        'clients.view',
+        'fiscal_entities.view',
+        'fiscal_years.view',
+      ]),
+    );
+    for (const permission of [
+      'clients.manage',
+      'clients.assign',
+      'fiscal_entities.manage',
+      'fiscal_years.manage',
+    ] as const) {
+      expect(ROLE_PERMISSION_KEYS[RoleKey.COLLABORATOR]).not.toContain(
+        permission,
       );
     }
   });

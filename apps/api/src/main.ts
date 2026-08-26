@@ -5,7 +5,7 @@ import cookieParser from 'cookie-parser';
 import { AppModule } from './app.module';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
 import { getCorsOptions } from './config/app.config';
-import { validationExceptionFactory } from './common/validation/validation-exception.factory';
+import { API_VALIDATION_PIPE_OPTIONS } from './common/validation/validation-exception.factory';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
@@ -21,14 +21,7 @@ async function bootstrap() {
   app.use(cookieParser());
 
   app.setGlobalPrefix(config.get<string>('app.globalPrefix') ?? 'api/v1');
-  app.useGlobalPipes(
-    new ValidationPipe({
-      whitelist: true,
-      forbidNonWhitelisted: true,
-      transform: true,
-      exceptionFactory: validationExceptionFactory,
-    }),
-  );
+  app.useGlobalPipes(new ValidationPipe(API_VALIDATION_PIPE_OPTIONS));
   app.useGlobalFilters(new AllExceptionsFilter());
 
   const nodeEnv = config.get<string>('app.nodeEnv') ?? 'development';

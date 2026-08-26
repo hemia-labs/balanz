@@ -41,19 +41,19 @@ sin un problema medido que el diseño actual no pueda resolver.
 
 ### Módulos existentes
 
-| Área            | Responsabilidad                                           |
-| --------------- | --------------------------------------------------------- |
-| `auth`          | Registro, verificación de correo, login, MFA y logout.    |
-| `sessions`      | Crear, resolver, rotar, expirar y revocar sesiones.       |
-| `users`         | Identidad global y administración de miembros por tenant. |
-| `organizations` | Organización o tenant.                                    |
-| `memberships`   | Relación usuario-organización, rol y estado.              |
-| `permissions`   | Catálogo de permisos, roles y asignaciones.               |
-| `subscriptions` | Estado inicial de suscripción y trial.                    |
-| `audit`         | Registro durable de decisiones y acciones sensibles.      |
-| `redis`         | Cliente opcional y cache de sesión/autorización.          |
-| `email`         | Casos de envío y adaptador SES.                           |
-| `secrets`       | Resolución de secretos locales o desde Vault.             |
+| Área              | Responsabilidad                                            |
+| ----------------- | ---------------------------------------------------------- |
+| `auth`            | Registro, verificación de correo, login, MFA y logout.     |
+| `sessions`        | Crear, resolver, rotar, expirar y revocar sesiones.        |
+| `users`           | Identidad global y administración de miembros por tenant.  |
+| `organizations`   | Organización o tenant.                                     |
+| `memberships`     | Relación usuario-organización, rol y estado.               |
+| `permissions`     | Catálogo de permisos, roles y asignaciones.                |
+| `subscriptions`   | Estado inicial de suscripción y trial.                     |
+| `audit`           | Registro durable de decisiones y acciones sensibles.       |
+| `redis`           | Cliente opcional y cache de sesión/autorización.           |
+| `email`           | Casos de envío y adaptador SES.                            |
+| `secrets`         | Resolución de secretos locales o desde Vault.              |
 | `client-accounts` | Cuentas cliente, RFC, asignaciones, ejercicios y períodos. |
 
 ### Diagrama de alto nivel
@@ -207,13 +207,13 @@ Orden obligatorio para una ruta privada de tenant:
 Ejemplo de controller:
 
 ```ts
-@Controller('resources')
+@Controller("resources")
 @UseGuards(SessionGuard, TenantAccessGuard, PermissionsGuard)
 export class ResourcesController {
   constructor(private readonly resources: ResourcesService) {}
 
   @Post()
-  @Permissions('resources.manage')
+  @Permissions("resources.manage")
   create(
     @Body() input: CreateResourceDto,
     @CurrentTenant() tenant: SessionAuthorizationContext,
@@ -266,7 +266,7 @@ tenant activo normalmente responde `404`, no `403`.
 ### Respuestas
 
 - Las fechas públicas usan ISO 8601 en UTC.
-- Las listas deben paginarse desde el inicio.
+- Las listas de cardinalidad no acotada deben paginarse desde el inicio.
 - El patrón actual de paginación es:
 
 ```json
@@ -282,6 +282,8 @@ tenant activo normalmente responde `404`, no `403`.
 ```
 
 - El límite máximo actual es 100.
+- Los períodos son una excepción explícita: cada ejercicio contiene exactamente 12. Los ejercicios fiscales también están acotados por la regla 2000–año
+  siguiente y pueden devolverse completos por entidad.
 - No devolver `null`, campo ausente y string vacío indistintamente; el contrato
   debe escoger una semántica.
 - No devolver hashes, tokens, secretos MFA, credenciales de proveedor ni datos
@@ -293,12 +295,14 @@ El filtro global produce:
 
 ```json
 {
-  "statusCode": 422,
+  "statusCode": 400,
   "message": "Revisa los campos señalados e intenta de nuevo.",
   "error": "ValidationError",
   "code": "VALIDATION_ERROR",
   "fieldErrors": {
-    "legalEntity.rfc": ["Ingresa un RFC válido de 12 o 13 caracteres, sin espacios ni guiones."]
+    "legalEntity.rfc": [
+      "Ingresa un RFC válido de 12 o 13 caracteres, sin espacios ni guiones."
+    ]
   },
   "path": "/api/v1/resource",
   "timestamp": "2026-08-26T00:00:00.000Z",
@@ -384,6 +388,12 @@ La autenticación HTTP actual usa sesiones opacas, no JWT:
 6. Acciones como completar o deshabilitar MFA rotan el token.
 7. Logout, suspensión y revocación invalidan sesiones y cache.
 
+El intervalo de persistencia de actividad siempre debe ser menor que el TTL de
+inactividad. Redis mantiene la marca viva entre escrituras; si se pierde su
+contenido, PostgreSQL admite únicamente una gracia igual al intervalo máximo de
+persistencia para reconstruir el cache sin cerrar prematuramente una sesión. La
+gracia nunca extiende la expiración absoluta.
+
 La configuración JWT existente no debe usarse para crear un segundo sistema de
 autenticación. Debe retirarse si se confirma que ningún consumidor la necesita,
 o documentarse como un flujo independiente antes de implementarlo.
@@ -453,6 +463,8 @@ La defensa actual valida `Origin` contra `APP_CORS_ORIGINS`. La política objeti
 en producción es:
 
 - aceptar únicamente origins exactos configurados;
+- canonicalizar cada entrada de `APP_CORS_ORIGINS` y rechazar protocolos no
+  HTTP(S), credenciales, paths significativos, query o fragment;
 - rechazar un `Origin` no permitido;
 - para peticiones de navegador sin `Origin`, validar `Referer` o rechazar;
 - si se habilita un flujo cross-site, incorporar token CSRF explícito además de
@@ -701,6 +713,7 @@ debe abrir CORS, desactivar TLS ni habilitar credenciales débiles en producció
 Optimizar después de medir, conservando estas reglas básicas:
 
 - toda lista se pagina;
+- documentar las excepciones cuya cardinalidad tenga una cota rígida de dominio;
 - evitar N+1;
 - seleccionar sólo columnas necesarias;
 - indexar filtros y joins frecuentes;
@@ -713,6 +726,11 @@ Optimizar después de medir, conservando estas reglas básicas:
 
 No agregar cache para ocultar un query incorrecto. Primero corregir el query e
 índice; después medir si Redis aporta valor.
+
+La búsqueda `contains` de cuentas usa índices GIN sobre `lower(name)` y
+`lower(code)` con `pg_trgm`. El índice B-tree por tenant se conserva para filtros
+y ordenamientos normales; todo cambio de estrategia debe comprobarse con
+`EXPLAIN (ANALYZE, BUFFERS)` a volumen representativo.
 
 ## 17. Qué se debe hacer al agregar una API
 
@@ -768,7 +786,9 @@ nuevos módulos.
 1. **Actividad de sesión — resuelta en código y pruebas (2026-08-26):** cada
    request válido actualiza la actividad en Redis y PostgreSQL se persiste como
    máximo cada `AUTH_SESSION_ACTIVITY_PERSIST_INTERVAL_SECONDS`, sin extender el
-   vencimiento absoluto. Hay pruebas de cache hit/miss, idle y expiración.
+   vencimiento absoluto. La configuración exige que el intervalo sea menor que
+   el idle y el fallback usa una gracia durable acotada. Hay pruebas de cache
+   hit/miss, pérdida de cache, idle y expiración.
 2. **CSRF sin Origin — resuelta en código y E2E (2026-08-26):** las mutaciones
    exigen `Origin` exacto o un `Referer` HTTP(S) del que se obtiene un origin
    exacto. Ausencia, URL inválida y host no permitido fallan cerrado.

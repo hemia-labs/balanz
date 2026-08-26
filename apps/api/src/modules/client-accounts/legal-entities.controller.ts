@@ -20,7 +20,7 @@ import { PermissionsGuard } from '../../common/guards/permissions.guard';
 import { SessionGuard } from '../../common/guards/session.guard';
 import { TenantAccessGuard } from '../../common/guards/tenant-access.guard';
 import type { SessionAuthorizationContext } from '../sessions/session.types';
-import { IncludeArchivedDto } from './dtos/client-account.dtos';
+import { ListLegalEntitiesDto } from './dtos/client-account.dtos';
 import {
   CreateLegalEntityDto,
   UpdateLegalEntityDto,
@@ -36,10 +36,10 @@ export class LegalEntitiesController {
   @Permissions('fiscal_entities.view')
   list(
     @Param('clientAccountId', ParseUUIDPipe) clientAccountId: string,
-    @Query() query: IncludeArchivedDto,
+    @Query() query: ListLegalEntitiesDto,
     @CurrentTenant() tenant: SessionAuthorizationContext,
   ) {
-    return this.service.list(clientAccountId, query.includeArchived, tenant);
+    return this.service.list(clientAccountId, query, tenant);
   }
 
   @Post('client-accounts/:clientAccountId/legal-entities')

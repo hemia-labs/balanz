@@ -110,6 +110,7 @@ export class ListClientAccountsDto {
   @Type(() => Number)
   @IsInt({ message: 'La página debe ser un número entero.' })
   @Min(1, { message: 'La página debe ser 1 o mayor.' })
+  @Max(10_000, { message: 'La página solicitada excede el máximo permitido.' })
   page = 1;
 
   @Type(() => Number)
@@ -138,4 +139,64 @@ export class IncludeArchivedDto {
   @IsOptional()
   @IsBoolean({ message: 'El filtro de archivados no es válido.' })
   includeArchived = false;
+}
+
+export class ListDomainCollectionDto {
+  @Transform(trim)
+  @IsOptional()
+  @IsString({ message: 'La búsqueda debe ser texto.' })
+  @MaxLength(120, {
+    message: 'La búsqueda no puede exceder 120 caracteres.',
+  })
+  search?: string;
+
+  @Type(() => Number)
+  @IsInt({ message: 'La página debe ser un número entero.' })
+  @Min(1, { message: 'La página debe ser 1 o mayor.' })
+  @Max(10_000, { message: 'La página solicitada excede el máximo permitido.' })
+  page = 1;
+
+  @Type(() => Number)
+  @IsInt({ message: 'El tamaño de página debe ser un número entero.' })
+  @Min(1, { message: 'El tamaño de página debe ser 1 o mayor.' })
+  @Max(100, { message: 'Sólo pueden mostrarse hasta 100 resultados.' })
+  limit = 25;
+}
+
+export class ListLegalEntitiesDto extends ListDomainCollectionDto {
+  @Transform(({ value }) => value === true || value === 'true')
+  @IsOptional()
+  @IsBoolean({ message: 'El filtro de archivados no es válido.' })
+  includeArchived = false;
+}
+
+export class ClientAccountDetailDto extends IncludeArchivedDto {
+  @Transform(trim)
+  @IsOptional()
+  @IsUUID('4', { message: 'La entidad fiscal seleccionada no es válida.' })
+  legalEntityId?: string;
+
+  @Transform(trim)
+  @IsOptional()
+  @IsString({ message: 'La búsqueda de entidades debe ser texto.' })
+  @MaxLength(120, {
+    message: 'La búsqueda de entidades no puede exceder 120 caracteres.',
+  })
+  legalEntitySearch?: string;
+
+  @Type(() => Number)
+  @IsInt({ message: 'La página de entidades debe ser un número entero.' })
+  @Min(1, { message: 'La página de entidades debe ser 1 o mayor.' })
+  @Max(10_000, {
+    message: 'La página de entidades excede el máximo permitido.',
+  })
+  legalEntityPage = 1;
+
+  @Type(() => Number)
+  @IsInt({
+    message: 'El tamaño de página de entidades debe ser un número entero.',
+  })
+  @Min(1, { message: 'El tamaño de página de entidades debe ser 1 o mayor.' })
+  @Max(100, { message: 'Sólo pueden mostrarse hasta 100 entidades.' })
+  legalEntityLimit = 25;
 }

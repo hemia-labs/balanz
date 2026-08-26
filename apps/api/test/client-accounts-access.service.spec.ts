@@ -1,7 +1,10 @@
 import type { SessionAuthorizationContext } from '../src/modules/sessions/session.types';
 import { ClientAccountsService } from '../src/modules/client-accounts/client-accounts.service';
 import { FiscalYearsService } from '../src/modules/client-accounts/fiscal-years.service';
-import { ListClientAccountsDto } from '../src/modules/client-accounts/dtos/client-account.dtos';
+import {
+  ClientAccountDetailDto,
+  ListClientAccountsDto,
+} from '../src/modules/client-accounts/dtos/client-account.dtos';
 import { FiscalYearStatus } from '../src/modules/client-accounts/entities/fiscal-year.entity';
 import { LegalEntityStatus } from '../src/modules/client-accounts/entities/legal-entity.entity';
 
@@ -28,11 +31,17 @@ function legalEntityBuilder(items: Record<string, unknown>[]) {
     where: jest.fn(),
     andWhere: jest.fn(),
     orderBy: jest.fn(),
-    getMany: jest.fn().mockResolvedValue(items),
+    addOrderBy: jest.fn(),
+    skip: jest.fn(),
+    take: jest.fn(),
+    getManyAndCount: jest.fn().mockResolvedValue([items, items.length]),
   };
   builder.where.mockReturnValue(builder);
   builder.andWhere.mockReturnValue(builder);
   builder.orderBy.mockReturnValue(builder);
+  builder.addOrderBy.mockReturnValue(builder);
+  builder.skip.mockReturnValue(builder);
+  builder.take.mockReturnValue(builder);
   return builder;
 }
 
@@ -45,6 +54,7 @@ function entityQueryBuilder(
     where: jest.fn(),
     andWhere: jest.fn(),
     orderBy: jest.fn(),
+    addOrderBy: jest.fn(),
     getMany: jest.fn().mockResolvedValue(items),
     getOne: jest.fn().mockResolvedValue(item),
   };
@@ -52,6 +62,7 @@ function entityQueryBuilder(
   builder.where.mockReturnValue(builder);
   builder.andWhere.mockReturnValue(builder);
   builder.orderBy.mockReturnValue(builder);
+  builder.addOrderBy.mockReturnValue(builder);
   return builder;
 }
 
@@ -152,13 +163,17 @@ describe('Client account detail authorization', () => {
 
     const result = await service.detail(
       'account-1',
-      false,
+      new ClientAccountDetailDto(),
       tenant(['clients.view']),
     );
 
     expect(result).not.toHaveProperty('assignments');
     expect(result.primaryAssignment).toEqual({
       displayName: 'Persona Responsable',
+    });
+    expect(result.legalEntities).toEqual({
+      items: [expect.objectContaining({ id: 'entity-active' })],
+      meta: { page: 1, limit: 25, total: 1, totalPages: 1 },
     });
     expect(assignments.createQueryBuilder).toHaveBeenCalledTimes(1);
     expect(primaryBuilder.addSelect).not.toHaveBeenCalledWith(

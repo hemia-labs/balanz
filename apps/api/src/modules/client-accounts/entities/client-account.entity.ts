@@ -31,6 +31,8 @@ export enum ClientAccountStatus {
 )
 @Index('uq_client_accounts_active_code', { synchronize: false })
 @Index('ix_client_accounts_name_search', { synchronize: false })
+@Index('ix_client_accounts_name_trgm', { synchronize: false })
+@Index('ix_client_accounts_code_trgm', { synchronize: false })
 @Index('ix_client_accounts_org_status_updated', [
   'organizationId',
   'status',

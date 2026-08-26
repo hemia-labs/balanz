@@ -1,5 +1,5 @@
-import { UnprocessableEntityException, ValidationPipe } from '@nestjs/common';
-import { validationExceptionFactory } from '../src/common/validation/validation-exception.factory';
+import { BadRequestException, ValidationPipe } from '@nestjs/common';
+import { API_VALIDATION_PIPE_OPTIONS } from '../src/common/validation/validation-exception.factory';
 import { CreateClientAccountDto } from '../src/modules/client-accounts/dtos/client-account.dtos';
 import {
   clientSortColumn,
@@ -11,12 +11,7 @@ import {
   RoleScope,
 } from '../src/modules/permissions/entities/role.entity';
 
-const pipe = new ValidationPipe({
-  whitelist: true,
-  forbidNonWhitelisted: true,
-  transform: true,
-  exceptionFactory: validationExceptionFactory,
-});
+const pipe = new ValidationPipe(API_VALIDATION_PIPE_OPTIONS);
 
 async function transform(
   body: Record<string, unknown>,
@@ -53,9 +48,7 @@ describe('Client account input rules', () => {
       primaryMembershipId: '550e8400-e29b-41d4-a716-446655440000',
       fiscalYear: 2026,
     });
-    await expect(invalidRfc).rejects.toBeInstanceOf(
-      UnprocessableEntityException,
-    );
+    await expect(invalidRfc).rejects.toBeInstanceOf(BadRequestException);
     await expect(invalidRfc).rejects.toMatchObject({
       response: {
         code: 'VALIDATION_ERROR',
@@ -92,7 +85,7 @@ describe('Client account input rules', () => {
       clientSortColumn('name; drop table client_accounts');
       throw new Error('expected sort validation to fail');
     } catch (error) {
-      expect((error as UnprocessableEntityException).getResponse()).toEqual(
+      expect((error as BadRequestException).getResponse()).toEqual(
         expect.objectContaining({ code: 'INVALID_CLIENT_SORT' }),
       );
     }

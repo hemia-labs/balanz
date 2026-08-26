@@ -46,7 +46,6 @@ describe('AuthorizationService', () => {
       organizations as never,
       memberships as never,
       rolePermissions as never,
-      { find: jest.fn() } as never,
       {} as never,
       {} as never,
     );
@@ -80,7 +79,7 @@ describe('AuthorizationService', () => {
     });
   });
 
-  it('resolves non-owner access from active account assignments', async () => {
+  it('does not materialize a non-owner assigned portfolio in session context', async () => {
     const users = {
       findOne: jest
         .fn()
@@ -108,27 +107,11 @@ describe('AuthorizationService', () => {
         .fn()
         .mockResolvedValue([{ permission: { key: 'clients.view' } }]),
     };
-    const query = {
-      innerJoin: jest.fn().mockReturnThis(),
-      select: jest.fn().mockReturnThis(),
-      where: jest.fn().mockReturnThis(),
-      andWhere: jest.fn().mockReturnThis(),
-      getRawMany: jest
-        .fn()
-        .mockResolvedValue([
-          { clientAccountId: 'account-b' },
-          { clientAccountId: 'account-a' },
-        ]),
-    };
-    const assignments = {
-      createQueryBuilder: jest.fn().mockReturnValue(query),
-    };
     const service = new AuthorizationService(
       users as never,
       organizations as never,
       memberships as never,
       rolePermissions as never,
-      assignments as never,
       {} as never,
       {} as never,
     );
@@ -145,7 +128,6 @@ describe('AuthorizationService', () => {
     const context = await service.resolve(session);
 
     expect(context.accountAccessMode).toBe('assigned');
-    expect(context.assignedAccountIds).toEqual(['account-a', 'account-b']);
-    expect(assignments.createQueryBuilder).toHaveBeenCalledWith('assignment');
+    expect(context.assignedAccountIds).toEqual([]);
   });
 });

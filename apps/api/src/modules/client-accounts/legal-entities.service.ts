@@ -15,6 +15,7 @@ import {
   CreateLegalEntityDto,
   UpdateLegalEntityDto,
 } from './dtos/legal-entity.dtos';
+import { ListLegalEntitiesDto } from './dtos/client-account.dtos';
 import { LegalEntity, LegalEntityStatus } from './entities/legal-entity.entity';
 
 @Injectable()
@@ -29,10 +30,10 @@ export class LegalEntitiesService {
 
   async list(
     clientAccountId: string,
-    includeArchived: boolean,
+    query: ListLegalEntitiesDto,
     tenant: SessionAuthorizationContext,
   ) {
-    if (includeArchived && !this.scope.canIncludeArchived(tenant)) {
+    if (query.includeArchived && !this.scope.canIncludeArchived(tenant)) {
       throw domainError(
         HttpStatus.FORBIDDEN,
         'ARCHIVED_ACCESS_FORBIDDEN',
@@ -42,7 +43,7 @@ export class LegalEntitiesService {
     await this.scope.requireAccessibleAccount(
       clientAccountId,
       tenant,
-      includeArchived,
+      query.includeArchived,
     );
     const builder = this.legalEntities
       .createQueryBuilder('entity')
@@ -52,14 +53,31 @@ export class LegalEntitiesService {
       .andWhere('entity.client_account_id = :clientAccountId', {
         clientAccountId,
       });
-    if (!includeArchived)
+    if (!query.includeArchived)
       builder.andWhere('entity.status <> :archived', {
         archived: LegalEntityStatus.ARCHIVED,
       });
-    const entities = await builder
+    if (query.search) {
+      builder.andWhere(
+        `(lower(entity.legal_name) LIKE :search ESCAPE '\\' OR lower(entity.rfc) LIKE :search ESCAPE '\\')`,
+        { search: `%${this.escapeLike(query.search.toLowerCase())}%` },
+      );
+    }
+    const [entities, total] = await builder
       .orderBy('entity.created_at', 'ASC')
-      .getMany();
-    return entities.map((entity) => this.response(entity));
+      .addOrderBy('entity.id', 'ASC')
+      .skip((query.page - 1) * query.limit)
+      .take(query.limit)
+      .getManyAndCount();
+    return {
+      items: entities.map((entity) => this.response(entity)),
+      meta: {
+        page: query.page,
+        limit: query.limit,
+        total,
+        totalPages: total === 0 ? 0 : Math.ceil(total / query.limit),
+      },
+    };
   }
 
   async create(
@@ -286,6 +304,10 @@ export class LegalEntitiesService {
       createdAt: entity.createdAt,
       updatedAt: entity.updatedAt,
     };
+  }
+
+  private escapeLike(value: string): string {
+    return value.replace(/[\\%_]/g, '\\$&');
   }
 
   private record(

@@ -24,8 +24,9 @@ import { ClientAccountsService } from './client-accounts.service';
 import { AccountAssignmentsService } from './account-assignments.service';
 import {
   CreateClientAccountDto,
-  IncludeArchivedDto,
+  ClientAccountDetailDto,
   ListClientAccountsDto,
+  ListDomainCollectionDto,
   UpdateClientAccountDto,
 } from './dtos/client-account.dtos';
 
@@ -49,9 +50,10 @@ export class ClientAccountsController {
   @Get('available-primary-members')
   @Permissions('clients.assign')
   availablePrimaryMembers(
+    @Query() query: ListDomainCollectionDto,
     @CurrentTenant() tenant: SessionAuthorizationContext,
   ) {
-    return this.assignments.availablePrimaryMembers(tenant);
+    return this.assignments.availablePrimaryMembers(query, tenant);
   }
 
   @Post()
@@ -73,10 +75,10 @@ export class ClientAccountsController {
   @Permissions('clients.view')
   detail(
     @Param('clientAccountId', ParseUUIDPipe) clientAccountId: string,
-    @Query() query: IncludeArchivedDto,
+    @Query() query: ClientAccountDetailDto,
     @CurrentTenant() tenant: SessionAuthorizationContext,
   ) {
-    return this.service.detail(clientAccountId, query.includeArchived, tenant);
+    return this.service.detail(clientAccountId, query, tenant);
   }
 
   @Patch(':clientAccountId')

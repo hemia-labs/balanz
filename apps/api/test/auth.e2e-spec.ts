@@ -8,6 +8,7 @@ import request from 'supertest';
 import type { App } from 'supertest/types';
 import { AppModule } from '../src/app.module';
 import { AllExceptionsFilter } from '../src/common/filters/all-exceptions.filter';
+import { API_VALIDATION_PIPE_OPTIONS } from '../src/common/validation/validation-exception.factory';
 import { ConfigService } from '@nestjs/config';
 import { EmailService } from '../src/modules/email/email.service';
 import { TotpService } from '../src/modules/auth/totp.service';
@@ -68,13 +69,7 @@ describe('Auth registration and MFA (e2e)', () => {
     };
     httpServer.set('trust proxy', true);
     app.setGlobalPrefix(apiPrefix.slice(1));
-    app.useGlobalPipes(
-      new ValidationPipe({
-        whitelist: true,
-        forbidNonWhitelisted: true,
-        transform: true,
-      }),
-    );
+    app.useGlobalPipes(new ValidationPipe(API_VALIDATION_PIPE_OPTIONS));
     app.useGlobalFilters(new AllExceptionsFilter());
     await app.init();
 
@@ -105,6 +100,24 @@ describe('Auth registration and MFA (e2e)', () => {
     } finally {
       await app.close();
     }
+  });
+
+  it('uses the production validation contract for auth DTOs', async () => {
+    const response = await request(app.getHttpServer())
+      .post(`${apiPrefix}/auth/register`)
+      .set('Origin', allowedOrigin)
+      .send({ unexpected: 'server-owned' })
+      .expect(400);
+
+    const body = response.body as unknown;
+    expect(body).toMatchObject({
+      statusCode: 400,
+      code: 'VALIDATION_ERROR',
+      message: 'Revisa los campos señalados e intenta de nuevo.',
+      fieldErrors: {
+        unexpected: ['Este campo no está permitido.'],
+      },
+    });
   });
 
   it('limits registration and invalid email confirmation attempts', async () => {

@@ -18,6 +18,7 @@ import type { SessionAuthorizationContext } from '../sessions/session.types';
 import { ClientAccountScopeService } from './client-account-scope.service';
 import { constraintName, domainError } from './client-domain.errors';
 import { CreateAccountAssignmentDto } from './dtos/assignment.dtos';
+import { ListDomainCollectionDto } from './dtos/client-account.dtos';
 import { isEligiblePrimaryRole } from './client-domain.rules';
 import {
   AccountAssignment,
@@ -38,25 +39,43 @@ export class AccountAssignmentsService {
     private readonly sessions: SessionsService,
   ) {}
 
-  async list(clientAccountId: string, tenant: SessionAuthorizationContext) {
-    const account = await this.scope.requireAccessibleAccount(
-      clientAccountId,
-      tenant,
-    );
-    return this.assignmentQuery(account.organizationId, account.id)
-      .orderBy('assignment.assigned_at', 'ASC')
-      .getRawMany();
-  }
-
-  async availableMembers(
+  async list(
     clientAccountId: string,
+    query: ListDomainCollectionDto,
     tenant: SessionAuthorizationContext,
   ) {
     const account = await this.scope.requireAccessibleAccount(
       clientAccountId,
       tenant,
     );
-    return this.memberships
+    const builder = this.assignmentQuery(account.organizationId, account.id);
+    if (query.search) {
+      builder.andWhere(
+        `(lower(concat(user.first_name, ' ', user.last_name)) LIKE :search ESCAPE '\\' OR lower(user.email) LIKE :search ESCAPE '\\')`,
+        { search: `%${this.escapeLike(query.search.toLowerCase())}%` },
+      );
+    }
+    builder
+      .orderBy('assignment.assigned_at', 'ASC')
+      .addOrderBy('assignment.id', 'ASC');
+    const total = await builder.getCount();
+    const items = await builder
+      .skip((query.page - 1) * query.limit)
+      .take(query.limit)
+      .getRawMany();
+    return this.page(items, query, total);
+  }
+
+  async availableMembers(
+    clientAccountId: string,
+    query: ListDomainCollectionDto,
+    tenant: SessionAuthorizationContext,
+  ) {
+    const account = await this.scope.requireAccessibleAccount(
+      clientAccountId,
+      tenant,
+    );
+    const builder = this.memberships
       .createQueryBuilder('membership')
       .innerJoin('users', 'user', 'user.id = membership.user_id')
       .innerJoin(
@@ -85,13 +104,29 @@ export class AccountAssignmentsService {
       })
       .andWhere('membership.status = :membershipStatus', {
         membershipStatus: MembershipStatus.ACTIVE,
-      })
+      });
+    if (query.search) {
+      builder.andWhere(
+        `(lower(concat(user.first_name, ' ', user.last_name)) LIKE :search ESCAPE '\\' OR lower(user.email) LIKE :search ESCAPE '\\')`,
+        { search: `%${this.escapeLike(query.search.toLowerCase())}%` },
+      );
+    }
+    builder
       .orderBy('user.first_name', 'ASC')
       .addOrderBy('user.last_name', 'ASC')
+      .addOrderBy('membership.id', 'ASC');
+    const total = await builder.getCount();
+    const items = await builder
+      .skip((query.page - 1) * query.limit)
+      .take(query.limit)
       .getRawMany();
+    return this.page(items, query, total);
   }
 
-  async availablePrimaryMembers(tenant: SessionAuthorizationContext) {
+  async availablePrimaryMembers(
+    query: ListDomainCollectionDto,
+    tenant: SessionAuthorizationContext,
+  ) {
     if (!tenant.organizationId) {
       throw domainError(
         HttpStatus.FORBIDDEN,
@@ -99,7 +134,7 @@ export class AccountAssignmentsService {
         'Active tenant required',
       );
     }
-    return this.memberships
+    const builder = this.memberships
       .createQueryBuilder('membership')
       .innerJoin('users', 'user', 'user.id = membership.user_id')
       .innerJoin('roles', 'role', 'role.id = membership.role_id')
@@ -116,10 +151,23 @@ export class AccountAssignmentsService {
       .andWhere('role.scope = :scope', { scope: RoleScope.ORGANIZATION })
       .andWhere('role.key IN (:...roles)', {
         roles: [RoleKey.OWNER, RoleKey.ACCOUNTANT],
-      })
+      });
+    if (query.search) {
+      builder.andWhere(
+        `(lower(concat(user.first_name, ' ', user.last_name)) LIKE :search ESCAPE '\\' OR lower(user.email) LIKE :search ESCAPE '\\')`,
+        { search: `%${this.escapeLike(query.search.toLowerCase())}%` },
+      );
+    }
+    builder
       .orderBy('user.first_name', 'ASC')
       .addOrderBy('user.last_name', 'ASC')
+      .addOrderBy('membership.id', 'ASC');
+    const total = await builder.getCount();
+    const items = await builder
+      .skip((query.page - 1) * query.limit)
+      .take(query.limit)
       .getRawMany();
+    return this.page(items, query, total);
   }
 
   async create(
@@ -376,6 +424,26 @@ export class AccountAssignmentsService {
       .andWhere('assignment.status = :status', {
         status: AccountAssignmentStatus.ACTIVE,
       });
+  }
+
+  private page<T>(
+    items: T[],
+    query: Pick<ListDomainCollectionDto, 'page' | 'limit'>,
+    total: number,
+  ) {
+    return {
+      items,
+      meta: {
+        page: query.page,
+        limit: query.limit,
+        total,
+        totalPages: total === 0 ? 0 : Math.ceil(total / query.limit),
+      },
+    };
+  }
+
+  private escapeLike(value: string): string {
+    return value.replace(/[\\%_]/g, '\\$&');
   }
 
   private async revokeWithManager(

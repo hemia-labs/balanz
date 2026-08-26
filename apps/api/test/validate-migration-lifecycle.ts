@@ -52,7 +52,7 @@ async function validateMigrationLifecycle(): Promise<void> {
 
     const initial = await temporary.runMigrations({ transaction: 'all' });
     report.initialMigrations = initial.map((migration) => migration.name);
-    assertEqual(initial.length, 3, 'initial migration count');
+    assertEqual(initial.length, 4, 'initial migration count');
 
     await seedDatabase(temporary);
     await seedDatabase(temporary);
@@ -79,6 +79,18 @@ async function validateMigrationLifecycle(): Promise<void> {
     );
 
     await temporary.undoLastMigration({ transaction: 'all' });
+    const [searchRollback] = await temporary.query<
+      Array<Record<string, boolean>>
+    >(
+      `SELECT
+        to_regclass('public.ix_client_accounts_name_trgm') IS NULL AS name_trgm_removed,
+        to_regclass('public.ix_client_accounts_code_trgm') IS NULL AS code_trgm_removed,
+        to_regclass('public.client_accounts') IS NOT NULL AS client_accounts_preserved`,
+    );
+    report.searchRollback = searchRollback;
+    assertAllTrue(searchRollback, 'client search rollback');
+
+    await temporary.undoLastMigration({ transaction: 'all' });
     const [clientRollback] = await temporary.query<
       Array<Record<string, boolean>>
     >(
@@ -96,9 +108,9 @@ async function validateMigrationLifecycle(): Promise<void> {
     const reappliedClient = await temporary.runMigrations({
       transaction: 'all',
     });
-    assertEqual(reappliedClient.length, 1, 'client migration reapply count');
+    assertEqual(reappliedClient.length, 2, 'client migration reapply count');
 
-    for (let index = 0; index < 3; index += 1) {
+    for (let index = 0; index < 4; index += 1) {
       await temporary.undoLastMigration({ transaction: 'all' });
     }
     const [fullRollback] = await temporary.query<
@@ -113,7 +125,7 @@ async function validateMigrationLifecycle(): Promise<void> {
     assertAllTrue(fullRollback, 'full rollback');
 
     const reapplied = await temporary.runMigrations({ transaction: 'all' });
-    assertEqual(reapplied.length, 3, 'full migration reapply count');
+    assertEqual(reapplied.length, 4, 'full migration reapply count');
     await seedDatabase(temporary);
     const schemaLog = await temporary.driver.createSchemaBuilder().log();
     report.reappliedMigrations = reapplied.map((migration) => migration.name);

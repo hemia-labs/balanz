@@ -1,4 +1,17 @@
 import * as Joi from 'joi';
+import { parseCorsOrigins } from './cors-origins';
+
+const corsOriginsSetting = Joi.string().custom((value: string, helpers) => {
+  try {
+    parseCorsOrigins(value);
+    return value;
+  } catch (error) {
+    return helpers.message({
+      custom:
+        error instanceof Error ? error.message : 'APP_CORS_ORIGINS is invalid',
+    });
+  }
+}, 'HTTP(S) origins validation');
 
 // Valida las env al boot: la app falla-rápido si falta o es inválida alguna variable.
 export const envVarsSchema = Joi.object({
@@ -11,8 +24,8 @@ export const envVarsSchema = Joi.object({
   APP_GLOBAL_PREFIX: Joi.string().default('api/v1'),
   APP_CORS_ORIGINS: Joi.when('NODE_ENV', {
     is: 'production',
-    then: Joi.string().trim().min(1).required(),
-    otherwise: Joi.string().allow('').default(''),
+    then: corsOriginsSetting.trim().min(1).required(),
+    otherwise: corsOriginsSetting.allow('').default(''),
   }),
   TRUST_PROXY_HOPS: Joi.number().integer().min(0).max(16).default(0),
 
@@ -209,8 +222,9 @@ export const envVarsSchema = Joi.object({
     .default(1_800),
   AUTH_SESSION_ACTIVITY_PERSIST_INTERVAL_SECONDS: Joi.number()
     .integer()
-    .min(60)
+    .min(1)
     .max(1_800)
+    .less(Joi.ref('AUTH_SESSION_IDLE_TTL_SECONDS'))
     .default(300),
   AUTHORIZATION_CACHE_TTL_SECONDS: Joi.number()
     .integer()
