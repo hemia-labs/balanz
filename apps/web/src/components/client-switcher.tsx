@@ -13,7 +13,7 @@ export function ClientSwitcher({ compact = false }: { compact?: boolean }) {
 
   if (compact) {
     return (
-      <div className="grid size-10 place-items-center rounded-md bg-sidebar-accent text-sidebar-foreground" title={client.name}>
+      <div className="grid size-10 place-items-center rounded-md bg-sidebar-accent text-sidebar-accent-foreground" title={client.name}>
         <Building className="size-5" aria-hidden="true" />
       </div>
     );

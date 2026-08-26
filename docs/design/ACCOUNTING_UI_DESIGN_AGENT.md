@@ -5,7 +5,7 @@
 | Campo | Valor |
 | --- | --- |
 | Nombre | Registro Sereno |
-| Versión | 1.0.0 |
+| Versión | 1.1.0 |
 | Fecha | 18 de agosto de 2026 |
 | Estado | Normativo |
 | Propietario | Producto y frontend de Hemia |
@@ -135,7 +135,7 @@ Los componentes DEBEN consumir variables semánticas mapeadas en apps/web/src/ap
 
 | Token CSS | Valor | Uso |
 | --- | --- | --- |
-| --background | #f4f6f3 | Canvas |
+| --background | #ffffff | Canvas |
 | --foreground | #17242b | Texto principal |
 | --card | #ffffff | Superficie principal |
 | --card-foreground | #17242b | Texto en superficie |
@@ -144,11 +144,11 @@ Los componentes DEBEN consumir variables semánticas mapeadas en apps/web/src/ap
 | --primary | #0f5f68 | Acción primaria y links |
 | --primary-foreground | #ffffff | Texto sobre primary |
 | --secondary | #e2efed | Acción secundaria y selección |
-| --secondary-foreground | #174247 | Texto sobre secondary |
+| --secondary-foreground | #0f5f68 | Texto sobre secondary |
 | --muted | #e9eeea | Fondos discretos |
-| --muted-foreground | #59666d | Texto secundario |
+| --muted-foreground | #68797e | Texto secundario; ajuste AA de la referencia #7a8b8f |
 | --accent | #f3e7dc | Énfasis cálido limitado |
-| --accent-foreground | #6b3d25 | Texto sobre accent |
+| --accent-foreground | #17242b | Texto sobre accent |
 | --destructive | #b42318 | Error y acción destructiva |
 | --destructive-surface | #fbe9e7 | Fondo de error |
 | --success | #176b45 | Estado positivo |
@@ -162,33 +162,33 @@ Los componentes DEBEN consumir variables semánticas mapeadas en apps/web/src/ap
 | --ring | #a44f25 | Focus visible |
 | --brand-mark | #b86432 | Regla de registro |
 | --numeric-band | #edf3f0 | Totales y riel numérico |
-| --sidebar | #142d38 | Navegación |
-| --sidebar-foreground | #eef4f2 | Texto de navegación |
-| --sidebar-primary | #2b6f73 | Navegación activa |
+| --sidebar | #ffffff | Navegación |
+| --sidebar-foreground | #17242b | Texto de navegación |
+| --sidebar-primary | #0f5f68 | Énfasis de navegación |
 | --sidebar-primary-foreground | #ffffff | Texto activo |
-| --sidebar-accent | #1e3b46 | Hover de navegación |
-| --sidebar-accent-foreground | #ffffff | Texto hover |
-| --sidebar-border | #31505a | Divisor de navegación |
-| --sidebar-ring | #e6a16f | Focus sobre sidebar |
+| --sidebar-accent | #eaf1ef | Navegación activa y hover |
+| --sidebar-accent-foreground | #0f5f68 | Texto activo y hover |
+| --sidebar-border | #d2dad5 | Divisor de navegación |
+| --sidebar-ring | #0f5f68 | Focus sobre sidebar |
 
 ### Colores — tema oscuro conservado
 
 | Token CSS | Valor |
 | --- | --- |
-| --background | #0d171c |
+| --background | #0a1015 |
 | --foreground | #edf3f1 |
-| --card | #142229 |
+| --card | #131f25 |
 | --card-foreground | #edf3f1 |
-| --popover | #192a31 |
+| --popover | #131f25 |
 | --popover-foreground | #edf3f1 |
 | --primary | #6fc8c2 |
-| --primary-foreground | #082f33 |
+| --primary-foreground | #0d171c |
 | --secondary | #24464a |
-| --secondary-foreground | #e4f5f2 |
+| --secondary-foreground | #edf3f1 |
 | --muted | #1d2c32 |
-| --muted-foreground | #a9b6b3 |
+| --muted-foreground | #8aa0a6 |
 | --accent | #3e3028 |
-| --accent-foreground | #f2d5c2 |
+| --accent-foreground | #edf3f1 |
 | --destructive | #ff8a80 |
 | --destructive-surface | #3a2222 |
 | --success | #75d5a6 |
@@ -202,14 +202,14 @@ Los componentes DEBEN consumir variables semánticas mapeadas en apps/web/src/ap
 | --ring | #f0a66f |
 | --brand-mark | #df8b58 |
 | --numeric-band | #1b3032 |
-| --sidebar | #0b2029 |
-| --sidebar-foreground | #eaf2f0 |
-| --sidebar-primary | #326f73 |
-| --sidebar-primary-foreground | #ffffff |
-| --sidebar-accent | #173641 |
-| --sidebar-accent-foreground | #ffffff |
-| --sidebar-border | #2c4b56 |
-| --sidebar-ring | #f0a66f |
+| --sidebar | #0e181e |
+| --sidebar-foreground | #edf3f1 |
+| --sidebar-primary | #6fc8c2 |
+| --sidebar-primary-foreground | #0d171c |
+| --sidebar-accent | #1b2b32 |
+| --sidebar-accent-foreground | #6fc8c2 |
+| --sidebar-border | #34464b |
+| --sidebar-ring | #6fc8c2 |
 
 Estados NO DEBEN comunicarse solo por estos colores. DEBEN incluir texto, icono, forma o estado programático.
 
@@ -572,4 +572,5 @@ Una pantalla no está terminada hasta que:
 
 | Fecha | Versión | Decisión |
 | --- | --- | --- |
+| 2026-08-18 | 1.1.0 | Se adopta la paleta corregida para temas claro y oscuro; el sidebar claro usa selección tonal y el texto secundario claro se ajusta mínimamente para conservar contraste WCAG AA |
 | 2026-08-18 | 1.0.0 | Se adopta Registro Sereno; Geist y Lucide se conservan; se centralizan tokens; modo claro es referencia y tema oscuro se mantiene por funcionalidad existente |

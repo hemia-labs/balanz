@@ -17,7 +17,7 @@ export function WorkspaceSwitcher({ compact = false }: { compact?: boolean }) {
 
   if (compact) {
     return (
-      <div className="grid size-10 place-items-center rounded-md bg-sidebar-accent text-sidebar-foreground" title={organization.name}>
+      <div className="grid size-10 place-items-center rounded-md bg-sidebar-accent text-sidebar-accent-foreground" title={organization.name}>
         <Building2 className="size-5" aria-hidden="true" />
       </div>
     );
