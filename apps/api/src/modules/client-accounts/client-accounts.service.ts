@@ -39,6 +39,11 @@ import {
   validateFiscalYear,
 } from './client-domain.rules';
 
+export interface PrimaryAssignmentSummary {
+  clientAccountId: string;
+  displayName: string;
+}
+
 @Injectable()
 export class ClientAccountsService {
   constructor(
@@ -311,24 +316,56 @@ export class ClientAccountsService {
       legalBuilder.andWhere('entity.status <> :archived', {
         archived: LegalEntityStatus.ARCHIVED,
       });
-    const [legalEntities, assignments, fiscalYears] = await Promise.all([
-      legalBuilder.orderBy('entity.created_at', 'ASC').getMany(),
-      this.assignmentProjections(organizationId, [clientAccountId]),
-      this.fiscalYears.find({
-        where: { organizationId, clientAccountId },
-        order: { year: 'DESC' },
-      }),
+    const primaryAssignmentsPromise = this.primaryAssignmentProjections(
+      organizationId,
+      [clientAccountId],
+    );
+    const legalEntities = await legalBuilder
+      .orderBy('entity.created_at', 'ASC')
+      .getMany();
+    let fiscalYearsPromise: Promise<FiscalYear[]>;
+    if (!includeArchived && legalEntities.length === 0) {
+      fiscalYearsPromise = Promise.resolve([]);
+    } else {
+      const builder = this.fiscalYears
+        .createQueryBuilder('year')
+        .where(
+          'year.organization_id = :organizationId AND year.client_account_id = :clientAccountId',
+          { organizationId, clientAccountId },
+        );
+      if (!includeArchived) {
+        builder
+          .innerJoin(
+            LegalEntity,
+            'year_entity',
+            'year_entity.organization_id = year.organization_id AND year_entity.client_account_id = year.client_account_id AND year_entity.id = year.legal_entity_id',
+          )
+          .andWhere('year.legal_entity_id IN (:...legalEntityIds)', {
+            legalEntityIds: legalEntities.map((entity) => entity.id),
+          })
+          .andWhere('year.status <> :archivedYearStatus', {
+            archivedYearStatus: FiscalYearStatus.ARCHIVED,
+          })
+          .andWhere('year_entity.status <> :archivedEntityStatus', {
+            archivedEntityStatus: LegalEntityStatus.ARCHIVED,
+          });
+      }
+      fiscalYearsPromise = builder.orderBy('year.year', 'DESC').getMany();
+    }
+    const [primaryAssignments, fiscalYears] = await Promise.all([
+      primaryAssignmentsPromise,
+      fiscalYearsPromise,
     ]);
     return {
       account: this.accountResponse(account),
       legalEntities: legalEntities.map((entity) =>
         this.legalEntityResponse(entity),
       ),
-      primaryAssignment:
-        assignments.find(
-          (item) => item.responsibility === AssignmentResponsibility.PRIMARY,
-        ) ?? null,
-      assignments,
+      primaryAssignment: this.primaryAssignmentResponse(
+        primaryAssignments.find(
+          (item) => item.clientAccountId === clientAccountId,
+        ),
+      ),
       fiscalYears: fiscalYears.map((year) => this.fiscalYearResponse(year)),
     };
   }
@@ -460,53 +497,102 @@ export class ClientAccountsService {
     const result = new Map<string, Record<string, unknown>>();
     if (accounts.length === 0) return result;
     const ids = accounts.map((account) => account.id);
-    const [entities, assignments, years, periodRows] = await Promise.all([
-      this.legalEntities.find({
-        where: {
-          organizationId,
-          clientAccountId: In(ids),
-          status: LegalEntityStatus.ACTIVE,
-        },
-        order: { createdAt: 'ASC' },
-      }),
-      this.assignmentProjections(organizationId, ids),
-      this.fiscalYears.find({
-        where: {
-          organizationId,
-          clientAccountId: In(ids),
-          status: FiscalYearStatus.ACTIVE,
-        },
-        order: { year: 'DESC' },
-      }),
-      this.periods
-        .createQueryBuilder('period')
-        .innerJoin(
-          FiscalYear,
-          'year',
-          'year.id = period.fiscal_year_id AND year.organization_id = period.organization_id',
-        )
-        .select('period.client_account_id', 'clientAccountId')
-        .addSelect('period.status', 'status')
-        .addSelect('year.year', 'year')
-        .where('period.organization_id = :organizationId', { organizationId })
-        .andWhere('period.client_account_id IN (:...ids)', { ids })
-        .andWhere('period.month = :month', { month: new Date().getMonth() + 1 })
-        .orderBy('year.year', 'DESC')
-        .getRawMany<{
-          clientAccountId: string;
-          status: PeriodStatus;
-          year: number;
-        }>(),
+    const entities = await this.legalEntities.find({
+      where: {
+        organizationId,
+        clientAccountId: In(ids),
+        status: LegalEntityStatus.ACTIVE,
+      },
+      order: { createdAt: 'ASC' },
+    });
+    const primaryEntities = new Map<string, LegalEntity>();
+    for (const entity of entities) {
+      if (!primaryEntities.has(entity.clientAccountId)) {
+        primaryEntities.set(entity.clientAccountId, entity);
+      }
+    }
+    const legalEntityIds = [...primaryEntities.values()].map(
+      (entity) => entity.id,
+    );
+    const primaryAssignmentsPromise = this.primaryAssignmentProjections(
+      organizationId,
+      ids,
+    );
+    const yearsPromise =
+      legalEntityIds.length === 0
+        ? Promise.resolve([])
+        : this.fiscalYears
+            .createQueryBuilder('year')
+            .innerJoin(
+              LegalEntity,
+              'year_entity',
+              'year_entity.organization_id = year.organization_id AND year_entity.client_account_id = year.client_account_id AND year_entity.id = year.legal_entity_id',
+            )
+            .where('year.organization_id = :organizationId', {
+              organizationId,
+            })
+            .andWhere('year.client_account_id IN (:...ids)', { ids })
+            .andWhere('year.legal_entity_id IN (:...legalEntityIds)', {
+              legalEntityIds,
+            })
+            .andWhere('year.status = :activeYearStatus', {
+              activeYearStatus: FiscalYearStatus.ACTIVE,
+            })
+            .andWhere('year_entity.status = :activeEntityStatus', {
+              activeEntityStatus: LegalEntityStatus.ACTIVE,
+            })
+            .orderBy('year.year', 'DESC')
+            .getMany();
+    const periodRowsPromise =
+      legalEntityIds.length === 0
+        ? Promise.resolve([])
+        : this.periods
+            .createQueryBuilder('period')
+            .innerJoin(
+              FiscalYear,
+              'year',
+              'year.id = period.fiscal_year_id AND year.organization_id = period.organization_id AND year.client_account_id = period.client_account_id AND year.legal_entity_id = period.legal_entity_id',
+            )
+            .innerJoin(
+              LegalEntity,
+              'period_entity',
+              'period_entity.organization_id = period.organization_id AND period_entity.client_account_id = period.client_account_id AND period_entity.id = period.legal_entity_id',
+            )
+            .select('period.client_account_id', 'clientAccountId')
+            .addSelect('period.status', 'status')
+            .addSelect('year.year', 'year')
+            .where('period.organization_id = :organizationId', {
+              organizationId,
+            })
+            .andWhere('period.client_account_id IN (:...ids)', { ids })
+            .andWhere('period.legal_entity_id IN (:...legalEntityIds)', {
+              legalEntityIds,
+            })
+            .andWhere('year.status = :activeYearStatus', {
+              activeYearStatus: FiscalYearStatus.ACTIVE,
+            })
+            .andWhere('period_entity.status = :activeEntityStatus', {
+              activeEntityStatus: LegalEntityStatus.ACTIVE,
+            })
+            .andWhere('period.month = :month', {
+              month: new Date().getMonth() + 1,
+            })
+            .orderBy('year.year', 'DESC')
+            .getRawMany<{
+              clientAccountId: string;
+              status: PeriodStatus;
+              year: number;
+            }>();
+    const [primaryAssignments, years, periodRows] = await Promise.all([
+      primaryAssignmentsPromise,
+      yearsPromise,
+      periodRowsPromise,
     ]);
     for (const account of accounts) {
-      const primaryEntity =
-        entities.find((entity) => entity.clientAccountId === account.id) ??
-        null;
+      const primaryEntity = primaryEntities.get(account.id) ?? null;
       const primaryAssignment =
-        assignments.find(
-          (assignment) =>
-            assignment.clientAccountId === account.id &&
-            assignment.responsibility === AssignmentResponsibility.PRIMARY,
+        primaryAssignments.find(
+          (assignment) => assignment.clientAccountId === account.id,
         ) ?? null;
       const latestYear =
         years.find((year) => year.clientAccountId === account.id) ?? null;
@@ -517,7 +603,7 @@ export class ClientAccountsService {
         primaryLegalEntity: primaryEntity
           ? this.legalEntityResponse(primaryEntity)
           : null,
-        primaryAssignment,
+        primaryAssignment: this.primaryAssignmentResponse(primaryAssignment),
         latestFiscalYear: latestYear
           ? this.fiscalYearResponse(latestYear)
           : null,
@@ -533,7 +619,7 @@ export class ClientAccountsService {
     return result;
   }
 
-  private async assignmentProjections(
+  private async primaryAssignmentProjections(
     organizationId: string,
     accountIds: string[],
   ) {
@@ -546,16 +632,8 @@ export class ClientAccountsService {
         'membership.id = assignment.membership_id AND membership.organization_id = assignment.organization_id',
       )
       .innerJoin('users', 'user', 'user.id = membership.user_id')
-      .innerJoin('roles', 'role', 'role.id = membership.role_id')
-      .select('assignment.id', 'id')
-      .addSelect('assignment.client_account_id', 'clientAccountId')
-      .addSelect('assignment.membership_id', 'membershipId')
-      .addSelect('assignment.responsibility', 'responsibility')
-      .addSelect('assignment.status', 'status')
-      .addSelect('assignment.assigned_at', 'assignedAt')
+      .select('assignment.client_account_id', 'clientAccountId')
       .addSelect(`concat(user.first_name, ' ', user.last_name)`, 'displayName')
-      .addSelect('user.email', 'email')
-      .addSelect('role.key', 'role')
       .where('assignment.organization_id = :organizationId', { organizationId })
       .andWhere('assignment.client_account_id IN (:...accountIds)', {
         accountIds,
@@ -563,18 +641,17 @@ export class ClientAccountsService {
       .andWhere('assignment.status = :status', {
         status: AccountAssignmentStatus.ACTIVE,
       })
+      .andWhere('assignment.responsibility = :responsibility', {
+        responsibility: AssignmentResponsibility.PRIMARY,
+      })
       .orderBy('assignment.assigned_at', 'ASC')
-      .getRawMany<{
-        id: string;
-        clientAccountId: string;
-        membershipId: string;
-        responsibility: AssignmentResponsibility;
-        status: AccountAssignmentStatus;
-        assignedAt: Date;
-        displayName: string;
-        email: string;
-        role: string;
-      }>();
+      .getRawMany<PrimaryAssignmentSummary>();
+  }
+
+  private primaryAssignmentResponse(
+    assignment?: PrimaryAssignmentSummary | null,
+  ) {
+    return assignment ? { displayName: assignment.displayName } : null;
   }
 
   private accountResponse(account: ClientAccount) {

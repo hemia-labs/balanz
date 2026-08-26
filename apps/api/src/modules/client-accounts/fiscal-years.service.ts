@@ -148,11 +148,25 @@ export class FiscalYearsService {
         'Fiscal year not found',
       );
     }
-    const year = await this.fiscalYears.findOneBy({
-      id: fiscalYearId,
-      organizationId: tenant.organizationId,
-    });
-    if (!year || year.status === FiscalYearStatus.ARCHIVED) {
+    const year = await this.fiscalYears
+      .createQueryBuilder('year')
+      .innerJoin(
+        LegalEntity,
+        'entity',
+        'entity.organization_id = year.organization_id AND entity.client_account_id = year.client_account_id AND entity.id = year.legal_entity_id',
+      )
+      .where('year.id = :fiscalYearId', { fiscalYearId })
+      .andWhere('year.organization_id = :organizationId', {
+        organizationId: tenant.organizationId,
+      })
+      .andWhere('year.status <> :archivedYearStatus', {
+        archivedYearStatus: FiscalYearStatus.ARCHIVED,
+      })
+      .andWhere('entity.status <> :archivedEntityStatus', {
+        archivedEntityStatus: LegalEntityStatus.ARCHIVED,
+      })
+      .getOne();
+    if (!year) {
       throw domainError(
         HttpStatus.NOT_FOUND,
         'FISCAL_YEAR_NOT_FOUND',
@@ -160,15 +174,45 @@ export class FiscalYearsService {
       );
     }
     await this.scope.requireAccessibleAccount(year.clientAccountId, tenant);
-    const periods = await this.periods.find({
-      where: {
+    const periods = await this.periods
+      .createQueryBuilder('period')
+      .innerJoin(
+        FiscalYear,
+        'period_year',
+        'period_year.organization_id = period.organization_id AND period_year.client_account_id = period.client_account_id AND period_year.legal_entity_id = period.legal_entity_id AND period_year.id = period.fiscal_year_id',
+      )
+      .innerJoin(
+        LegalEntity,
+        'period_entity',
+        'period_entity.organization_id = period.organization_id AND period_entity.client_account_id = period.client_account_id AND period_entity.id = period.legal_entity_id',
+      )
+      .where('period.organization_id = :organizationId', {
         organizationId: year.organizationId,
+      })
+      .andWhere('period.client_account_id = :clientAccountId', {
         clientAccountId: year.clientAccountId,
+      })
+      .andWhere('period.legal_entity_id = :legalEntityId', {
         legalEntityId: year.legalEntityId,
+      })
+      .andWhere('period.fiscal_year_id = :fiscalYearId', {
         fiscalYearId: year.id,
-      },
-      order: { month: 'ASC' },
-    });
+      })
+      .andWhere('period_year.status <> :archivedYearStatus', {
+        archivedYearStatus: FiscalYearStatus.ARCHIVED,
+      })
+      .andWhere('period_entity.status <> :archivedEntityStatus', {
+        archivedEntityStatus: LegalEntityStatus.ARCHIVED,
+      })
+      .orderBy('period.month', 'ASC')
+      .getMany();
+    if (periods.length === 0) {
+      throw domainError(
+        HttpStatus.NOT_FOUND,
+        'FISCAL_YEAR_NOT_FOUND',
+        'Fiscal year not found',
+      );
+    }
     return {
       fiscalYear: this.response(year),
       periods: periods.map((period) => ({
