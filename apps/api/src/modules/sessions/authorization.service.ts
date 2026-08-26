@@ -25,6 +25,14 @@ import {
 import { RolePermission } from '../permissions/entities/role-permission.entity';
 import { RoleScope } from '../permissions/entities/role.entity';
 import { MFA_SENSITIVE_PERMISSION_KEYS } from '../../common/auth/permission-catalog';
+import {
+  AccountAssignment,
+  AccountAssignmentStatus,
+} from '../client-accounts/entities/account-assignment.entity';
+import {
+  ClientAccount,
+  ClientAccountStatus,
+} from '../client-accounts/entities/client-account.entity';
 
 export const MFA_SENSITIVE_PERMISSIONS = new Set<string>(
   MFA_SENSITIVE_PERMISSION_KEYS,
@@ -41,6 +49,8 @@ export class AuthorizationService {
     private readonly memberships: Repository<Membership>,
     @InjectRepository(RolePermission)
     private readonly rolePermissions: Repository<RolePermission>,
+    @InjectRepository(AccountAssignment)
+    private readonly assignments: Repository<AccountAssignment>,
     @Optional()
     @InjectRepository(AuthFactor)
     private readonly factors: Repository<AuthFactor>,
@@ -67,6 +77,8 @@ export class AuthorizationService {
     let role: string | null = null;
     let permissions: string[] = [];
     let tenantActive = false;
+    let assignedAccountIds: string[] = [];
+    let accountAccessMode: 'tenant' | 'assigned' = 'assigned';
     const mfaStatus =
       factor?.status === AuthFactorStatus.ACTIVE
         ? 'active'
@@ -104,6 +116,32 @@ export class AuthorizationService {
         session.status === AuthSessionStatus.ACTIVE &&
         session.expiresAt.getTime() > Date.now() &&
         (!session.requiresMfa || session.mfaVerifiedAt != null);
+      if (organization.ownerUserId === user.id) {
+        accountAccessMode = 'tenant';
+      } else {
+        assignedAccountIds = await this.assignments
+          .createQueryBuilder('assignment')
+          .innerJoin(
+            ClientAccount,
+            'account',
+            'account.organization_id = assignment.organization_id AND account.id = assignment.client_account_id',
+          )
+          .select('assignment.client_account_id', 'clientAccountId')
+          .where('assignment.organization_id = :organizationId', {
+            organizationId: organization.id,
+          })
+          .andWhere('assignment.membership_id = :membershipId', {
+            membershipId: membership.id,
+          })
+          .andWhere('assignment.status = :assignmentStatus', {
+            assignmentStatus: AccountAssignmentStatus.ACTIVE,
+          })
+          .andWhere('account.status <> :archived', {
+            archived: ClientAccountStatus.ARCHIVED,
+          })
+          .getRawMany<{ clientAccountId: string }>()
+          .then((items) => items.map((item) => item.clientAccountId).sort());
+      }
     }
 
     return {
@@ -113,7 +151,8 @@ export class AuthorizationService {
       membershipId: session.membershipId ?? null,
       role,
       permissions,
-      assignedAccountIds: [],
+      assignedAccountIds,
+      accountAccessMode,
       mfaVerifiedAt: session.mfaVerifiedAt ?? null,
       requiresMfa: session.requiresMfa,
       mfaStatus,

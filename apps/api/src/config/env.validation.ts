@@ -14,6 +14,7 @@ export const envVarsSchema = Joi.object({
     then: Joi.string().trim().min(1).required(),
     otherwise: Joi.string().allow('').default(''),
   }),
+  TRUST_PROXY_HOPS: Joi.number().integer().min(0).max(16).default(0),
 
   // Secrets
   SECRETS_ENABLED: Joi.boolean().truthy('true').falsy('false').default(false),
@@ -206,6 +207,11 @@ export const envVarsSchema = Joi.object({
     .min(60)
     .max(2_592_000)
     .default(1_800),
+  AUTH_SESSION_ACTIVITY_PERSIST_INTERVAL_SECONDS: Joi.number()
+    .integer()
+    .min(60)
+    .max(1_800)
+    .default(300),
   AUTHORIZATION_CACHE_TTL_SECONDS: Joi.number()
     .integer()
     .min(1)

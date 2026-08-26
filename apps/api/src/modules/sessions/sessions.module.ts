@@ -12,6 +12,7 @@ import { MfaGuard } from '../../common/guards/mfa.guard';
 import { Permission } from '../permissions/entities/permission.entity';
 import { RolePermission } from '../permissions/entities/role-permission.entity';
 import { Role } from '../permissions/entities/role.entity';
+import { AccountAssignment } from '../client-accounts/entities/account-assignment.entity';
 
 @Module({
   imports: [
@@ -25,6 +26,7 @@ import { Role } from '../permissions/entities/role.entity';
       Permission,
       RolePermission,
       Role,
+      AccountAssignment,
     ]),
   ],
   providers: [SessionsService, AuthorizationService, MfaGuard],

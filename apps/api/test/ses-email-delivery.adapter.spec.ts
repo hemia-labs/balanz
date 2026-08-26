@@ -166,7 +166,11 @@ describe('SesEmailDeliveryAdapter', () => {
     });
     const template = command.input.Content?.Template;
     if (!template?.TemplateData) throw new Error('Template data was not sent');
-    expect(Object.keys(JSON.parse(template.TemplateData)).sort()).toEqual([
+    const templateData: unknown = JSON.parse(template.TemplateData);
+    if (!templateData || typeof templateData !== 'object') {
+      throw new Error('Template data must be an object');
+    }
+    expect(Object.keys(templateData).sort()).toEqual([
       'activated_at',
       'assetsBaseUrl',
       'company_address',

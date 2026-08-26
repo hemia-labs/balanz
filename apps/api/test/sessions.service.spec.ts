@@ -8,7 +8,7 @@ describe('SessionsService Redis resolution', () => {
   it('resolves a cache hit after confirming it is active in PostgreSQL', async () => {
     const rawToken = 'raw-session-token';
     const entry: CachedSessionEntry = {
-      version: 2,
+      version: 3,
       sessionId: 'session-1',
       userId: 'user-1',
       organizationId: 'org-1',
@@ -19,10 +19,12 @@ describe('SessionsService Redis resolution', () => {
       mfaStatus: 'disabled',
       expiresAt: new Date(Date.now() + 60_000).toISOString(),
       lastActivityAt: new Date().toISOString(),
+      persistedLastActivityAt: new Date(Date.now() - 360_000).toISOString(),
       tenantActive: true,
       role: 'owner',
       permissions: ['organization.view'],
       assignedAccountIds: [],
+      accountAccessMode: 'tenant',
     };
     const repository = {
       findOne: jest.fn(),
@@ -78,12 +80,27 @@ describe('SessionsService Redis resolution', () => {
       status: AuthSessionStatus.ACTIVE,
     });
     expect(repository.findOne).not.toHaveBeenCalled();
+    expect(repository.update).toHaveBeenCalled();
+    const activityUpdate = repository.update.mock.calls[0] as unknown as [
+      { id: string; status: AuthSessionStatus },
+      { lastActivityAt: unknown },
+    ];
+    expect(activityUpdate[0]).toEqual(
+      expect.objectContaining({
+        id: 'session-1',
+        status: AuthSessionStatus.ACTIVE,
+      }),
+    );
+    expect(activityUpdate[1].lastActivityAt).toBeInstanceOf(Date);
+    expect(entry.persistedLastActivityAt).not.toEqual(
+      new Date(Date.now() - 360_000).toISOString(),
+    );
   });
 
   it('rejects and removes a cached session revoked in PostgreSQL', async () => {
     const rawToken = 'revoked-session-token';
     const entry: CachedSessionEntry = {
-      version: 2,
+      version: 3,
       sessionId: 'session-1',
       userId: 'user-1',
       organizationId: 'org-1',
@@ -94,10 +111,12 @@ describe('SessionsService Redis resolution', () => {
       mfaStatus: 'disabled',
       expiresAt: new Date(Date.now() + 60_000).toISOString(),
       lastActivityAt: new Date().toISOString(),
+      persistedLastActivityAt: new Date().toISOString(),
       tenantActive: true,
       role: 'owner',
       permissions: ['organization.view'],
       assignedAccountIds: [],
+      accountAccessMode: 'tenant',
     };
     const repository = {
       existsBy: jest.fn().mockResolvedValue(false),
@@ -136,6 +155,68 @@ describe('SessionsService Redis resolution', () => {
     );
     expect(cache.touch).not.toHaveBeenCalled();
     expect(repository.findOne).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    {
+      label: 'absolute expiry',
+      expiresAt: new Date(Date.now() - 1_000).toISOString(),
+      lastActivityAt: new Date().toISOString(),
+    },
+    {
+      label: 'idle expiry',
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      lastActivityAt: new Date(Date.now() - 1_801_000).toISOString(),
+    },
+  ])('does not slide past $label', async ({ expiresAt, lastActivityAt }) => {
+    const entry: CachedSessionEntry = {
+      version: 3,
+      sessionId: 'session-expired',
+      userId: 'user-1',
+      organizationId: 'org-1',
+      membershipId: 'membership-1',
+      status: 'active',
+      mfaVerifiedAt: null,
+      requiresMfa: false,
+      mfaStatus: 'disabled',
+      expiresAt,
+      lastActivityAt,
+      persistedLastActivityAt: lastActivityAt,
+      tenantActive: true,
+      role: 'owner',
+      permissions: [],
+      assignedAccountIds: [],
+      accountAccessMode: 'tenant',
+    };
+    const repository = {
+      existsBy: jest.fn(),
+      update: jest.fn().mockResolvedValue({ affected: 1 }),
+    };
+    const cache = {
+      get: jest.fn().mockResolvedValue({ available: true, value: entry }),
+      deleteSession: jest.fn().mockResolvedValue(true),
+      touch: jest.fn(),
+    };
+    const config = {
+      get: jest.fn((_key: string, fallback: unknown) => fallback),
+      getOrThrow: jest.fn().mockReturnValue({ sessionName: 'balanz_session' }),
+    } as unknown as ConfigService;
+    const service = new SessionsService(
+      repository as never,
+      config,
+      {} as never,
+      {} as never,
+      cache as never,
+    );
+
+    await expect(
+      service.resolve({
+        cookies: { balanz_session: 'expired-token' },
+      } as never),
+    ).rejects.toThrow('Expired session');
+    expect(repository.existsBy).not.toHaveBeenCalled();
+    expect(cache.touch).not.toHaveBeenCalled();
+    expect(cache.deleteSession).toHaveBeenCalled();
   });
 
   it('revokes the database session and removes its Redis keys', async () => {
@@ -211,6 +292,7 @@ describe('SessionsService Redis resolution', () => {
       role: null,
       permissions: [],
       assignedAccountIds: [],
+      accountAccessMode: 'assigned',
       mfaVerifiedAt: session.mfaVerifiedAt,
       requiresMfa: true,
       mfaStatus: 'active',

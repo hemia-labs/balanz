@@ -2,6 +2,7 @@ import {
   Column,
   CreateDateColumn,
   Entity,
+  ForeignKey,
   Index,
   PrimaryGeneratedColumn,
   UpdateDateColumn,
@@ -14,6 +15,10 @@ export enum SubscriptionStatus {
 
 @Index('uq_subscriptions_organization_id', ['organizationId'], {
   unique: true,
+})
+@ForeignKey('organizations', ['organizationId'], ['id'], {
+  name: 'fk_subscriptions_organization',
+  onDelete: 'RESTRICT',
 })
 @Entity('subscriptions')
 export class Subscription {

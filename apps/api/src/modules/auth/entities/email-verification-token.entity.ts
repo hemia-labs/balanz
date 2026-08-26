@@ -2,12 +2,17 @@ import {
   Column,
   CreateDateColumn,
   Entity,
+  ForeignKey,
   Index,
   PrimaryGeneratedColumn,
 } from 'typeorm';
 
 @Index('uq_email_verification_tokens_hash', ['tokenHash'], { unique: true })
 @Index('idx_email_verification_tokens_user_expires', ['userId', 'expiresAt'])
+@ForeignKey('users', ['userId'], ['id'], {
+  name: 'fk_email_verification_tokens_user',
+  onDelete: 'RESTRICT',
+})
 @Entity('email_verification_tokens')
 export class EmailVerificationToken {
   @PrimaryGeneratedColumn('uuid')

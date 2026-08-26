@@ -24,9 +24,7 @@ export function getDatabaseConfig(
   };
 }
 
-export function getDatabaseOptions(
-  config: DatabaseConfig,
-): DataSourceOptions {
+export function getDatabaseOptions(config: DatabaseConfig): DataSourceOptions {
   return {
     type: 'postgres',
     host: config.host,

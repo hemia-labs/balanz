@@ -1,7 +1,7 @@
 # API (NestJS)
 
 Backend del monorepo `nextjs-nestjs`. Plantilla NestJS + TypeORM + PostgreSQL.
-La base de datos viene **desactivada** hasta que la configures (ver abajo).
+La base de datos está activa y es obligatoria para los módulos de identidad y clientes.
 
 ## Stack
 
@@ -30,6 +30,7 @@ apps/api/
       migrations/                # migraciones TypeORM
     modules/
       users/                     # módulo de usuarios (controller, service, entity, dtos)
+      client-accounts/           # cuentas, RFC, asignaciones, ejercicios y períodos
 ```
 
 ## Variables de entorno
@@ -53,6 +54,10 @@ REDIS_PASSWORD=
 REDIS_DB=0
 REDIS_KEY_PREFIX=balanz:
 REDIS_CONNECT_TIMEOUT_MS=1000
+AUTH_SESSION_IDLE_TTL_SECONDS=1800
+AUTH_SESSION_ACTIVITY_PERSIST_INTERVAL_SECONDS=300
+TRUST_PROXY_HOPS=0
+APP_CORS_ORIGINS=http://localhost:3000
 ```
 
 Cuando `SECRETS_ENABLED=true`, la conexión Redis se obtiene desde Vault en
@@ -82,12 +87,14 @@ solo para cookies cross-site y siempre junto con `COOKIE_SECURE=true`. CORS usa
 
 ## Arranque
 
+Requiere Node.js `^20.19.0`, `^22.13.0` o `>=24.11.0`, además de Bun.
+
 ```bash
 bun install
 bun run --cwd apps/api start:dev   # watch mode
 ```
 
-Sin DB el servidor levanta igual (responde en `/`). El módulo de datos está apagado.
+El arranque falla si PostgreSQL o la configuración obligatoria no están disponibles.
 
 En producción, `start:prod` ejecuta primero las migraciones pendientes y el seed
 idempotente, y solo inicia la API si ambos pasos terminan correctamente:
@@ -96,19 +103,15 @@ idempotente, y solo inicia la API si ambos pasos terminan correctamente:
 bun run --cwd apps/api start:prod
 ```
 
-## Activar la base de datos
+## Preparar la base de datos
 
 1. Completa `.env`.
-2. En `src/app.module.ts` verifica los imports de `DatabaseModule` y `UsersModule`.
-3. Genera y corre la migración:
+2. Ejecuta las migraciones append-only y el seed idempotente:
 
 ```bash
-bun run --cwd apps/api migration:generate
 bun run --cwd apps/api migration:run
+bun run --cwd apps/api seed:run
 ```
-
-El primer comando genera la migración con el nombre base `Migration` dentro de
-`src/database/migrations`.
 
 ## Migraciones
 
@@ -119,11 +122,25 @@ bun run --cwd apps/api migration:revert
 ```
 
 `synchronize` está en `false`: todo cambio de schema requiere migración.
+El DataSource del CLI resuelve Vault cuando `SECRETS_ENABLED=true`; no usa un
+fallback silencioso a PostgreSQL local.
+
+Para validar aplicación desde cero, seed idempotente, rollback, reaplicación y
+drift en una base temporal de desarrollo:
+
+```bash
+bun run --cwd apps/api qa:migrations
+```
+
+El rol PostgreSQL necesita permiso `CREATEDB`. El runner sólo acepta
+`development/test`, scope Vault `dev` y nombres temporales generados con el
+prefijo `balanz_migration_qa_`.
 
 ## Tests y build
 
 ```bash
 bun run --cwd apps/api test
+bun run --cwd apps/api test:e2e
 bun run --cwd apps/api build
 ```
 
@@ -159,3 +176,22 @@ extracción aplican la política centralizada `MFA_SETUP_REQUIRED` /
 
 `GET /api/v1/users` acepta `search`, `status`, `page` y `limit` (1–100) y
 devuelve `{ items, meta: { page, limit, total, totalPages } }`.
+
+## Módulo de clientes
+
+Las rutas privadas usan el tenant de la sesión, permisos declarativos, MFA para
+operaciones sensibles y scope real por titular o asignación activa:
+
+- `GET|POST /api/v1/client-accounts`
+- `GET|PATCH|DELETE /api/v1/client-accounts/:clientAccountId`
+- `GET|POST /api/v1/client-accounts/:clientAccountId/legal-entities`
+- `PATCH|DELETE /api/v1/legal-entities/:legalEntityId`
+- `GET|POST /api/v1/client-accounts/:clientAccountId/assignments`
+- `GET /api/v1/client-accounts/:clientAccountId/available-members`
+- `DELETE /api/v1/client-accounts/:clientAccountId/assignments/:assignmentId`
+- `GET|POST /api/v1/legal-entities/:legalEntityId/fiscal-years`
+- `GET /api/v1/fiscal-years/:fiscalYearId/periods`
+
+Las mutaciones por cookie exigen un `Origin` exacto autorizado o, si falta,
+un `Referer` cuyo origin sea exacto. Cada respuesta expone
+`x-correlation-id`; el mismo UUID se reutiliza en errores y auditoría.

@@ -2,7 +2,13 @@ import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { createHash, randomBytes } from 'node:crypto';
 import type { Request, Response } from 'express';
-import { DataSource, EntityManager, Not, Repository } from 'typeorm';
+import {
+  DataSource,
+  EntityManager,
+  LessThanOrEqual,
+  Not,
+  Repository,
+} from 'typeorm';
 import { InjectRepository } from '@nestjs/typeorm';
 import { AuthSession, AuthSessionStatus } from './entities/auth-session.entity';
 import { AuthorizationService } from './authorization.service';
@@ -96,6 +102,9 @@ export class SessionsService {
       }
 
       const session = this.fromCache(entry, tokenHash);
+      await this.persistActivityIfDue(entry);
+      entry.lastActivityAt = new Date().toISOString();
+      session.lastActivityAt = new Date(entry.lastActivityAt);
       const touched = await this.cache.touch(tokenHash, entry);
       if (touched) {
         return {
@@ -124,8 +133,13 @@ export class SessionsService {
       throw new UnauthorizedException('Expired session');
     }
 
+    const persistedLastActivityAt =
+      await this.persistDatabaseActivityIfDue(session);
     const context = await this.authorization.resolve(session);
-    await this.cacheSession(session, context);
+    await this.cache.set(
+      session.sessionTokenHash,
+      this.toCacheEntry(session, context, persistedLastActivityAt),
+    );
     return { session, context, tokenHash, cacheHit: false };
   }
 
@@ -219,6 +233,25 @@ export class SessionsService {
     );
   }
 
+  async invalidateMembershipAuthorization(
+    organizationId: string,
+    membershipId: string,
+  ): Promise<void> {
+    const sessions = await this.repository.find({
+      select: { id: true, sessionTokenHash: true },
+      where: {
+        organizationId,
+        membershipId,
+        status: AuthSessionStatus.ACTIVE,
+      },
+    });
+    await Promise.all(
+      sessions.map((session) =>
+        this.cache.deleteSession(session.id, session.sessionTokenHash),
+      ),
+    );
+  }
+
   setCookie(response: Response, rawToken: string): void {
     const cookies = this.cookieConfig();
     response.cookie(cookies.sessionName, rawToken, {
@@ -291,9 +324,10 @@ export class SessionsService {
   private toCacheEntry(
     session: AuthSession,
     context: SessionAuthorizationContext,
+    persistedLastActivityAt = session.lastActivityAt,
   ): CachedSessionEntry {
     return {
-      version: 2,
+      version: 3,
       sessionId: session.id,
       userId: session.userId,
       organizationId: session.organizationId ?? null,
@@ -304,10 +338,12 @@ export class SessionsService {
       mfaStatus: context.mfaStatus,
       expiresAt: session.expiresAt.toISOString(),
       lastActivityAt: session.lastActivityAt.toISOString(),
+      persistedLastActivityAt: persistedLastActivityAt.toISOString(),
       tenantActive: context.tenantActive,
       role: context.role,
       permissions: context.permissions,
       assignedAccountIds: context.assignedAccountIds,
+      accountAccessMode: context.accountAccessMode,
     };
   }
 
@@ -337,12 +373,67 @@ export class SessionsService {
       role: entry.role,
       permissions: entry.permissions,
       assignedAccountIds: entry.assignedAccountIds,
+      accountAccessMode: entry.accountAccessMode,
       mfaVerifiedAt: entry.mfaVerifiedAt ? new Date(entry.mfaVerifiedAt) : null,
       requiresMfa: entry.requiresMfa,
       mfaStatus: entry.mfaStatus,
       expiresAt: new Date(entry.expiresAt),
       tenantActive: entry.tenantActive,
     };
+  }
+
+  private activityPersistIntervalMs(): number {
+    return (
+      this.config.get<number>(
+        'auth.sessionActivityPersistIntervalSeconds',
+        300,
+      ) * 1_000
+    );
+  }
+
+  private async persistActivityIfDue(entry: CachedSessionEntry): Promise<void> {
+    const now = new Date();
+    const threshold = new Date(
+      now.getTime() - this.activityPersistIntervalMs(),
+    );
+    if (
+      new Date(entry.persistedLastActivityAt).getTime() > threshold.getTime()
+    ) {
+      return;
+    }
+    const result = await this.repository.update(
+      {
+        id: entry.sessionId,
+        status: AuthSessionStatus.ACTIVE,
+        lastActivityAt: LessThanOrEqual(threshold),
+      },
+      { lastActivityAt: now },
+    );
+    if ((result.affected ?? 0) > 0)
+      entry.persistedLastActivityAt = now.toISOString();
+  }
+
+  private async persistDatabaseActivityIfDue(
+    session: AuthSession,
+  ): Promise<Date> {
+    const now = new Date();
+    const threshold = new Date(
+      now.getTime() - this.activityPersistIntervalMs(),
+    );
+    let persistedLastActivityAt = session.lastActivityAt;
+    if (session.lastActivityAt.getTime() <= threshold.getTime()) {
+      const result = await this.repository.update(
+        {
+          id: session.id,
+          status: AuthSessionStatus.ACTIVE,
+          lastActivityAt: LessThanOrEqual(threshold),
+        },
+        { lastActivityAt: now },
+      );
+      if ((result.affected ?? 0) > 0) persistedLastActivityAt = now;
+    }
+    session.lastActivityAt = now;
+    return persistedLastActivityAt;
   }
 
   private async revokeSessionsByUser(

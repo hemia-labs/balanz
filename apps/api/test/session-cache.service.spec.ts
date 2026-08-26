@@ -4,7 +4,7 @@ import type { CachedSessionEntry } from '../src/modules/redis/session-cache.serv
 
 function makeEntry(): CachedSessionEntry {
   return {
-    version: 2,
+    version: 3,
     sessionId: 'session-1',
     userId: 'user-1',
     organizationId: 'org-1',
@@ -15,10 +15,12 @@ function makeEntry(): CachedSessionEntry {
     mfaStatus: 'disabled',
     expiresAt: new Date(Date.now() + 60_000).toISOString(),
     lastActivityAt: new Date().toISOString(),
+    persistedLastActivityAt: new Date().toISOString(),
     tenantActive: true,
     role: 'owner',
     permissions: ['organization.view'],
     assignedAccountIds: [],
+    accountAccessMode: 'tenant',
   };
 }
 
@@ -113,9 +115,7 @@ describe('SessionCacheService', () => {
       service.deleteSession('session-1', 'hash-1', true),
     ).resolves.toBe(true);
 
-    expect(del).toHaveBeenNthCalledWith(1, [
-      'test:auth:session:token:hash-1',
-    ]);
+    expect(del).toHaveBeenNthCalledWith(1, ['test:auth:session:token:hash-1']);
     expect(del).toHaveBeenNthCalledWith(2, [
       'test:auth:session:token:legacy-raw-token',
     ]);

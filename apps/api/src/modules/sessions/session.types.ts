@@ -35,6 +35,7 @@ export interface SessionAuthorizationContext {
   role: string | null;
   permissions: string[];
   assignedAccountIds: string[];
+  accountAccessMode: 'tenant' | 'assigned';
   mfaVerifiedAt: Date | null;
   requiresMfa: boolean;
   mfaStatus: 'disabled' | 'pending' | 'active';
