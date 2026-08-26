@@ -1,10 +1,17 @@
-import { ExecutionContext, ForbiddenException } from '@nestjs/common';
+import {
+  ExecutionContext,
+  ForbiddenException,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { PermissionsGuard } from '../src/common/guards/permissions.guard';
 
-function buildContext(user: unknown): ExecutionContext {
+function buildContext(
+  user: unknown,
+  request: Record<string, unknown> = {},
+): ExecutionContext {
   return {
-    switchToHttp: () => ({ getRequest: () => ({ user }) }),
+    switchToHttp: () => ({ getRequest: () => ({ user, ...request }) }),
     getHandler: () => ({}),
     getClass: () => ({}),
   } as unknown as ExecutionContext;
@@ -69,5 +76,21 @@ describe('PermissionsGuard', () => {
     withRequired(['users.view']);
     const ctx = buildContext({ sub: '1', permissions: ['user.*'] });
     expect(() => guard.canActivate(ctx)).toThrow(ForbiddenException);
+  });
+
+  it.each([
+    'team.manage',
+    'ownership.manage',
+    'period.close',
+    'period.reopen',
+    'exports.create',
+  ])('exige MFA para %s', (permission) => {
+    withRequired([permission]);
+    const ctx = buildContext(undefined, {
+      authSession: { requiresMfa: true, mfaVerifiedAt: null },
+      tenantContext: { permissions: [permission] },
+    });
+
+    expect(() => guard.canActivate(ctx)).toThrow(UnauthorizedException);
   });
 });

@@ -1,20 +1,14 @@
 import { Global, Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
-import { JwtModule } from '@nestjs/jwt';
 import { SecretsService } from '@hemia/secrets/nestjs';
-import { JwtAuthGuard } from '../guards/jwt-auth.guard';
 import { PermissionsGuard } from '../guards/permissions.guard';
 import { SecretsModule } from '../../modules/secrets/secrets.module';
 import { JWT_SECRETS, isJwtSecrets, type JwtSecrets } from './types/jwt.types';
 import { PasswordService } from './password.service';
 
-/**
- * Registra JwtModule globalmente para que JwtAuthGuard pueda inyectar JwtService.
- * Los guards se aplican por controller con `@UseGuards(JwtAuthGuard, PermissionsGuard)`.
- */
 @Global()
 @Module({
-  imports: [ConfigModule, SecretsModule, JwtModule.register({})],
+  imports: [ConfigModule, SecretsModule],
   providers: [
     {
       provide: JWT_SECRETS,
@@ -48,16 +42,9 @@ import { PasswordService } from './password.service';
         return secret;
       },
     },
-    JwtAuthGuard,
     PermissionsGuard,
     PasswordService,
   ],
-  exports: [
-    JwtModule,
-    JwtAuthGuard,
-    PermissionsGuard,
-    JWT_SECRETS,
-    PasswordService,
-  ],
+  exports: [PermissionsGuard, JWT_SECRETS, PasswordService],
 })
 export class AuthModule {}

@@ -16,12 +16,13 @@ export function AppNavigation({
   onNavigate?: () => void;
 }) {
   const pathname = usePathname();
+  const locale = pathname.split("/").filter(Boolean)[0] ?? "es";
   const { capabilities, client, context, organization } = useAccountingContext();
   const groups = context === "client" ? clientNavGroups : organizationNavGroups;
   const items = filterNavigation(
     appNavigation.map((item) => ({
       ...item,
-      href: navHref(item, "es", organization.id, client?.id),
+      href: navHref(item, locale, organization.slug, client?.id),
     })),
     context,
     capabilities

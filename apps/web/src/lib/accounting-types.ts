@@ -14,7 +14,7 @@ export type PeriodStatus =
   | "Cerrado" | "Con novedades" | "Reabierto" | "Bloqueado";
 
 export interface DemoAccount { id: string; name: string; email: string; }
-export interface DemoOrganization { id: string; name: string; shortName: string; }
+export interface DemoOrganization { id: string; slug: string; name: string; shortName: string; }
 export interface DemoMembership {
   organizationId: string;
   role: MembershipRole;

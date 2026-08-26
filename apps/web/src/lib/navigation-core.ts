@@ -8,6 +8,18 @@ export interface NavigationRule {
   capability?: Capability;
 }
 
+export interface OrganizationRouteIdentity {
+  id: string;
+  slug: string;
+}
+
+export function resolveOrganizationRoute<T extends OrganizationRouteIdentity>(
+  organizations: readonly T[],
+  routeValue: string
+) {
+  return organizations.find((organization) => organization.id === routeValue || organization.slug === routeValue);
+}
+
 export function filterNavigation<T extends NavigationRule>(
   items: readonly T[],
   context: NavigationContext,
@@ -20,20 +32,4 @@ export function filterNavigation<T extends NavigationRule>(
 
 export function isNavigationItemActive(pathname: string, href: string) {
   return pathname === href || pathname.startsWith(href + "/");
-}
-
-export const legacyDestinations: Record<string, string> = {
-  documents: "clientes",
-  queries: "clientes",
-  income: "clientes",
-  payroll: "clientes",
-  reports: "procesos",
-  certificates: "clientes",
-  users: "equipo",
-  collaboration: "inicio",
-  plans: "configuracion/plan-facturacion",
-};
-
-export function resolveLegacyDestination(section: string) {
-  return legacyDestinations[section];
 }

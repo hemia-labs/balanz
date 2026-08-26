@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { ArrowLeft, PanelLeftClose, PanelLeftOpen } from "lucide-react";
+import { usePathname } from "next/navigation";
 import { useState } from "react";
 import { AppNavigation } from "@/components/app-navigation";
 import { useAccountingContext } from "@/components/accounting-context";
@@ -13,6 +14,8 @@ import { cn } from "@/lib/utils";
 
 export function AppSidebar() {
   const [collapsed, setCollapsed] = useState(false);
+  const pathname = usePathname();
+  const locale = pathname.split("/").filter(Boolean)[0] ?? "es";
   const { client, context, organization } = useAccountingContext();
   return (
     <aside className={cn(
@@ -38,7 +41,7 @@ export function AppSidebar() {
         {context === "client" && client ? (
           <>
             {!collapsed ? (
-              <Link href={`/es/despachos/${organization.id}/inicio`} className="mb-2 flex min-h-10 items-center gap-2 rounded-md px-3 text-body-sm font-semibold text-sidebar-foreground/75 hover:bg-sidebar-accent hover:text-sidebar-foreground">
+                <Link href={`/${locale}/organizations/${organization.slug}/home`} className="mb-2 flex min-h-10 items-center gap-2 rounded-md px-3 text-body-sm font-semibold text-sidebar-foreground/75 hover:bg-sidebar-accent hover:text-sidebar-foreground">
                 <ArrowLeft className="size-4" aria-hidden="true" /> Volver al despacho
               </Link>
             ) : null}
