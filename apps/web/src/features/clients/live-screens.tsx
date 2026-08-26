@@ -10,7 +10,15 @@ import {
   useRef,
   useState,
 } from "react";
-import { Archive, Plus, RefreshCw, Save, UserRoundPlus, X } from "lucide-react";
+import {
+  Archive,
+  LockKeyhole,
+  Plus,
+  RefreshCw,
+  Save,
+  UserRoundPlus,
+  X,
+} from "lucide-react";
 import { useAccountingContext } from "@/components/accounting-context";
 import {
   DefinitionGrid,
@@ -24,7 +32,9 @@ import { ProductTable } from "@/components/product-table";
 import { StatusBadge } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import type { Capability } from "@/lib/accounting-types";
 import { ApiError, apiErrorMessage, isAbortError } from "@/lib/api-client";
+import { hasCapability } from "@/lib/permissions";
 import {
   archiveClient,
   archiveLegalEntity,
@@ -32,6 +42,7 @@ import {
   createClient,
   createFiscalYear,
   createLegalEntity,
+  getAssignments,
   getAvailableMembers,
   getClient,
   getClients,
@@ -42,14 +53,29 @@ import {
   updateClient,
   updateLegalEntity,
 } from "./api";
+import {
+  initialFiscalPeriodsLoadState,
+  rejectFiscalPeriodsLoad,
+  resolveFiscalPeriodsLoad,
+  selectFiscalPeriodsLoad,
+  startFiscalPeriodsLoad,
+  type FiscalPeriodsQueryKey,
+} from "./fiscal-periods-load-state";
+import {
+  initialFiscalYearsLoadState,
+  rejectFiscalYearsLoad,
+  resolveFiscalYearsLoad,
+  selectFiscalYearsLoad,
+  startFiscalYearsLoad,
+  type FiscalYearsQueryKey,
+} from "./fiscal-years-load-state";
 import type {
+  AccountAssignment,
   AssignmentResponsibility,
   ClientDetail,
   ClientPage,
-  FiscalYear,
   LegalEntity,
   MemberCandidate,
-  PeriodsResponse,
 } from "./types";
 
 const selectClass =
@@ -169,26 +195,72 @@ function Dialog({
 
 function useClientDetail(clientId: string) {
   const { organization, registerClientName } = useAccountingContext();
-  const [detail, setDetail] = useState<ClientDetail | null>(null);
-  const [error, setError] = useState<unknown>(null);
-  const [loading, setLoading] = useState(true);
   const [revision, setRevision] = useState(0);
+  const requestSequence = useRef(0);
+  const [state, setState] = useState<{
+    organizationId: string | null;
+    clientId: string | null;
+    requestId: number;
+    status: "loading" | "ready" | "error";
+    detail: ClientDetail | null;
+    error: unknown;
+  }>({
+    organizationId: null,
+    clientId: null,
+    requestId: 0,
+    status: "loading",
+    detail: null,
+    error: null,
+  });
   const reload = useCallback(() => setRevision((value) => value + 1), []);
   useEffect(() => {
+    const requestId = ++requestSequence.current;
+    const organizationId = organization.id;
     const controller = new AbortController();
     const timer = globalThis.setTimeout(() => {
-      setLoading(true);
-      setError(null);
+      setState({
+        organizationId,
+        clientId,
+        requestId,
+        status: "loading",
+        detail: null,
+        error: null,
+      });
       void getClient(clientId, controller.signal)
         .then((nextDetail) => {
-          setDetail(nextDetail);
+          if (controller.signal.aborted) return;
+          setState((current) =>
+            current.organizationId === organizationId &&
+            current.clientId === clientId &&
+            current.requestId === requestId
+              ? {
+                  organizationId,
+                  clientId,
+                  requestId,
+                  status: "ready",
+                  detail: nextDetail,
+                  error: null,
+                }
+              : current,
+          );
           registerClientName(nextDetail.account.id, nextDetail.account.name);
         })
         .catch((cause) => {
-          if (!isAbortError(cause)) setError(cause);
-        })
-        .finally(() => {
-          if (!controller.signal.aborted) setLoading(false);
+          if (controller.signal.aborted || isAbortError(cause)) return;
+          setState((current) =>
+            current.organizationId === organizationId &&
+            current.clientId === clientId &&
+            current.requestId === requestId
+              ? {
+                  organizationId,
+                  clientId,
+                  requestId,
+                  status: "error",
+                  detail: null,
+                  error: cause,
+                }
+              : current,
+          );
         });
     }, 0);
     return () => {
@@ -196,7 +268,102 @@ function useClientDetail(clientId: string) {
       controller.abort();
     };
   }, [clientId, organization.id, registerClientName, revision]);
-  return { detail, error, loading, reload };
+  const belongsToContext =
+    state.organizationId === organization.id && state.clientId === clientId;
+  return {
+    detail:
+      belongsToContext && state.status === "ready" ? state.detail : null,
+    error: belongsToContext && state.status === "error" ? state.error : null,
+    loading: !belongsToContext || state.status === "loading",
+    reload,
+  };
+}
+
+interface ClientAssignmentsLoadState {
+  organizationId: string | null;
+  clientId: string | null;
+  requestId: number;
+  status: "loading" | "ready" | "error";
+  assignments: AccountAssignment[];
+  error: unknown;
+}
+
+function useClientAssignments(clientId: string) {
+  const { organization } = useAccountingContext();
+  const [revision, setRevision] = useState(0);
+  const requestSequence = useRef(0);
+  const [state, setState] = useState<ClientAssignmentsLoadState>({
+    organizationId: null,
+    clientId: null,
+    requestId: 0,
+    status: "loading",
+    assignments: [],
+    error: null,
+  });
+  const reload = useCallback(() => setRevision((value) => value + 1), []);
+  useEffect(() => {
+    const requestId = ++requestSequence.current;
+    const organizationId = organization.id;
+    const controller = new AbortController();
+    const timer = globalThis.setTimeout(() => {
+      setState({
+        organizationId,
+        clientId,
+        requestId,
+        status: "loading",
+        assignments: [],
+        error: null,
+      });
+      void getAssignments(clientId, controller.signal)
+        .then((assignments) => {
+          if (controller.signal.aborted) return;
+          setState((current) =>
+            current.organizationId === organizationId &&
+            current.clientId === clientId &&
+            current.requestId === requestId
+              ? {
+                  organizationId,
+                  clientId,
+                  requestId,
+                  status: "ready",
+                  assignments,
+                  error: null,
+                }
+              : current,
+          );
+        })
+        .catch((cause) => {
+          if (controller.signal.aborted || isAbortError(cause)) return;
+          setState((current) =>
+            current.organizationId === organizationId &&
+            current.clientId === clientId &&
+            current.requestId === requestId
+              ? {
+                  organizationId,
+                  clientId,
+                  requestId,
+                  status: "error",
+                  assignments: [],
+                  error: cause,
+                }
+              : current,
+          );
+        });
+    }, 0);
+    return () => {
+      globalThis.clearTimeout(timer);
+      controller.abort();
+    };
+  }, [clientId, organization.id, revision]);
+  const belongsToClient =
+    state.organizationId === organization.id && state.clientId === clientId;
+  return {
+    assignments:
+      belongsToClient && state.status === "ready" ? state.assignments : [],
+    error: belongsToClient && state.status === "error" ? state.error : null,
+    loading: !belongsToClient || state.status === "loading",
+    reload,
+  };
 }
 
 function NewClientDialog({
@@ -875,10 +1042,12 @@ function AddLegalEntityForm({
 }
 
 function AssignmentManager({
-  detail,
+  assignments,
+  clientId,
   reload,
 }: {
-  detail: ClientDetail;
+  assignments: AccountAssignment[];
+  clientId: string;
   reload: () => void;
 }) {
   const [members, setMembers] = useState<MemberCandidate[]>([]);
@@ -889,8 +1058,9 @@ function AssignmentManager({
   const [error, setError] = useState<unknown>(null);
   useEffect(() => {
     const controller = new AbortController();
-    void getAvailableMembers(detail.account.id, controller.signal)
+    void getAvailableMembers(clientId, controller.signal)
       .then((items) => {
+        setError(null);
         setMembers(items);
         setMembershipId(
           items.find((item) => !item.assignmentId)?.membershipId ??
@@ -902,13 +1072,13 @@ function AssignmentManager({
         if (!isAbortError(cause)) setError(cause);
       });
     return () => controller.abort();
-  }, [detail.account.id, detail.assignments]);
+  }, [assignments, clientId]);
   async function submit(event: FormEvent) {
     event.preventDefault();
     setPending(true);
     setError(null);
     try {
-      await createAssignment(detail.account.id, {
+      await createAssignment(clientId, {
         membershipId,
         responsibility,
       });
@@ -924,7 +1094,7 @@ function AssignmentManager({
     setPending(true);
     setError(null);
     try {
-      await revokeAssignment(detail.account.id, id);
+      await revokeAssignment(clientId, id);
       reload();
     } catch (cause) {
       setError(cause);
@@ -936,8 +1106,9 @@ function AssignmentManager({
     <div>
       <ProductTable
         caption="Asignaciones activas"
-        rows={detail.assignments}
+        rows={assignments.filter((row) => row.status === "active")}
         rowKey={(row) => row.id}
+        emptyMessage="Este cliente todavía no tiene asignaciones activas."
         columns={[
           {
             id: "member",
@@ -1092,12 +1263,194 @@ export function LiveClientDetailScreen({
   clientId: string;
   section?: LiveClientDetailSection;
 }) {
+  const { capabilities } = useAccountingContext();
+  const requiredCapability: Record<LiveClientDetailSection, Capability> = {
+    overview: "clients.view",
+    data: "clients.manage",
+    responsibles: "clients.assign",
+    access: "clients.assign",
+  };
+  const required = requiredCapability[section];
+  if (!hasCapability(capabilities, required)) {
+    return <LiveForbiddenScreen capability={required} />;
+  }
+  return <LiveClientDetailContent clientId={clientId} section={section} />;
+}
+
+function LiveResponsiblesSection({
+  detail,
+  reloadDetail,
+}: {
+  detail: ClientDetail;
+  reloadDetail: () => void;
+}) {
+  const {
+    assignments,
+    error,
+    loading,
+    reload: reloadAssignments,
+  } = useClientAssignments(detail.account.id);
+  const reloadAll = useCallback(() => {
+    reloadAssignments();
+    reloadDetail();
+  }, [reloadAssignments, reloadDetail]);
+  return (
+    <div className="space-y-6">
+      <header className="border-l-2 border-brand-mark pl-4">
+        <p className="text-caption font-semibold text-accent-foreground">
+          Configuración
+        </p>
+        <h1 className="text-heading-lg font-bold">Responsables</h1>
+        <p className="mt-1 text-body text-muted-foreground">
+          Administra quién atiende, colabora o revisa la cuenta de {detail.account.name}.
+        </p>
+      </header>
+      {loading ? (
+        <LoadingState label="Cargando asignaciones protegidas…" />
+      ) : error ? (
+        <div className="space-y-3">
+          <ErrorNotice
+            error={error}
+            fallback="No se pudieron cargar las asignaciones. Verifica tu sesión y vuelve a intentarlo."
+          />
+          <Button type="button" variant="outline" onClick={reloadAssignments}>
+            <RefreshCw />
+            Reintentar
+          </Button>
+        </div>
+      ) : (
+        <>
+          <DefinitionGrid
+            items={[
+              {
+                label: "Responsable principal",
+                value:
+                  detail.primaryAssignment?.displayName ?? "Sin responsable",
+              },
+              {
+                label: "Asignaciones activas",
+                value: assignments.filter((row) => row.status === "active")
+                  .length,
+              },
+            ]}
+          />
+          <Surface>
+            <SurfaceHeader
+              title="Asignaciones"
+              description="Solo puede existir un responsable principal activo por cliente."
+            />
+            <AssignmentManager
+              assignments={assignments}
+              clientId={detail.account.id}
+              reload={reloadAll}
+            />
+          </Surface>
+        </>
+      )}
+    </div>
+  );
+}
+
+function LiveAccessSection({
+  base,
+  detail,
+}: {
+  base: string;
+  detail: ClientDetail;
+}) {
+  const { assignments, error, loading, reload } = useClientAssignments(
+    detail.account.id,
+  );
+  return (
+    <div className="space-y-6">
+      <header className="border-l-2 border-brand-mark pl-4">
+        <p className="text-caption font-semibold text-accent-foreground">
+          Configuración
+        </p>
+        <h1 className="text-heading-lg font-bold">Accesos</h1>
+        <p className="mt-1 text-body text-muted-foreground">
+          Consulta qué miembros tienen acceso a {detail.account.name} y con qué
+          perfil.
+        </p>
+      </header>
+      {loading ? (
+        <LoadingState label="Cargando accesos protegidos…" />
+      ) : error ? (
+        <div className="space-y-3">
+          <ErrorNotice
+            error={error}
+            fallback="No se pudieron cargar los accesos. Verifica tu sesión y vuelve a intentarlo."
+          />
+          <Button type="button" variant="outline" onClick={reload}>
+            <RefreshCw />
+            Reintentar
+          </Button>
+        </div>
+      ) : (
+        <Surface>
+          <SurfaceHeader
+            title="Miembros con acceso"
+            description="El acceso se deriva de las asignaciones activas del cliente."
+            actions={
+              <Button
+                render={<Link href={`${base}/settings/responsibles`} />}
+                variant="outline"
+                size="sm"
+              >
+                Administrar asignaciones
+              </Button>
+            }
+          />
+          <ProductTable
+            caption="Miembros con acceso al cliente"
+            rows={assignments.filter((row) => row.status === "active")}
+            rowKey={(row) => row.id}
+            emptyMessage="Este cliente todavía no tiene miembros con acceso."
+            columns={[
+              {
+                id: "member",
+                header: "Miembro",
+                render: (row) => (
+                  <div>
+                    <p className="font-semibold">{row.displayName}</p>
+                    <p className="text-caption text-muted-foreground">
+                      {row.email}
+                    </p>
+                  </div>
+                ),
+              },
+              {
+                id: "role",
+                header: "Perfil",
+                render: (row) => roleLabels[row.role],
+              },
+              {
+                id: "responsibility",
+                header: "Responsabilidad",
+                render: (row) => responsibilityLabels[row.responsibility],
+              },
+            ]}
+          />
+        </Surface>
+      )}
+    </div>
+  );
+}
+
+function LiveClientDetailContent({
+  clientId,
+  section,
+}: {
+  clientId: string;
+  section: LiveClientDetailSection;
+}) {
   const { organization, capabilities, locale } = useAccountingContext();
   const router = useRouter();
   const { detail, error, loading, reload } = useClientDetail(clientId);
   const canManage = capabilities.includes("clients.manage");
   const canManageEntities = capabilities.includes("fiscal_entities.manage");
   const canAssign = capabilities.includes("clients.assign");
+  const canViewFiscalYears = capabilities.includes("fiscal_years.view");
   const base = `/${locale}/organizations/${encodeURIComponent(organization.slug)}/clients/${clientId}`;
   if (loading) return <LoadingState label="Cargando cliente…" />;
   if (error || !detail)
@@ -1154,56 +1507,68 @@ export function LiveClientDetailScreen({
               label: "Responsable principal",
               value: detail.primaryAssignment?.displayName ?? "Sin responsable",
             },
-            { label: "Ejercicios", value: detail.fiscalYears.length },
+            ...(canViewFiscalYears
+              ? [{ label: "Ejercicios", value: detail.fiscalYears.length }]
+              : []),
           ]}
         />
-        <Surface>
-          <SurfaceHeader
-            title="Accesos rápidos"
-            description="Abre directamente la sección que necesitas gestionar."
-          />
-          <div className="grid gap-3 p-5 md:grid-cols-3">
-            <Link
-              href={`${base}/settings/data`}
-              className="rounded-md border border-border p-4 transition-colors hover:bg-muted"
-            >
-              <p className="font-semibold">Datos del cliente</p>
-              <p className="mt-1 text-body-sm text-muted-foreground">
-                Nombre de cuenta y entidades fiscales.
-              </p>
-            </Link>
-            <Link
-              href={`${base}/settings/responsibles`}
-              className="rounded-md border border-border p-4 transition-colors hover:bg-muted"
-            >
-              <p className="font-semibold">Responsables</p>
-              <p className="mt-1 text-body-sm text-muted-foreground">
-                Responsable principal, colaboradores y revisores.
-              </p>
-            </Link>
-            <Link
-              href={`${base}/fiscal-years`}
-              className="rounded-md border border-border p-4 transition-colors hover:bg-muted"
-            >
-              <p className="font-semibold">Ejercicios</p>
-              <p className="mt-1 text-body-sm text-muted-foreground">
-                Ejercicios y períodos por entidad fiscal.
-              </p>
-            </Link>
-          </div>
-        </Surface>
+        {canManage || canAssign || canViewFiscalYears ? (
+          <Surface>
+            <SurfaceHeader
+              title="Accesos rápidos"
+              description="Abre directamente una sección disponible para tu membresía."
+            />
+            <div className="grid gap-3 p-5 md:grid-cols-3">
+              {canManage ? (
+                <Link
+                  href={`${base}/settings/data`}
+                  className="rounded-md border border-border p-4 transition-colors hover:bg-muted"
+                >
+                  <p className="font-semibold">Datos del cliente</p>
+                  <p className="mt-1 text-body-sm text-muted-foreground">
+                    Nombre de cuenta y entidades fiscales.
+                  </p>
+                </Link>
+              ) : null}
+              {canAssign ? (
+                <Link
+                  href={`${base}/settings/responsibles`}
+                  className="rounded-md border border-border p-4 transition-colors hover:bg-muted"
+                >
+                  <p className="font-semibold">Responsables</p>
+                  <p className="mt-1 text-body-sm text-muted-foreground">
+                    Responsable principal, colaboradores y revisores.
+                  </p>
+                </Link>
+              ) : null}
+              {canViewFiscalYears ? (
+                <Link
+                  href={`${base}/fiscal-years`}
+                  className="rounded-md border border-border p-4 transition-colors hover:bg-muted"
+                >
+                  <p className="font-semibold">Ejercicios</p>
+                  <p className="mt-1 text-body-sm text-muted-foreground">
+                    Ejercicios y períodos por entidad fiscal.
+                  </p>
+                </Link>
+              ) : null}
+            </div>
+          </Surface>
+        ) : null}
         <Surface>
           <SurfaceHeader
             title="Entidades fiscales"
             description="RFC asociados a esta cuenta cliente."
             actions={
-              <Button
-                render={<Link href={`${base}/fiscal-years`} />}
-                variant="outline"
-                size="sm"
-              >
-                Ver ejercicios
-              </Button>
+              canViewFiscalYears ? (
+                <Button
+                  render={<Link href={`${base}/fiscal-years`} />}
+                  variant="outline"
+                  size="sm"
+                >
+                  Ver ejercicios
+                </Button>
+              ) : undefined
             }
           />
           <ProductTable
@@ -1244,127 +1609,11 @@ export function LiveClientDetailScreen({
   }
 
   if (section === "responsibles") {
-    return (
-      <div className="space-y-6">
-        <header className="border-l-2 border-brand-mark pl-4">
-          <p className="text-caption font-semibold text-accent-foreground">
-            Configuración
-          </p>
-          <h1 className="text-heading-lg font-bold">Responsables</h1>
-          <p className="mt-1 text-body text-muted-foreground">
-            Administra quién atiende, colabora o revisa la cuenta de {account.name}.
-          </p>
-        </header>
-        <DefinitionGrid
-          items={[
-            {
-              label: "Responsable principal",
-              value: detail.primaryAssignment?.displayName ?? "Sin responsable",
-            },
-            {
-              label: "Asignaciones activas",
-              value: detail.assignments.filter((row) => row.status === "active")
-                .length,
-            },
-          ]}
-        />
-        <Surface>
-          <SurfaceHeader
-            title="Asignaciones"
-            description="Solo puede existir un responsable principal activo por cliente."
-          />
-          {canAssign ? (
-            <AssignmentManager detail={detail} reload={reload} />
-          ) : (
-            <ProductTable
-              caption="Asignaciones visibles"
-              rows={detail.assignments}
-              rowKey={(row) => row.id}
-              columns={[
-                {
-                  id: "member",
-                  header: "Miembro",
-                  render: (row) => row.displayName,
-                },
-                {
-                  id: "role",
-                  header: "Perfil",
-                  render: (row) => roleLabels[row.role],
-                },
-                {
-                  id: "responsibility",
-                  header: "Responsabilidad",
-                  render: (row) => responsibilityLabels[row.responsibility],
-                },
-              ]}
-            />
-          )}
-        </Surface>
-      </div>
-    );
+    return <LiveResponsiblesSection detail={detail} reloadDetail={reload} />;
   }
 
   if (section === "access") {
-    return (
-      <div className="space-y-6">
-        <header className="border-l-2 border-brand-mark pl-4">
-          <p className="text-caption font-semibold text-accent-foreground">
-            Configuración
-          </p>
-          <h1 className="text-heading-lg font-bold">Accesos</h1>
-          <p className="mt-1 text-body text-muted-foreground">
-            Consulta qué miembros tienen acceso a {account.name} y con qué perfil.
-          </p>
-        </header>
-        <Surface>
-          <SurfaceHeader
-            title="Miembros con acceso"
-            description="El acceso se deriva de las asignaciones activas del cliente."
-            actions={
-              canAssign ? (
-                <Button
-                  render={<Link href={`${base}/settings/responsibles`} />}
-                  variant="outline"
-                  size="sm"
-                >
-                  Administrar asignaciones
-                </Button>
-              ) : undefined
-            }
-          />
-          <ProductTable
-            caption="Miembros con acceso al cliente"
-            rows={detail.assignments.filter((row) => row.status === "active")}
-            rowKey={(row) => row.id}
-            emptyMessage="Este cliente todavía no tiene miembros con acceso."
-            columns={[
-              {
-                id: "member",
-                header: "Miembro",
-                render: (row) => (
-                  <div>
-                    <p className="font-semibold">{row.displayName}</p>
-                    <p className="text-caption text-muted-foreground">
-                      {row.email}
-                    </p>
-                  </div>
-                ),
-              },
-              {
-                id: "role",
-                header: "Perfil",
-                render: (row) => roleLabels[row.role],
-              },
-              {
-                id: "responsibility",
-                header: "Responsabilidad",
-                render: (row) => responsibilityLabels[row.responsibility],
-              },
-            ]}
-          />
-        </Surface>
-      </div>
-    );
+    return <LiveAccessSection base={base} detail={detail} />;
   }
 
   return (
@@ -1480,8 +1729,8 @@ function LegalEntitySelector({
   base: string;
   suffix: string;
 }) {
-  const active = detail.legalEntities.filter(
-    (entity) => entity.status === "active",
+  const available = detail.legalEntities.filter(
+    (entity) => entity.status !== "archived",
   );
   return (
     <div className="space-y-5">
@@ -1497,16 +1746,26 @@ function LegalEntitySelector({
       </header>
       <Surface>
         <div className="grid gap-3 p-5 sm:grid-cols-2">
-          {active.map((entity) => (
+          {available.map((entity) => (
             <Link
               key={entity.id}
               href={`${base}/legal-entities/${entity.id}/fiscal-years${suffix}`}
               className="rounded-md border border-border p-4 hover:bg-muted"
             >
-              <p className="font-semibold">{entity.legalName}</p>
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <p className="font-semibold">{entity.legalName}</p>
+                <StatusBadge
+                  status={entity.status === "active" ? "Activo" : "Suspendido"}
+                />
+              </div>
               <p className="identifier text-body-sm text-muted-foreground">
                 {entity.rfc}
               </p>
+              {entity.status === "suspended" ? (
+                <p className="mt-2 text-caption text-muted-foreground">
+                  Disponible en modo consulta.
+                </p>
+              ) : null}
             </Link>
           ))}
         </div>
@@ -1525,45 +1784,77 @@ export function LiveFiscalYearsScreen({
   const { organization, locale, capabilities } = useAccountingContext();
   const router = useRouter();
   const { detail, error, loading } = useClientDetail(clientId);
-  const [years, setYears] = useState<FiscalYear[]>([]);
-  const [yearsError, setYearsError] = useState<unknown>(null);
+  const [yearsState, setYearsState] = useState(initialFiscalYearsLoadState);
+  const requestSequence = useRef(0);
   const [revision, setRevision] = useState(0);
   const base = `/${locale}/organizations/${encodeURIComponent(organization.slug)}/clients/${clientId}`;
-  const active = useMemo(
+  const availableEntities = useMemo(
     () =>
-      detail?.legalEntities.filter((entity) => entity.status === "active") ??
+      detail?.legalEntities.filter((entity) => entity.status !== "archived") ??
       [],
     [detail],
   );
+  const entity = legalEntityId
+    ? availableEntities.find((item) => item.id === legalEntityId)
+    : undefined;
+  const yearsQuery = useMemo<FiscalYearsQueryKey | null>(
+    () =>
+      entity
+        ? {
+            organizationId: organization.id,
+            clientId,
+            legalEntityId: entity.id,
+            revision,
+          }
+        : null,
+    [clientId, entity, organization.id, revision],
+  );
   useEffect(() => {
-    if (!legalEntityId && active.length === 1)
-      router.replace(`${base}/legal-entities/${active[0].id}/fiscal-years`);
-  }, [active, base, legalEntityId, router]);
+    if (!legalEntityId && availableEntities.length === 1)
+      router.replace(
+        `${base}/legal-entities/${availableEntities[0].id}/fiscal-years`,
+      );
+  }, [availableEntities, base, legalEntityId, router]);
   useEffect(() => {
-    if (!legalEntityId) return;
+    const requestId = ++requestSequence.current;
     const controller = new AbortController();
-    void getFiscalYears(legalEntityId, controller.signal)
-      .then((items) => {
-        setYearsError(null);
-        setYears(items);
-      })
-      .catch((cause) => {
-        if (!isAbortError(cause)) setYearsError(cause);
-      });
-    return () => controller.abort();
-  }, [legalEntityId, organization.id, revision]);
+    const timer = globalThis.setTimeout(() => {
+      if (!yearsQuery) {
+        setYearsState(initialFiscalYearsLoadState);
+        return;
+      }
+      const request = { ...yearsQuery, requestId };
+      setYearsState(startFiscalYearsLoad(request));
+      void getFiscalYears(request.legalEntityId, controller.signal)
+        .then((items) => {
+          if (controller.signal.aborted) return;
+          setYearsState((current) =>
+            resolveFiscalYearsLoad(current, request, items),
+          );
+        })
+        .catch((cause) => {
+          if (controller.signal.aborted || isAbortError(cause)) return;
+          setYearsState((current) =>
+            rejectFiscalYearsLoad(current, request, cause),
+          );
+        });
+    }, 0);
+    return () => {
+      globalThis.clearTimeout(timer);
+      controller.abort();
+    };
+  }, [yearsQuery]);
   if (loading) return <LoadingState label="Cargando ejercicios…" />;
   if (error || !detail)
     return (
       <ErrorNotice error={error} fallback="No se pudo cargar el cliente." />
     );
   if (!legalEntityId)
-    return active.length === 1 ? (
+    return availableEntities.length === 1 ? (
       <LoadingState label="Abriendo el único RFC…" />
     ) : (
       <LegalEntitySelector detail={detail} base={base} suffix="" />
     );
-  const entity = active.find((item) => item.id === legalEntityId);
   if (!entity)
     return (
       <ErrorNotice
@@ -1571,6 +1862,14 @@ export function LiveFiscalYearsScreen({
         fallback="Entidad fiscal no encontrada."
       />
     );
+  const visibleYearsState = selectFiscalYearsLoad(yearsState, yearsQuery!);
+  const yearsLoading =
+    visibleYearsState.status === "idle" ||
+    visibleYearsState.status === "loading";
+  const yearsError =
+    visibleYearsState.status === "error" ? visibleYearsState.error : null;
+  const years =
+    visibleYearsState.status === "ready" ? visibleYearsState.years : [];
   return (
     <div className="space-y-6">
       <header className="border-l-2 border-brand-mark pl-4">
@@ -1582,70 +1881,93 @@ export function LiveFiscalYearsScreen({
           {detail.account.name} · RFC {entity.rfc}
         </p>
       </header>
-      <ErrorNotice
-        error={yearsError}
-        fallback="No se pudieron cargar los ejercicios."
-      />
-      <Surface>
-        <SurfaceHeader
-          title="Ejercicios"
-          description="Cada ejercicio pertenece a este RFC y contiene doce períodos."
-          actions={
-            capabilities.includes("fiscal_years.manage") ? (
-              <CreateYearForm
-                entity={entity}
-                reload={() => setRevision((value) => value + 1)}
-              />
-            ) : undefined
-          }
-        />
-        <ProductTable
-          caption={`Ejercicios de ${entity.rfc}`}
-          rows={years}
-          rowKey={(year) => year.id}
-          columns={[
-            {
-              id: "year",
-              header: "Año",
-              render: (year) => (
-                <Link
-                  className="font-semibold text-primary hover:underline"
-                  href={`${base}/legal-entities/${entity.id}/fiscal-years/${year.year}`}
-                >
-                  {year.year}
-                </Link>
-              ),
-            },
-            {
-              id: "status",
-              header: "Estado",
-              render: (year) => <StatusBadge status={year.status} />,
-            },
-            {
-              id: "version",
-              header: "Versión",
-              render: (year) => year.version,
-            },
-            {
-              id: "action",
-              header: "Acción",
-              render: (year) => (
-                <Button
-                  render={
-                    <Link
-                      href={`${base}/legal-entities/${entity.id}/fiscal-years/${year.year}`}
-                    />
-                  }
-                  variant="outline"
-                  size="sm"
-                >
-                  Ver períodos
-                </Button>
-              ),
-            },
-          ]}
-        />
-      </Surface>
+      {entity.status === "suspended" ? (
+        <WarningNotice>
+          Este RFC está suspendido. Puedes consultar sus ejercicios y períodos,
+          pero no crear ejercicios nuevos hasta que vuelva a estar activo.
+        </WarningNotice>
+      ) : null}
+      {yearsLoading ? (
+        <LoadingState label={`Cargando ejercicios de ${entity.rfc}…`} />
+      ) : yearsError ? (
+        <div className="space-y-3">
+          <ErrorNotice
+            error={yearsError}
+            fallback="No se pudieron cargar los ejercicios."
+          />
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => setRevision((value) => value + 1)}
+          >
+            <RefreshCw />
+            Reintentar
+          </Button>
+        </div>
+      ) : (
+        <Surface>
+          <SurfaceHeader
+            title="Ejercicios"
+            description="Cada ejercicio pertenece a este RFC y contiene doce períodos."
+            actions={
+              entity.status === "active" &&
+              capabilities.includes("fiscal_years.manage") ? (
+                <CreateYearForm
+                  entity={entity}
+                  reload={() => setRevision((value) => value + 1)}
+                />
+              ) : undefined
+            }
+          />
+          <ProductTable
+            caption={`Ejercicios de ${entity.rfc}`}
+            rows={years}
+            rowKey={(year) => year.id}
+            emptyMessage="No hay ejercicios fiscales registrados para este RFC."
+            columns={[
+              {
+                id: "year",
+                header: "Año",
+                render: (year) => (
+                  <Link
+                    className="font-semibold text-primary hover:underline"
+                    href={`${base}/legal-entities/${entity.id}/fiscal-years/${year.year}`}
+                  >
+                    {year.year}
+                  </Link>
+                ),
+              },
+              {
+                id: "status",
+                header: "Estado",
+                render: (year) => <StatusBadge status={year.status} />,
+              },
+              {
+                id: "version",
+                header: "Versión",
+                render: (year) => year.version,
+              },
+              {
+                id: "action",
+                header: "Acción",
+                render: (year) => (
+                  <Button
+                    render={
+                      <Link
+                        href={`${base}/legal-entities/${entity.id}/fiscal-years/${year.year}`}
+                      />
+                    }
+                    variant="outline"
+                    size="sm"
+                  >
+                    Ver períodos
+                  </Button>
+                ),
+              },
+            ]}
+          />
+        </Surface>
+      )}
     </div>
   );
 }
@@ -1664,31 +1986,52 @@ export function LiveFiscalYearScreen({
   const { organization, locale } = useAccountingContext();
   const router = useRouter();
   const { detail, error, loading } = useClientDetail(clientId);
-  const [data, setData] = useState<PeriodsResponse | null>(null);
-  const [periodError, setPeriodError] = useState<unknown>(null);
-  const [periodLoading, setPeriodLoading] = useState(Boolean(legalEntityId));
+  const [periodsState, setPeriodsState] = useState(
+    initialFiscalPeriodsLoadState,
+  );
+  const requestSequence = useRef(0);
   const base = `/${locale}/organizations/${encodeURIComponent(organization.slug)}/clients/${clientId}`;
-  const active = useMemo(
+  const availableEntities = useMemo(
     () =>
-      detail?.legalEntities.filter((entity) => entity.status === "active") ??
+      detail?.legalEntities.filter((entity) => entity.status !== "archived") ??
       [],
     [detail],
   );
+  const entity = legalEntityId
+    ? availableEntities.find((item) => item.id === legalEntityId)
+    : undefined;
+  const periodsQuery = useMemo<FiscalPeriodsQueryKey | null>(
+    () =>
+      entity
+        ? {
+            organizationId: organization.id,
+            clientId,
+            legalEntityId: entity.id,
+            year,
+          }
+        : null,
+    [clientId, entity, organization.id, year],
+  );
   useEffect(() => {
-    if (!legalEntityId && active.length === 1)
+    if (!legalEntityId && availableEntities.length === 1)
       router.replace(
-        `${base}/legal-entities/${active[0].id}/fiscal-years/${year}`,
+        `${base}/legal-entities/${availableEntities[0].id}/fiscal-years/${year}`,
       );
-  }, [active, base, legalEntityId, router, year]);
+  }, [availableEntities, base, legalEntityId, router, year]);
   useEffect(() => {
-    if (!legalEntityId) return;
+    const requestId = ++requestSequence.current;
     const controller = new AbortController();
     const timer = globalThis.setTimeout(() => {
-      setPeriodLoading(true);
-      setPeriodError(null);
-      void getFiscalYears(legalEntityId, controller.signal)
+      if (!periodsQuery) {
+        setPeriodsState(initialFiscalPeriodsLoadState);
+        return;
+      }
+      const request = { ...periodsQuery, requestId };
+      setPeriodsState(startFiscalPeriodsLoad(request));
+      void getFiscalYears(request.legalEntityId, controller.signal)
         .then((years) => {
-          const match = years.find((item) => String(item.year) === year);
+          if (controller.signal.aborted) return null;
+          const match = years.find((item) => String(item.year) === request.year);
           if (!match)
             throw new ApiError(
               404,
@@ -1697,31 +2040,35 @@ export function LiveFiscalYearScreen({
             );
           return getPeriods(match.id, controller.signal);
         })
-        .then(setData)
-        .catch((cause) => {
-          if (!isAbortError(cause)) setPeriodError(cause);
+        .then((data) => {
+          if (!data || controller.signal.aborted) return;
+          setPeriodsState((current) =>
+            resolveFiscalPeriodsLoad(current, request, data),
+          );
         })
-        .finally(() => {
-          if (!controller.signal.aborted) setPeriodLoading(false);
+        .catch((cause) => {
+          if (controller.signal.aborted || isAbortError(cause)) return;
+          setPeriodsState((current) =>
+            rejectFiscalPeriodsLoad(current, request, cause),
+          );
         });
     }, 0);
     return () => {
       globalThis.clearTimeout(timer);
       controller.abort();
     };
-  }, [legalEntityId, organization.id, year]);
+  }, [periodsQuery]);
   if (loading) return <LoadingState label="Cargando contexto fiscal…" />;
   if (error || !detail)
     return (
       <ErrorNotice error={error} fallback="No se pudo cargar el cliente." />
     );
   if (!legalEntityId)
-    return active.length === 1 ? (
+    return availableEntities.length === 1 ? (
       <LoadingState label="Abriendo el único RFC…" />
     ) : (
       <LegalEntitySelector detail={detail} base={base} suffix={`/${year}`} />
     );
-  const entity = active.find((item) => item.id === legalEntityId);
   if (!entity)
     return (
       <ErrorNotice
@@ -1729,15 +2076,23 @@ export function LiveFiscalYearScreen({
         fallback="Entidad fiscal no encontrada."
       />
     );
-  if (periodLoading)
+  const visiblePeriodsState = selectFiscalPeriodsLoad(
+    periodsState,
+    periodsQuery!,
+  );
+  if (
+    visiblePeriodsState.status === "idle" ||
+    visiblePeriodsState.status === "loading"
+  )
     return <LoadingState label="Cargando los doce períodos…" />;
-  if (periodError || !data)
+  if (visiblePeriodsState.status === "error" || !visiblePeriodsState.data)
     return (
       <ErrorNotice
-        error={periodError}
+        error={visiblePeriodsState.error}
         fallback="No se pudieron cargar los períodos."
       />
     );
+  const data = visiblePeriodsState.data;
   const selectedPeriod = selectedMonth
     ? data.periods.find(
         (period) =>
@@ -1784,6 +2139,12 @@ export function LiveFiscalYearScreen({
             Volver al ejercicio
           </Button>
         </header>
+        {entity.status === "suspended" ? (
+          <WarningNotice>
+            Este RFC está suspendido. El período permanece disponible en modo
+            consulta, sin acciones de modificación.
+          </WarningNotice>
+        ) : null}
         <DefinitionGrid
           items={[
             {
@@ -1821,6 +2182,12 @@ export function LiveFiscalYearScreen({
           {detail.account.name} · RFC {entity.rfc} · {year}
         </p>
       </header>
+      {entity.status === "suspended" ? (
+        <WarningNotice>
+          Este RFC está suspendido. Puedes consultar sus períodos, pero no
+          realizar cambios hasta que vuelva a estar activo.
+        </WarningNotice>
+      ) : null}
       <Surface>
         <ProductTable
           caption={`Períodos ${year} de ${entity.rfc}`}
@@ -1864,32 +2231,85 @@ export function LiveFiscalYearScreen({
   );
 }
 
-export function LiveUnavailableScreen() {
+export function LiveForbiddenScreen({
+  capability,
+}: {
+  capability: Capability;
+}) {
+  const { clientId, organization, locale } = useAccountingContext();
+  const canReturnToClient = Boolean(
+    clientId && capability !== "clients.view",
+  );
+  const destination = canReturnToClient
+    ? `/${locale}/organizations/${encodeURIComponent(organization.slug)}/clients/${encodeURIComponent(clientId!)}/overview`
+    : `/${locale}/organizations/${encodeURIComponent(organization.slug)}/home`;
+  return (
+    <div className="space-y-6">
+      <header className="border-l-2 border-brand-mark pl-4">
+        <p className="text-caption font-semibold text-accent-foreground">
+          Error 403
+        </p>
+        <h1 className="text-heading-lg font-bold">Acceso restringido</h1>
+        <p className="mt-1 max-w-reading text-body text-muted-foreground">
+          Tu membresía no incluye la capacidad necesaria para abrir esta
+          sección.
+        </p>
+      </header>
+      <Surface className="flex min-h-64 items-start gap-4 p-6">
+        <div className="grid size-10 shrink-0 place-items-center rounded-md bg-warning-surface text-warning">
+          <LockKeyhole className="size-5" aria-hidden="true" />
+        </div>
+        <div>
+          <h2 className="text-heading-sm font-emphasis">
+            Revisa tu asignación o capacidad
+          </h2>
+          <p className="mt-2 max-w-reading text-body text-muted-foreground">
+            Solicita acceso a una persona administradora del despacho si
+            necesitas trabajar en esta sección. No se cargaron los datos
+            restringidos.
+          </p>
+          <Button
+            render={<Link href={destination} />}
+            className="mt-5"
+          >
+            {canReturnToClient ? "Volver al cliente" : "Volver al inicio"}
+          </Button>
+        </div>
+      </Surface>
+    </div>
+  );
+}
+
+export function LiveUnavailableScreen({
+  title = "Funcionalidad fuera de esta entrega",
+  description = "Esta vista no usa datos demo cuando el modo real está activo. El alcance actual cubre clientes, RFC, asignaciones, ejercicios y períodos.",
+  returnHref,
+  returnLabel = "Volver a clientes",
+}: {
+  title?: string;
+  description?: string;
+  returnHref?: string;
+  returnLabel?: string;
+} = {}) {
   const { organization, locale } = useAccountingContext();
+  const destination =
+    returnHref ??
+    `/${locale}/organizations/${encodeURIComponent(organization.slug)}/clients`;
   return (
     <div className="space-y-4">
       <header className="border-l-2 border-brand-mark pl-4">
         <p className="text-caption font-semibold text-accent-foreground">
           Módulo real
         </p>
-        <h1 className="text-heading-lg font-bold">
-          Funcionalidad fuera de esta entrega
-        </h1>
+        <h1 className="text-heading-lg font-bold">{title}</h1>
       </header>
-      <WarningNotice>
-        Esta vista no usa datos demo cuando el modo real está activo. El alcance
-        actual cubre clientes, RFC, asignaciones, ejercicios y períodos.
-      </WarningNotice>
+      <WarningNotice>{description}</WarningNotice>
       <Button
-        render={
-          <Link
-            href={`/${locale}/organizations/${encodeURIComponent(organization.slug)}/clients`}
-          />
-        }
+        render={<Link href={destination} />}
         variant="outline"
       >
         <RefreshCw />
-        Volver a clientes
+        {returnLabel}
       </Button>
     </div>
   );

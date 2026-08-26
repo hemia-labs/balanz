@@ -1,14 +1,19 @@
 "use client";
 
-import type { ResolvedProductRoute } from "@/lib/product-route";
 import { useAccountingContext } from "@/components/accounting-context";
 import {
   LiveClientDetailScreen,
   LiveClientsScreen,
+  LiveForbiddenScreen,
   LiveFiscalYearsScreen,
   LiveFiscalYearScreen,
   LiveUnavailableScreen,
 } from "@/features/clients/live-screens";
+import {
+  canOpenResolvedProductRoute,
+  isLivePeriodTabSupported,
+  type ResolvedProductRoute,
+} from "@/lib/product-route";
 import {
   AuditScreen,
   ClientsScreen,
@@ -37,8 +42,11 @@ import {
 } from "@/components/screens/obligation-screens";
 
 export function AccountingScreen({ route }: { route: ResolvedProductRoute }) {
-  const { isDemo } = useAccountingContext();
+  const { capabilities, isDemo, locale, organization } = useAccountingContext();
   const { organizationId, clientId } = route;
+  if (!canOpenResolvedProductRoute(route, capabilities)) {
+    return <LiveForbiddenScreen capability={route.capability!} />;
+  }
   if (!isDemo) {
     switch (route.screen) {
       case "clients":
@@ -75,6 +83,20 @@ export function AccountingScreen({ route }: { route: ResolvedProductRoute }) {
           />
         );
       case "period":
+        if (!isLivePeriodTabSupported(route.tab)) {
+          const clientBase = `/${locale}/organizations/${encodeURIComponent(organization.slug)}/clients/${encodeURIComponent(clientId!)}`;
+          const periodOverviewHref = route.legalEntityId
+            ? `${clientBase}/legal-entities/${encodeURIComponent(route.legalEntityId)}/fiscal-years/${encodeURIComponent(route.year!)}/periods/${encodeURIComponent(route.period!)}/overview`
+            : `${clientBase}/fiscal-years/${encodeURIComponent(route.year!)}/periods/${encodeURIComponent(route.period!)}/overview`;
+          return (
+            <LiveUnavailableScreen
+              title="Pestaña de período no disponible"
+              description="Esta pestaña todavía no está conectada a datos reales. Puedes volver al resumen del período sin perder el contexto del RFC y ejercicio seleccionados."
+              returnHref={periodOverviewHref}
+              returnLabel="Volver al resumen del período"
+            />
+          );
+        }
         return (
           <LiveFiscalYearScreen
             clientId={clientId!}

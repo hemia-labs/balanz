@@ -27,6 +27,7 @@ import {
   organizationBySlug,
 } from "@/lib/demo-data";
 import { resolveOrganizationRoute } from "@/lib/navigation-core";
+import { hasCapability } from "@/lib/permissions";
 
 interface AccountingContextValue {
   locale: string;
@@ -138,7 +139,7 @@ export function AccountingContextProvider({
       authorization?.permissions ??
       (isDemo ? (membershipFor(organization.id)?.capabilities ?? []) : []);
     const resolvedCapabilities = capabilities.filter((item) =>
-      allowed.includes(item),
+      hasCapability(allowed, item),
     ) as Capability[];
     const membership: DemoMembership = {
       organizationId: organization.id,

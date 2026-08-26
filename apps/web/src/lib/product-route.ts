@@ -1,4 +1,5 @@
 import type { Capability } from "./accounting-types";
+import { hasCapability } from "./permissions";
 
 export type ProductScreen =
   | "organization-home"
@@ -34,6 +35,17 @@ export interface ResolvedProductRoute {
   instanceId?: string;
   section?: string;
   capability?: Capability;
+}
+
+export function canOpenResolvedProductRoute(
+  route: Pick<ResolvedProductRoute, "capability">,
+  capabilities: readonly string[],
+) {
+  return hasCapability(capabilities, route.capability);
+}
+
+export function isLivePeriodTabSupported(tab?: string) {
+  return !tab || tab === "overview";
 }
 
 const periodTabs = [
@@ -158,7 +170,7 @@ export function resolveProductRoute(
       year: sixth,
       period: eighth,
       tab,
-      capability: "fiscal_years.view",
+      capability: tab === "payroll" ? "payroll.view" : "fiscal_years.view",
     };
   }
   if (third === "fiscal-years" && !fourth)
@@ -179,7 +191,7 @@ export function resolveProductRoute(
       year: fourth,
       period: sixth,
       tab,
-      capability: tab === "payroll" ? "payroll.view" : "clients.view",
+      capability: tab === "payroll" ? "payroll.view" : "fiscal_years.view",
     };
   }
   if (third === "cfdi" && !fourth)

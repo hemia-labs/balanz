@@ -8,7 +8,11 @@ import {
   resolveOrganizationRoute,
 } from "./navigation-core";
 import { canAccessClient, hasCapability } from "./permissions";
-import { resolveProductRoute } from "./product-route";
+import {
+  canOpenResolvedProductRoute,
+  isLivePeriodTabSupported,
+  resolveProductRoute,
+} from "./product-route";
 
 const membership: DemoMembership = {
   organizationId: "despacho-demo",
@@ -106,6 +110,24 @@ test("mantiene Ejercicios activo dentro de un RFC, ejercicio y período", () => 
 });
 
 test("resuelve rutas canónicas, pestañas y capacidades", () => {
+  const overview = resolveProductRoute("demo", [
+    "clients",
+    "cliente",
+    "fiscal-years",
+    "2026",
+    "periods",
+    "08",
+    "overview",
+  ]);
+  const cfdi = resolveProductRoute("demo", [
+    "clients",
+    "cliente",
+    "fiscal-years",
+    "2026",
+    "periods",
+    "08",
+    "cfdi",
+  ]);
   const period = resolveProductRoute("demo", [
     "clients",
     "cliente",
@@ -115,6 +137,8 @@ test("resuelve rutas canónicas, pestañas y capacidades", () => {
     "08",
     "payroll",
   ]);
+  assert.equal(overview?.capability, "fiscal_years.view");
+  assert.equal(cfdi?.capability, "fiscal_years.view");
   assert.equal(period?.screen, "period");
   assert.equal(period?.capability, "payroll.view");
   const diot = resolveProductRoute("demo", [
@@ -169,6 +193,66 @@ test("incluye legalEntityId en rutas fiscales multi-RFC", () => {
   assert.equal(period?.screen, "period");
   assert.equal(period?.legalEntityId, "entidad-2");
   assert.equal(period?.period, "08");
+
+  const payroll = resolveProductRoute("demo", [
+    "clients",
+    "cliente",
+    "legal-entities",
+    "entidad-2",
+    "fiscal-years",
+    "2026",
+    "periods",
+    "08",
+    "payroll",
+  ]);
+  assert.equal(payroll?.screen, "period");
+  assert.equal(payroll?.tab, "payroll");
+  assert.equal(payroll?.capability, "payroll.view");
+});
+
+test("protege rutas live y no interpreta pestañas fuera de alcance como resumen", () => {
+  const responsibles = resolveProductRoute("demo", [
+    "clients",
+    "cliente",
+    "settings",
+    "responsibles",
+  ]);
+  const access = resolveProductRoute("demo", [
+    "clients",
+    "cliente",
+    "settings",
+    "access",
+  ]);
+  assert.ok(responsibles);
+  assert.ok(access);
+  assert.equal(responsibles.capability, "clients.assign");
+  assert.equal(access.capability, "clients.assign");
+  assert.equal(
+    canOpenResolvedProductRoute(responsibles, ["clients.view"]),
+    false,
+  );
+  assert.equal(canOpenResolvedProductRoute(access, ["clients.view"]), false);
+  assert.equal(
+    canOpenResolvedProductRoute(responsibles, [
+      "clients.view",
+      "clients.assign",
+    ]),
+    true,
+  );
+  assert.equal(
+    canOpenResolvedProductRoute(access, ["clients.view", "clients.assign"]),
+    true,
+  );
+  assert.equal(canOpenResolvedProductRoute(access, ["clients.*"]), true);
+  assert.equal(canOpenResolvedProductRoute(access, ["*.*"]), true);
+  assert.equal(canOpenResolvedProductRoute(access, ["client.*"]), false);
+  const audit = resolveProductRoute("demo", ["audit"]);
+  assert.ok(audit);
+  assert.equal(canOpenResolvedProductRoute(audit, ["*.*"]), true);
+  assert.equal(canOpenResolvedProductRoute(audit, ["clients.*"]), false);
+  assert.equal(isLivePeriodTabSupported("overview"), true);
+  assert.equal(isLivePeriodTabSupported("payroll"), false);
+  assert.equal(isLivePeriodTabSupported("cfdi"), false);
 });
 
 test("separa el resumen de las secciones de configuración del cliente", () => {

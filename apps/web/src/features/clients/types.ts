@@ -46,6 +46,18 @@ export interface AccountAssignment {
   role: "owner" | "accountant" | "collaborator";
 }
 
+export interface CreatedAssignment {
+  id: string;
+  membershipId: string;
+  responsibility: AssignmentResponsibility;
+  status: "active" | "revoked";
+  assignedAt: string;
+}
+
+export interface PrimaryAssignmentSummary {
+  displayName: string;
+}
+
 export interface FiscalYear {
   id: string;
   clientAccountId: string;
@@ -69,7 +81,7 @@ export interface Period {
 export interface ClientListItem {
   account: ClientAccount;
   primaryLegalEntity: LegalEntity | null;
-  primaryAssignment: AccountAssignment | null;
+  primaryAssignment: PrimaryAssignmentSummary | null;
   latestFiscalYear: FiscalYear | null;
   currentPeriod: { year: number; month: number; status: PeriodStatus } | null;
 }
@@ -82,8 +94,7 @@ export interface ClientPage {
 export interface ClientDetail {
   account: ClientAccount;
   legalEntities: LegalEntity[];
-  primaryAssignment: AccountAssignment | null;
-  assignments: AccountAssignment[];
+  primaryAssignment: PrimaryAssignmentSummary | null;
   fiscalYears: FiscalYear[];
 }
 

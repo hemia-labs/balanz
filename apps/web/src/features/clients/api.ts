@@ -5,6 +5,7 @@ import type {
   ClientAccount,
   ClientDetail,
   ClientPage,
+  CreatedAssignment,
   CreatedClientAggregate,
   FiscalYear,
   LegalEntity,
@@ -129,11 +130,21 @@ export function getAvailableMembers(
   );
 }
 
+export function getAssignments(
+  clientAccountId: string,
+  signal?: AbortSignal,
+) {
+  return apiClient<AccountAssignment[]>(
+    `/client-accounts/${encodeURIComponent(clientAccountId)}/assignments`,
+    { signal },
+  );
+}
+
 export function createAssignment(
   clientAccountId: string,
   input: { membershipId: string; responsibility: AssignmentResponsibility },
 ) {
-  return apiClient<AccountAssignment>(
+  return apiClient<CreatedAssignment>(
     `/client-accounts/${encodeURIComponent(clientAccountId)}/assignments`,
     { method: "POST", body: JSON.stringify(input) },
   );
