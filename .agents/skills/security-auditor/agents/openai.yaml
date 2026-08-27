@@ -1,0 +1,7 @@
+interface:
+  display_name: "Security Auditor"
+  short_description: "Audita seguridad con evidencia reproducible"
+  default_prompt: "Usa $security-auditor para realizar una auditoría de seguridad read-only del proyecto y generar un reporte Markdown con vectores de ataque, evidencia, severidad, fix mínimo y confianza."
+
+policy:
+  allow_implicit_invocation: true
