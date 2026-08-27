@@ -2,8 +2,8 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { CircleUserRound, HelpCircle, LogOut, Moon, Settings2, ShieldCheck, Sun, UserRound, Workflow } from "lucide-react";
+import { useEffect, useLayoutEffect, useState } from "react";
+import { CircleUserRound, HelpCircle, LogOut, Moon, Settings2, ShieldCheck, Sun, Workflow } from "lucide-react";
 import { useAccountingContext } from "@/components/accounting-context";
 import { ContextSearch } from "@/components/context-search";
 import { ContextBreadcrumbs } from "@/components/context-breadcrumbs";
@@ -11,6 +11,15 @@ import { MobileNavigation } from "@/components/mobile-navigation";
 import { NotificationsDrawer } from "@/components/notifications-drawer";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem,
   DropdownMenuLabel, DropdownMenuRadioGroup, DropdownMenuRadioItem,
@@ -28,6 +37,19 @@ function getThemePreference(): ThemePreference {
   return stored === "light" || stored === "dark" ? stored : "light";
 }
 
+function getInitials(name: string) {
+  const initials = name
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0])
+    .join("")
+    .toUpperCase();
+
+  return initials || "U";
+}
+
 function ConfirmLogout({
   open,
   onOpenChange,
@@ -35,25 +57,52 @@ function ConfirmLogout({
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
-  const dialogRef = useRef<HTMLDialogElement>(null);
   const router = useRouter();
   const pathname = usePathname();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const locale = pathname.split("/").filter(Boolean)[0] ?? "es";
 
-  useEffect(() => {
-    const dialog = dialogRef.current;
-    if (!dialog) return;
-    if (open && !dialog.open) dialog.showModal();
-    if (!open && dialog.open) dialog.close();
-  }, [open]);
-
   return (
-    <dialog ref={dialogRef} onClose={() => onOpenChange(false)} aria-labelledby="logout-title" className="m-auto w-[calc(100%-2rem)] max-w-md rounded-lg border border-border bg-card p-0 text-card-foreground shadow-overlay">
-        <div className="p-5"><h2 id="logout-title" className="text-heading-sm font-emphasis">Cerrar sesión</h2><p className="mt-2 text-body text-muted-foreground">Se cerrará la sesión activa en este navegador.</p>{error ? <p role="alert" aria-live="polite" className="mt-2 text-body-sm text-destructive">{error}</p> : null}</div>
-        <div className="flex justify-end gap-2 border-t border-border p-4"><Button variant="outline" onClick={() => onOpenChange(false)} disabled={busy}>Cancelar</Button><Button variant="destructive" disabled={busy} onClick={() => { setBusy(true); setError(null); void logout().then(() => { onOpenChange(false); router.push(`/${locale}/login`); }).catch(() => { setError("No se pudo cerrar la sesión. Intenta de nuevo."); setBusy(false); }); }}>{busy ? "Cerrando…" : "Cerrar sesión"}</Button></div>
-      </dialog>
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Cerrar sesión</DialogTitle>
+          <DialogDescription>
+            Se cerrará la sesión activa en este navegador.
+          </DialogDescription>
+          {error ? (
+            <p role="alert" aria-live="polite" className="text-body-sm text-destructive">
+              {error}
+            </p>
+          ) : null}
+        </DialogHeader>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={busy}>
+            Cancelar
+          </Button>
+          <Button
+            variant="destructive"
+            disabled={busy}
+            onClick={() => {
+              setBusy(true);
+              setError(null);
+              void logout()
+                .then(() => {
+                  onOpenChange(false);
+                  router.push(`/${locale}/login`);
+                })
+                .catch(() => {
+                  setError("No se pudo cerrar la sesión. Intenta de nuevo.");
+                  setBusy(false);
+                });
+            }}
+          >
+            {busy ? "Cerrando…" : "Cerrar sesión"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -65,6 +114,7 @@ export function AppTopbar() {
   const locale = pathname.split("/").filter(Boolean)[0] ?? "es";
   const [theme, setTheme] = useState<ThemePreference>(getThemePreference);
   const [logoutOpen, setLogoutOpen] = useState(false);
+  const accountInitials = getInitials(account.name);
 
   useThemeEffect(() => {
     const resolved = theme === "system"
@@ -97,8 +147,11 @@ export function AppTopbar() {
         </Button>
         <NotificationsDrawer />
         <DropdownMenu>
-          <DropdownMenuTrigger aria-label="Abrir menú del perfil" className="grid size-10 place-items-center rounded-md text-muted-foreground transition-colors duration-150 hover:bg-muted hover:text-foreground">
-            <UserRound className="size-5" />
+          <DropdownMenuTrigger aria-label={`Abrir menú del perfil de ${account.name}`} className="grid size-10 place-items-center rounded-md text-muted-foreground transition-colors duration-150 hover:bg-muted hover:text-foreground">
+            <Avatar className="size-8">
+              {account.avatarUrl ? <AvatarImage src={account.avatarUrl} alt="" /> : null}
+              <AvatarFallback aria-hidden="true">{accountInitials}</AvatarFallback>
+            </Avatar>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-72">
             <DropdownMenuGroup>

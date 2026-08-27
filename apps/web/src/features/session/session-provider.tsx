@@ -1,18 +1,21 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
+import { LoaderCircle } from "lucide-react";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { Card, CardContent } from "@/components/ui/card";
 import { ApiError, isAbortError, subscribeToUnauthorizedApi } from "@/lib/api-client";
 import { selectOrganization } from "@/features/organizations/api";
 import { getAuthorization, getSession } from "@/features/session/api";
 import { getOrganizations } from "@/features/organizations/api";
 import { localeFromPath, unauthorizedLoginDestination } from "./unauthorized-navigation";
-import type { AuthorizationContext, OrganizationSummary, SessionContext, SessionState } from "./types";
+import type { AuthorizationContext, OrganizationSummary, SessionDetails, SessionState } from "./types";
 
 interface SessionContextValue {
   status: SessionState;
-  session: SessionContext | null;
+  session: SessionDetails | null;
   authorization: AuthorizationContext | null;
   organizations: OrganizationSummary[];
   error: ApiError | null;
@@ -37,7 +40,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
   const requestVersion = useRef(0);
   const redirectingUnauthorized = useRef(false);
   const [status, setStatus] = useState<SessionState>("checking");
-  const [session, setSession] = useState<SessionContext | null>(null);
+  const [session, setSession] = useState<SessionDetails | null>(null);
   const [authorization, setAuthorization] = useState<AuthorizationContext | null>(null);
   const [organizations, setOrganizations] = useState<OrganizationSummary[]>([]);
   const [error, setError] = useState<ApiError | null>(null);
@@ -152,7 +155,22 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
   }), [authorization, error, loadSession, organizations, session, status, switchTenant]);
 
   if (status === "checking" || status === "switching_tenant" || status === "tenant_required") {
-    return <div className="grid min-h-screen place-items-center text-body-sm text-muted-foreground">Validando sesión…</div>;
+    const statusMessage = status === "switching_tenant" ? "Cambiando de despacho…" : "Validando sesión…";
+    return (
+      <main id="main-content" tabIndex={-1} className="grid min-h-screen w-full flex-1 place-items-center bg-background px-4 focus:outline-none">
+        <Card className="w-full max-w-sm rounded-lg border-border py-0 shadow-float ring-0" aria-busy="true">
+          <CardContent className="flex flex-col items-center p-7 text-center sm:p-8">
+            <Image src="/logo.png" alt="CFDIOS" width={230} height={58} priority className="mx-auto block h-auto w-52 dark:hidden" />
+            <Image src="/logo-white.png" alt="CFDIOS" width={192} height={48} priority className="mx-auto hidden h-auto w-52 dark:block" />
+            <div className="mt-7 flex size-11 items-center justify-center self-center rounded-lg bg-muted text-foreground">
+              <LoaderCircle className="size-5 animate-spin motion-reduce:animate-none" aria-hidden="true" />
+            </div>
+            <p className="mt-5 text-heading-sm font-bold" role="status" aria-live="polite">{statusMessage}</p>
+            <p className="mt-2 text-body-sm text-muted-foreground">Estamos preparando tu espacio de trabajo.</p>
+          </CardContent>
+        </Card>
+      </main>
+    );
   }
   if (status === "unauthenticated") return null;
   if (status === "forbidden") {

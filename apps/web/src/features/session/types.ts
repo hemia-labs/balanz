@@ -64,6 +64,15 @@ export interface SessionContext {
   tenantActive: boolean;
 }
 
+export interface SessionDetails extends SessionContext {
+  account: {
+    id: string;
+    name: string;
+    email: string;
+    avatarUrl?: string | null;
+  };
+}
+
 export interface AuthorizationContext {
   organizationId: string;
   membershipId: string;
