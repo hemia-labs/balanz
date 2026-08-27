@@ -101,7 +101,7 @@ test("notifica globalmente un 401 de una operación autenticada", async () => {
   }
 });
 
-test("mantiene locales los 401 de bootstrap y login para evitar bucles", async () => {
+test("mantiene locales los 401 de bootstrap/login y propaga logout expirado", async () => {
   const originalFetch = globalThis.fetch;
   let notifications = 0;
   const unsubscribe = subscribeToUnauthorizedApi(() => {
@@ -123,6 +123,13 @@ test("mantiene locales los 401 de bootstrap y login para evitar bucles", async (
       await assert.rejects(apiClient(path), ApiError);
     }
     assert.equal(notifications, 0);
+    await assert.rejects(
+      apiClient("/auth/session", { method: "DELETE" }),
+      ApiError,
+    );
+    assert.equal(notifications, 1);
+    assert.equal(shouldNotifyUnauthorizedApi("/auth/session", "GET"), false);
+    assert.equal(shouldNotifyUnauthorizedApi("/auth/session", "DELETE"), true);
     assert.equal(shouldNotifyUnauthorizedApi("/auth/session/organization"), true);
     assert.equal(shouldNotifyUnauthorizedApi("/me/authorization"), true);
   } finally {

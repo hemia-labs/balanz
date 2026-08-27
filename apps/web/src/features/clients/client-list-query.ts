@@ -49,6 +49,23 @@ export function resolveClientSearchDraft(
   return draft.base === routeSearch ? draft.value : routeSearch;
 }
 
+export function rebaseClientSearchDraft(
+  draft: ClientSearchDraft,
+  routeSearch: string,
+) {
+  if (draft.base === routeSearch) return draft;
+  return { base: routeSearch, value: routeSearch } satisfies ClientSearchDraft;
+}
+
+export function shouldSyncClientSearch(
+  draft: ClientSearchDraft,
+  routeSearch: string,
+  debouncedSearch: string,
+  visibleSearch: string,
+) {
+  return draft.base === routeSearch && debouncedSearch === visibleSearch;
+}
+
 export function editClientSearchDraft(routeSearch: string, value: string) {
   return {
     base: routeSearch,
@@ -66,14 +83,17 @@ export function clientSearchQuery(
   requestedSearch: string,
 ) {
   const next = new URLSearchParams(currentQuery);
-  const routeSearch = normalizeClientListSearch(next.get("search"));
+  const rawRouteSearch = next.get("search") ?? "";
+  const routeSearch = normalizeClientListSearch(rawRouteSearch);
   const search = normalizeClientListSearch(requestedSearch);
 
-  if (search === routeSearch) return null;
+  const effectiveSearchChanged = search !== routeSearch;
+  const canonicalSearchChanged = rawRouteSearch !== search;
+  if (!effectiveSearchChanged && !canonicalSearchChanged) return null;
 
   if (search) next.set("search", search);
   else next.delete("search");
-  next.set("page", "1");
+  if (effectiveSearchChanged) next.set("page", "1");
   return next.toString();
 }
 

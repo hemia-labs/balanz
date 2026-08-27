@@ -1,14 +1,11 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { useAccountingContext } from "@/components/accounting-context";
 import {
-  LiveClientDetailScreen,
-  LiveClientsScreen,
   LiveForbiddenScreen,
-  LiveFiscalYearsScreen,
-  LiveFiscalYearScreen,
   LiveUnavailableScreen,
-} from "@/features/clients/live-screens";
+} from "@/features/clients/live-fallback-screens";
 import {
   canOpenResolvedProductRoute,
   isLivePeriodTabSupported,
@@ -41,6 +38,30 @@ import {
   ObligationsScreen,
 } from "@/components/screens/obligation-screens";
 
+const LiveClientsScreen = dynamic(() =>
+  import("@/features/clients/live-clients-screen").then(
+    (module) => module.LiveClientsScreen,
+  ),
+);
+
+const LiveClientDetailScreen = dynamic(() =>
+  import("@/features/clients/live-client-detail-screen").then(
+    (module) => module.LiveClientDetailScreen,
+  ),
+);
+
+const LiveFiscalYearsScreen = dynamic(() =>
+  import("@/features/clients/live-fiscal-screens").then(
+    (module) => module.LiveFiscalYearsScreen,
+  ),
+);
+
+const LiveFiscalYearScreen = dynamic(() =>
+  import("@/features/clients/live-fiscal-screens").then(
+    (module) => module.LiveFiscalYearScreen,
+  ),
+);
+
 export function AccountingScreen({ route }: { route: ResolvedProductRoute }) {
   const { capabilities, isDemo, locale, organization } = useAccountingContext();
   const { organizationId, clientId } = route;
@@ -52,7 +73,9 @@ export function AccountingScreen({ route }: { route: ResolvedProductRoute }) {
       case "clients":
         return <LiveClientsScreen />;
       case "client-overview":
-        return <LiveClientDetailScreen clientId={clientId!} section="overview" />;
+        return (
+          <LiveClientDetailScreen clientId={clientId!} section="overview" />
+        );
       case "client-settings":
         if (
           route.section === "data" ||

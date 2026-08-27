@@ -52,10 +52,11 @@ function pathnameForApiRequest(path: string) {
   }
 }
 
-export function shouldNotifyUnauthorizedApi(path: string) {
+export function shouldNotifyUnauthorizedApi(path: string, method = "GET") {
   const pathname = pathnameForApiRequest(path);
+  const requestMethod = method.toUpperCase();
   return (
-    pathname !== "/auth/session" &&
+    !(pathname === "/auth/session" && requestMethod === "GET") &&
     pathname !== "/auth/login" &&
     !pathname.startsWith("/auth/login/")
   );
@@ -215,13 +216,14 @@ export async function apiClient<T>(
         normalizeFieldErrors(body?.fieldErrors ?? body?.errors),
         body?.details,
       );
+      const requestMethod = (init.method ?? "GET").toUpperCase();
       if (
         requestError.status === 401 &&
-        shouldNotifyUnauthorizedApi(path)
+        shouldNotifyUnauthorizedApi(path, requestMethod)
       ) {
         notifyUnauthorizedApi({
           error: requestError,
-          method: (init.method ?? "GET").toUpperCase(),
+          method: requestMethod,
           path,
         });
       }

@@ -7,10 +7,12 @@ import {
   editClientSearchDraft,
   initialClientListLoadState,
   normalizeClientListSearch,
+  rebaseClientSearchDraft,
   rejectClientListLoad,
   resolveClientListLoad,
   resolveClientSearchDraft,
   selectClientListLoad,
+  shouldSyncClientSearch,
   startClientListLoad,
 } from "./client-list-query";
 import type { ClientPage } from "./types";
@@ -57,6 +59,18 @@ test("un cambio externo de URL reemplaza el draft local", () => {
   assert.equal(resolveClientSearchDraft(draft, "Beta"), "Beta");
 });
 
+test("la navegación externa rebasa el draft y no lo resucita al volver", () => {
+  const edited = editClientSearchDraft("Acme", "Beta");
+  assert.equal(shouldSyncClientSearch(edited, "Beta", "Acme", "Beta"), false);
+  const atBeta = rebaseClientSearchDraft(edited, "Beta");
+  assert.deepEqual(atBeta, { base: "Beta", value: "Beta" });
+  assert.equal(shouldSyncClientSearch(atBeta, "Beta", "Acme", "Beta"), false);
+  assert.equal(shouldSyncClientSearch(atBeta, "Beta", "Beta", "Beta"), true);
+  const backAtAcme = rebaseClientSearchDraft(atBeta, "Acme");
+  assert.deepEqual(backAtAcme, { base: "Acme", value: "Acme" });
+  assert.equal(resolveClientSearchDraft(backAtAcme, "Acme"), "Acme");
+});
+
 test("limpiar filtros borra URL y draft antes y después de navegar", () => {
   const cleared = clearClientListState("Acme");
   assert.equal(cleared.query, "");
@@ -66,6 +80,13 @@ test("limpiar filtros borra URL y draft antes y después de navegar", () => {
 
 test("la búsqueda visible respeta el máximo del contrato", () => {
   assert.equal(normalizeClientListSearch(`  ${"x".repeat(140)}`).length, 120);
+  assert.equal(
+    clientSearchQuery(
+      `search=${"x".repeat(140)}&page=7`,
+      "x".repeat(120),
+    ),
+    `search=${"x".repeat(120)}&page=7`,
+  );
 });
 
 test("un cambio de organización o consulta oculta resultados anteriores", () => {
