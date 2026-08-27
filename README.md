@@ -15,7 +15,7 @@ Actualmente el proyecto contiene:
 
 - [Bun](https://bun.sh)
 - PostgreSQL
-- Node.js compatible con las versiones usadas por Bun y las dependencias del proyecto.
+- Node.js `^20.19.0`, `^22.13.0` o `>=24.11.0` (mínimo exigido por TypeORM 1.0.0).
 
 ## Instalación
 
@@ -197,6 +197,22 @@ bun run --cwd apps/api typeorm migration:show
 ```
 
 Muestra qué migraciones ya fueron ejecutadas y cuáles están pendientes.
+
+El DataSource del CLI usa `DB_*` cuando los secretos están deshabilitados y
+resuelve `database/postgres` desde Vault cuando `SECRETS_ENABLED=true`, igual
+que la aplicación Nest.
+
+### Validar el ciclo completo en una base temporal
+
+Sólo en `development/test` y con el scope Vault `dev`:
+
+```bash
+bun run --cwd apps/api qa:migrations
+```
+
+El comando crea una base `balanz_migration_qa_*`, aplica migraciones, ejecuta
+el seed dos veces, valida rollback/reaplicación y drift, y elimina la base al
+terminar. Requiere que el rol PostgreSQL pueda crear y eliminar bases.
 
 ## Seeds
 

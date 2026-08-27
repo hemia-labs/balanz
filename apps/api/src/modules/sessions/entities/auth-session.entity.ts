@@ -1,7 +1,9 @@
 import {
+  Check,
   Column,
   CreateDateColumn,
   Entity,
+  ForeignKey,
   Index,
   PrimaryGeneratedColumn,
 } from 'typeorm';
@@ -20,6 +22,26 @@ export enum AuthSessionStatus {
   'status',
   'expiresAt',
 ])
+@Check(
+  'ck_auth_sessions_tenant_context',
+  '(organization_id IS NULL AND membership_id IS NULL) OR (organization_id IS NOT NULL AND membership_id IS NOT NULL)',
+)
+@ForeignKey('users', ['userId'], ['id'], {
+  name: 'fk_auth_sessions_user',
+  onDelete: 'RESTRICT',
+})
+@ForeignKey(
+  'memberships',
+  ['organizationId', 'membershipId'],
+  ['organizationId', 'id'],
+  { name: 'fk_auth_sessions_membership_tenant', onDelete: 'RESTRICT' },
+)
+@ForeignKey(
+  'memberships',
+  ['organizationId', 'membershipId', 'userId'],
+  ['organizationId', 'id', 'userId'],
+  { name: 'fk_auth_sessions_membership_identity', onDelete: 'RESTRICT' },
+)
 @Entity('auth_sessions')
 export class AuthSession {
   @PrimaryGeneratedColumn('uuid')

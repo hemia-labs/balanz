@@ -4,7 +4,7 @@ import type { CachedSessionEntry } from '../src/modules/redis/session-cache.serv
 
 function makeEntry(): CachedSessionEntry {
   return {
-    version: 2,
+    version: 4,
     sessionId: 'session-1',
     userId: 'user-1',
     organizationId: 'org-1',
@@ -15,10 +15,11 @@ function makeEntry(): CachedSessionEntry {
     mfaStatus: 'disabled',
     expiresAt: new Date(Date.now() + 60_000).toISOString(),
     lastActivityAt: new Date().toISOString(),
+    persistedLastActivityAt: new Date().toISOString(),
     tenantActive: true,
     role: 'owner',
     permissions: ['organization.view'],
-    assignedAccountIds: [],
+    accountAccessMode: 'tenant',
   };
 }
 
@@ -44,7 +45,29 @@ describe('SessionCacheService', () => {
     const call = set.mock.calls[0];
     expect(call?.[0]).toBe('test:auth:session:token:hash-1');
     expect(call?.[1]).toContain('"sessionId":"session-1"');
+    expect(call?.[1]).not.toContain('assignedAccountIds');
     expect(typeof call?.[2].EX).toBe('number');
+  });
+
+  it('invalidates the previous cache schema that contained assigned IDs', async () => {
+    const legacyEntry = {
+      ...makeEntry(),
+      version: 3,
+      assignedAccountIds: ['account-1'],
+    };
+    const client = {
+      isReady: true,
+      get: jest.fn().mockResolvedValue(JSON.stringify(legacyEntry)),
+    };
+    const config = {
+      get: jest.fn().mockReturnValue('test:'),
+    } as unknown as ConfigService;
+    const service = new SessionCacheService(client as never, config);
+
+    await expect(service.get('hash-1')).resolves.toEqual({
+      available: true,
+      value: null,
+    });
   });
 
   it('reports Redis unavailable so callers can fall back to PostgreSQL', async () => {
@@ -113,9 +136,7 @@ describe('SessionCacheService', () => {
       service.deleteSession('session-1', 'hash-1', true),
     ).resolves.toBe(true);
 
-    expect(del).toHaveBeenNthCalledWith(1, [
-      'test:auth:session:token:hash-1',
-    ]);
+    expect(del).toHaveBeenNthCalledWith(1, ['test:auth:session:token:hash-1']);
     expect(del).toHaveBeenNthCalledWith(2, [
       'test:auth:session:token:legacy-raw-token',
     ]);

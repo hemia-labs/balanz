@@ -17,13 +17,29 @@ export class CsrfGuard implements CanActivate {
     const request = context.switchToHttp().getRequest<Request>();
     if (SAFE_METHODS.has(request.method)) return true;
 
-    const origin = request.get('origin');
-    if (!origin) return true;
-
-    const nodeEnv = this.config.get<string>('app.nodeEnv', 'development');
     const allowedOrigins = this.config.get<string[]>('app.corsOrigins', []);
-    if (nodeEnv !== 'production' && allowedOrigins.length === 0) return true;
-    if (allowedOrigins.includes(origin)) return true;
+    const originHeader = request.get('origin');
+    const refererHeader = request.get('referer');
+    const candidate = originHeader ?? refererHeader;
+    if (!candidate) {
+      throw new ForbiddenException('Missing request origin');
+    }
+
+    let requestOrigin: string;
+    try {
+      const parsed = new URL(candidate);
+      if (!parsed.protocol.startsWith('http') || parsed.origin === 'null') {
+        throw new Error('unsupported origin');
+      }
+      requestOrigin = parsed.origin;
+      if (originHeader && candidate !== requestOrigin) {
+        throw new Error('origin must not contain a path');
+      }
+    } catch {
+      throw new ForbiddenException('Invalid request origin');
+    }
+
+    if (allowedOrigins.includes(requestOrigin)) return true;
 
     throw new ForbiddenException('Invalid request origin');
   }

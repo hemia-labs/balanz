@@ -4,7 +4,7 @@ import type { RedisClient } from './redis.module';
 import { REDIS_CLIENT } from './redis.tokens';
 
 export interface CachedSessionEntry {
-  version: 2;
+  version: 4;
   sessionId: string;
   userId: string;
   organizationId: string | null;
@@ -15,10 +15,11 @@ export interface CachedSessionEntry {
   mfaStatus: 'disabled' | 'pending' | 'active';
   expiresAt: string;
   lastActivityAt: string;
+  persistedLastActivityAt: string;
   tenantActive: boolean;
   role: string | null;
   permissions: string[];
-  assignedAccountIds: string[];
+  accountAccessMode: 'tenant' | 'assigned';
 }
 
 export interface CacheLookup<T> {
@@ -138,7 +139,7 @@ export class SessionCacheService {
     if (!value || typeof value !== 'object') return false;
     const entry = value as Partial<CachedSessionEntry>;
     return (
-      entry.version === 2 &&
+      entry.version === 4 &&
       typeof entry.sessionId === 'string' &&
       typeof entry.userId === 'string' &&
       (entry.organizationId === null ||
@@ -155,12 +156,13 @@ export class SessionCacheService {
         entry.mfaStatus === 'active') &&
       typeof entry.expiresAt === 'string' &&
       typeof entry.lastActivityAt === 'string' &&
+      typeof entry.persistedLastActivityAt === 'string' &&
       typeof entry.tenantActive === 'boolean' &&
       (entry.role === null || typeof entry.role === 'string') &&
       Array.isArray(entry.permissions) &&
       entry.permissions.every((permission) => typeof permission === 'string') &&
-      Array.isArray(entry.assignedAccountIds) &&
-      entry.assignedAccountIds.every((id) => typeof id === 'string')
+      (entry.accountAccessMode === 'tenant' ||
+        entry.accountAccessMode === 'assigned')
     );
   }
 
@@ -199,5 +201,4 @@ export class SessionCacheService {
   private tokenKey(tokenHash: string): string {
     return `${this.prefix()}auth:session:token:${tokenHash}`;
   }
-
 }

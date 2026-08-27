@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { APP_GUARD } from '@nestjs/core';
 import { ThrottlerModule } from '@nestjs/throttler';
@@ -18,6 +18,9 @@ import { UsersModule } from './modules/users/users.module';
 import { SecretsModule } from './modules/secrets/secrets.module';
 import { AuthModule as FeatureAuthModule } from './modules/auth/auth.module';
 import { CsrfGuard } from './common/guards/csrf.guard';
+import { CorrelationIdMiddleware } from './common/middleware/correlation-id.middleware';
+import { ClientAccountsModule } from './modules/client-accounts/client-accounts.module';
+import { CorrelationModule } from './common/correlation/correlation.module';
 
 @Module({
   imports: [
@@ -54,12 +57,18 @@ import { CsrfGuard } from './common/guards/csrf.guard';
       }),
     }),
     CommonAuthModule,
+    CorrelationModule,
     SecretsModule,
     DatabaseModule,
     UsersModule,
     FeatureAuthModule,
+    ClientAccountsModule,
   ],
   controllers: [AppController],
   providers: [AppService, { provide: APP_GUARD, useClass: CsrfGuard }],
 })
-export class AppModule {}
+export class AppModule implements NestModule {
+  configure(consumer: MiddlewareConsumer): void {
+    consumer.apply(CorrelationIdMiddleware).forRoutes('*');
+  }
+}

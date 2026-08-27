@@ -2,6 +2,7 @@ import {
   Column,
   CreateDateColumn,
   Entity,
+  ForeignKey,
   Index,
   PrimaryGeneratedColumn,
   UpdateDateColumn,
@@ -14,6 +15,10 @@ export enum OrganizationStatus {
 }
 
 @Index('uq_organizations_slug', ['slug'], { unique: true })
+@ForeignKey('users', ['ownerUserId'], ['id'], {
+  name: 'fk_organizations_owner_user',
+  onDelete: 'RESTRICT',
+})
 @Entity('organizations')
 export class Organization {
   @PrimaryGeneratedColumn('uuid')
