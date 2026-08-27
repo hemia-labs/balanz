@@ -32,7 +32,6 @@ export class UsersController {
   constructor(private readonly service: UsersService) {}
 
   @Get()
-  @Permissions('team.view')
   findAll(
     @Query() query: FindUsersDto,
     @CurrentTenant() tenant: SessionAuthorizationContext,
@@ -41,7 +40,6 @@ export class UsersController {
   }
 
   @Get(':id')
-  @Permissions('team.view')
   findOne(
     @Param('id', ParseUUIDPipe) id: string,
     @CurrentTenant() tenant: SessionAuthorizationContext,
@@ -50,7 +48,7 @@ export class UsersController {
   }
 
   @Post()
-  @Permissions('team.manage')
+  @Permissions('members.manage')
   create(
     @Body() dto: CreateUserDto,
     @CurrentTenant() tenant: SessionAuthorizationContext,
@@ -59,7 +57,7 @@ export class UsersController {
   }
 
   @Put(':id')
-  @Permissions('team.manage')
+  @Permissions('members.manage')
   update(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: UpdateUserDto,
@@ -69,7 +67,7 @@ export class UsersController {
   }
 
   @Delete(':id')
-  @Permissions('team.manage')
+  @Permissions('members.manage')
   @HttpCode(HttpStatus.NO_CONTENT)
   remove(
     @Param('id', ParseUUIDPipe) id: string,

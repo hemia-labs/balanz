@@ -22,7 +22,11 @@ import {
   MembershipStatus,
 } from '../memberships/entities/membership.entity';
 import { canTransitionMembership } from '../memberships/membership-state';
-import { Role, RoleKey, RoleScope } from '../permissions/entities/role.entity';
+import {
+  Role,
+  RoleKey,
+  RoleScope,
+} from '../permissions/entities/role.entity';
 
 export interface RegistrationUserInput {
   firstName: string;
@@ -214,7 +218,6 @@ export class UsersService {
     const users = manager?.getRepository(User) ?? this.repository;
     const membership = await memberships.findOne({
       where: { organizationId, userId: id },
-      relations: { role: true },
     });
     if (!membership) throw new NotFoundException('User not found');
     const user = await users.findOne({ where: { id } });
@@ -227,10 +230,7 @@ export class UsersService {
     organizationId: string,
     membership: Membership,
   ): Promise<void> {
-    if (
-      membership.role?.key !== RoleKey.OWNER ||
-      membership.status !== MembershipStatus.ACTIVE
-    ) {
+    if (membership.status !== MembershipStatus.ACTIVE) {
       return;
     }
 
@@ -240,14 +240,7 @@ export class UsersService {
     });
     if (!organization) throw new NotFoundException('Organization not found');
 
-    const activeOwners = await manager.getRepository(Membership).count({
-      where: {
-        organizationId,
-        status: MembershipStatus.ACTIVE,
-        role: { key: RoleKey.OWNER },
-      },
-    });
-    if (activeOwners <= 1) {
+    if (organization.ownerUserId === membership.userId) {
       throw new ConflictException('Organization must retain an active owner');
     }
   }

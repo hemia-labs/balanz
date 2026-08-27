@@ -155,10 +155,7 @@ export class ClientAccountsService {
           },
           relations: { role: true },
         });
-        if (
-          !membership ||
-          !isEligiblePrimaryRole(membership.role.key, membership.role.scope)
-        ) {
+        if (!membership || !isEligiblePrimaryRole(membership.role.key)) {
           throw domainError(
             HttpStatus.CONFLICT,
             'MEMBERSHIP_NOT_ELIGIBLE',

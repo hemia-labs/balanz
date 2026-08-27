@@ -23,8 +23,10 @@ import {
   AuthFactorStatus,
 } from '../auth/entities/auth-factor.entity';
 import { RolePermission } from '../permissions/entities/role-permission.entity';
-import { RoleScope } from '../permissions/entities/role.entity';
-import { MFA_SENSITIVE_PERMISSION_KEYS } from '../../common/auth/permission-catalog';
+import {
+  MFA_SENSITIVE_PERMISSION_KEYS,
+  PermissionStatus,
+} from '../../common/auth/permission-catalog';
 
 export const MFA_SENSITIVE_PERMISSIONS = new Set<string>(
   MFA_SENSITIVE_PERMISSION_KEYS,
@@ -92,13 +94,21 @@ export class AuthorizationService {
       if (!organization || !membership) {
         throw new ForbiddenException('Invalid tenant context');
       }
-      if (membership.role.scope !== RoleScope.ORGANIZATION) {
-        throw new ForbiddenException('Invalid tenant role');
-      }
       role = membership.role.key;
+      const now = Date.now();
       permissions = await this.rolePermissions
-        .find({ where: { roleId: membership.roleId } })
-        .then((items) => items.map((item) => item.permission.key).sort());
+        .find({ where: { roleId: membership.roleId, enabled: true } })
+        .then((items) =>
+          items
+            .filter(
+              (item) =>
+                (!item.validFrom || item.validFrom.getTime() <= now) &&
+                (!item.validUntil || item.validUntil.getTime() > now) &&
+                item.permission.status === PermissionStatus.ACTIVE,
+            )
+            .map((item) => item.permission.key)
+            .sort(),
+        );
       tenantActive =
         organization.status === OrganizationStatus.ACTIVE &&
         membership.status === MembershipStatus.ACTIVE &&
@@ -177,9 +187,7 @@ export class AuthorizationService {
 
     return memberships.flatMap((membership) => {
       const organization = byId.get(membership.organizationId);
-      if (!organization || membership.role?.scope !== RoleScope.ORGANIZATION) {
-        return [];
-      }
+      if (!organization) return [];
       return [
         {
           id: organization.id,
@@ -228,11 +236,7 @@ export class AuthorizationService {
         },
         relations: { role: true },
       });
-      if (
-        !organization ||
-        !membership ||
-        membership.role?.scope !== RoleScope.ORGANIZATION
-      ) {
+      if (!organization || !membership) {
         throw new NotFoundException('Organization not found');
       }
 

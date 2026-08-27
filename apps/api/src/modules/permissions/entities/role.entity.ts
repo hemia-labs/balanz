@@ -1,20 +1,16 @@
-import { Column, Entity, Index, PrimaryGeneratedColumn } from 'typeorm';
+import { Check, Column, Entity, Index, PrimaryGeneratedColumn } from 'typeorm';
 
-export const RoleKey = {
-  OWNER: 'owner',
-  ACCOUNTANT: 'accountant',
-  COLLABORATOR: 'collaborator',
-  ADMIN: 'admin',
-} as const;
+export enum RoleKey {
+  ADMIN = 'admin',
+  ACCOUNTANT = 'accountant',
+  COLLABORATOR = 'collaborator',
+}
 
-export type RoleKey = (typeof RoleKey)[keyof typeof RoleKey];
+export const ROLE_KEYS = Object.values(RoleKey) as readonly RoleKey[];
 
-export const RoleScope = {
-  ORGANIZATION: 'organization',
-  PLATFORM: 'platform',
-} as const;
-
-export type RoleScope = (typeof RoleScope)[keyof typeof RoleScope];
+export enum RoleScope {
+  ORGANIZATION = 'organization',
+}
 
 export const ROLE_DEFINITIONS: ReadonlyArray<{
   key: RoleKey;
@@ -23,46 +19,44 @@ export const ROLE_DEFINITIONS: ReadonlyArray<{
   scope: RoleScope;
 }> = [
   {
-    key: RoleKey.OWNER,
-    name: 'Titular',
-    description: 'Control total de una organización.',
+    key: RoleKey.ADMIN,
+    name: 'Administrador',
+    description: 'Administración del tenant, equipo, seguridad y políticas.',
     scope: RoleScope.ORGANIZATION,
   },
   {
     key: RoleKey.ACCOUNTANT,
-    name: 'Contador responsable',
-    description: 'Acceso operativo contable dentro de una organización.',
+    name: 'Contador',
+    description: 'Operación fiscal de las cuentas cliente asignadas.',
     scope: RoleScope.ORGANIZATION,
   },
   {
     key: RoleKey.COLLABORATOR,
     name: 'Colaborador',
-    description: 'Acceso básico de consulta y revisión.',
+    description: 'Preparación y revisión de cuentas cliente asignadas.',
     scope: RoleScope.ORGANIZATION,
-  },
-  {
-    key: RoleKey.ADMIN,
-    name: 'Administrador de plataforma',
-    description: 'Administración interna de la plataforma fuera de tenants.',
-    scope: RoleScope.PLATFORM,
   },
 ];
 
+@Check(
+  'roles_key_chk',
+  `"key" IN ('admin', 'accountant', 'collaborator')`,
+)
 @Index('uq_roles_key', ['key'], { unique: true })
 @Entity('roles')
 export class Role {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  @Column({ length: 50 })
+  @Column({ type: 'varchar', length: 50 })
   key: RoleKey;
 
-  @Column({ length: 160 })
+  @Column({ type: 'varchar', length: 160 })
   name: string;
 
   @Column({ type: 'text' })
   description: string;
 
-  @Column({ length: 20 })
+  @Column({ type: 'varchar', length: 20 })
   scope: RoleScope;
 }

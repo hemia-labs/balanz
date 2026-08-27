@@ -1,8 +1,9 @@
 import { In, type DataSource } from 'typeorm';
 import {
   PERMISSION_CATALOG,
-  PERMISSION_METADATA,
+  PermissionStatus,
   ROLE_PERMISSION_KEYS,
+  permissionDefinition,
 } from '../../common/auth/permission-catalog';
 import { Permission } from '../../modules/permissions/entities/permission.entity';
 import { RolePermission } from '../../modules/permissions/entities/role-permission.entity';
@@ -24,7 +25,8 @@ export async function seedDatabase(dataSource: DataSource): Promise<void> {
     await permissions.upsert(
       PERMISSION_CATALOG.map((key) => ({
         key,
-        ...PERMISSION_METADATA[key],
+        ...permissionDefinition(key),
+        status: PermissionStatus.ACTIVE,
       })),
       ['key'],
     );
@@ -36,16 +38,19 @@ export async function seedDatabase(dataSource: DataSource): Promise<void> {
       storedPermissions.map((permission) => [permission.key, permission.id]),
     );
     const rolePermissions = manager.getRepository(RolePermission);
-    await rolePermissions.delete({
-      roleId: In(storedRoles.map((role) => role.id)),
-    });
-    await rolePermissions.insert(
+    await rolePermissions.update(
+      { roleId: In(storedRoles.map((role) => role.id)) },
+      { enabled: false },
+    );
+    await rolePermissions.upsert(
       Object.entries(ROLE_PERMISSION_KEYS).flatMap(([role, keys]) =>
         keys.map((key) => ({
           roleId: roleByKey.get(role as RoleKey)!,
           permissionId: permissionByKey.get(key)!,
+          enabled: true,
         })),
       ),
+      ['role', 'permissionId'],
     );
   });
 }

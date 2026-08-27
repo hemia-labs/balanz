@@ -1,5 +1,5 @@
 import { HttpStatus } from '@nestjs/common';
-import { RoleKey, RoleScope } from '../permissions/entities/role.entity';
+import { RoleKey } from '../permissions/entities/role.entity';
 import { domainError } from './client-domain.errors';
 import { ClientAccountSort } from './dtos/client-account.dtos';
 
@@ -33,9 +33,6 @@ export function validateFiscalYear(
   }
 }
 
-export function isEligiblePrimaryRole(role: string, scope: string): boolean {
-  return (
-    scope === RoleScope.ORGANIZATION &&
-    (role === RoleKey.OWNER || role === RoleKey.ACCOUNTANT)
-  );
+export function isEligiblePrimaryRole(role: RoleKey): boolean {
+  return role === RoleKey.ADMIN || role === RoleKey.ACCOUNTANT;
 }

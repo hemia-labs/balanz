@@ -174,7 +174,7 @@ export class AuthService {
           userId: user.id,
           organizationId: organization.id,
           membershipId: membership.id,
-          role: RoleKey.OWNER,
+          role: RoleKey.ADMIN,
           organizationStatus: 'active',
           membershipStatus: MembershipStatus.PENDING,
           subscriptionType: normalized.subscriptionType,

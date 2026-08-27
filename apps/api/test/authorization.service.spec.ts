@@ -9,7 +9,6 @@ import {
   AuthSession,
   AuthSessionStatus,
 } from '../src/modules/sessions/entities/auth-session.entity';
-import { RoleScope } from '../src/modules/permissions/entities/role.entity';
 
 describe('AuthorizationService', () => {
   it('requires the session tenant to match the membership tenant', async () => {
@@ -31,15 +30,17 @@ describe('AuthorizationService', () => {
         id: 'membership-1',
         organizationId: 'org-1',
         userId: 'user-1',
-        roleId: 'role-1',
-        role: { key: MembershipRole.OWNER, scope: RoleScope.ORGANIZATION },
+        roleId: 'role-admin',
+        role: { id: 'role-admin', key: MembershipRole.ADMIN },
         status: MembershipStatus.ACTIVE,
       }),
     };
     const rolePermissions = {
       find: jest
         .fn()
-        .mockResolvedValue([{ permission: { key: 'organization.view' } }]),
+        .mockResolvedValue([
+          { permission: { key: 'sat.download', status: 'active' } },
+        ]),
     };
     const service = new AuthorizationService(
       users as never,
@@ -62,8 +63,8 @@ describe('AuthorizationService', () => {
     const context = await service.resolve(session);
 
     expect(context.tenantActive).toBe(true);
-    expect(context.role).toBe(MembershipRole.OWNER);
-    expect(context.permissions).toContain('organization.view');
+    expect(context.role).toBe(MembershipRole.ADMIN);
+    expect(context.permissions).toContain('sat.download');
     expect(context.assignedAccountIds).toEqual([]);
     expect(context.accountAccessMode).toBe('tenant');
     expect(memberships.findOne).toHaveBeenCalledWith({
@@ -75,7 +76,7 @@ describe('AuthorizationService', () => {
       relations: { role: true },
     });
     expect(rolePermissions.find).toHaveBeenCalledWith({
-      where: { roleId: 'role-1' },
+      where: { roleId: 'role-admin', enabled: true },
     });
   });
 
@@ -98,14 +99,16 @@ describe('AuthorizationService', () => {
         organizationId: 'org-1',
         userId: 'user-2',
         roleId: 'role-accountant',
-        role: { key: MembershipRole.ACCOUNTANT, scope: RoleScope.ORGANIZATION },
+        role: { id: 'role-accountant', key: MembershipRole.ACCOUNTANT },
         status: MembershipStatus.ACTIVE,
       }),
     };
     const rolePermissions = {
       find: jest
         .fn()
-        .mockResolvedValue([{ permission: { key: 'clients.view' } }]),
+        .mockResolvedValue([
+          { permission: { key: 'clients.view', status: 'active' } },
+        ]),
     };
     const service = new AuthorizationService(
       users as never,

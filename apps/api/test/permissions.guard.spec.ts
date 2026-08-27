@@ -41,16 +41,16 @@ describe('PermissionsGuard', () => {
     expect(guard.canActivate(ctx)).toBe(true);
   });
 
-  it('permite con wildcard de recurso <resource>.*', () => {
+  it('rechaza wildcard de recurso <resource>.*', () => {
     withRequired(['users.delete']);
     const ctx = buildContext({ sub: '1', permissions: ['users.*'] });
-    expect(guard.canActivate(ctx)).toBe(true);
+    expect(() => guard.canActivate(ctx)).toThrow(ForbiddenException);
   });
 
-  it('permite con superadmin *.*', () => {
+  it('rechaza el bypass superadmin *.*', () => {
     withRequired(['users.edit']);
     const ctx = buildContext({ sub: '1', permissions: ['*.*'] });
-    expect(guard.canActivate(ctx)).toBe(true);
+    expect(() => guard.canActivate(ctx)).toThrow(ForbiddenException);
   });
 
   it('exige TODOS los permisos requeridos', () => {
@@ -79,11 +79,11 @@ describe('PermissionsGuard', () => {
   });
 
   it.each([
-    'team.manage',
-    'ownership.manage',
-    'period.close',
-    'period.reopen',
-    'exports.create',
+    'members.manage',
+    'permissions.manage',
+    'periods.close',
+    'periods.reopen',
+    'exports.generate',
   ])('exige MFA para %s', (permission) => {
     withRequired([permission]);
     const ctx = buildContext(undefined, {

@@ -1,7 +1,11 @@
 import { Injectable } from '@nestjs/common';
 import { EntityManager } from 'typeorm';
 import { Membership, MembershipStatus } from './entities/membership.entity';
-import { Role, RoleKey, RoleScope } from '../permissions/entities/role.entity';
+import {
+  Role,
+  RoleKey,
+  RoleScope,
+} from '../permissions/entities/role.entity';
 
 @Injectable()
 export class MembershipsService {
@@ -12,7 +16,7 @@ export class MembershipsService {
   ): Promise<Membership> {
     const repository = manager.getRepository(Membership);
     const role = await manager.getRepository(Role).findOneByOrFail({
-      key: RoleKey.OWNER,
+      key: RoleKey.ADMIN,
       scope: RoleScope.ORGANIZATION,
     });
     return repository.save(

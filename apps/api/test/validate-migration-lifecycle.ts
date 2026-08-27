@@ -1,7 +1,10 @@
 import { randomBytes } from 'node:crypto';
 import * as dotenv from 'dotenv';
 import { DataSource } from 'typeorm';
-import { PERMISSION_CATALOG } from '../src/common/auth/permission-catalog';
+import {
+  PERMISSION_CATALOG,
+  ROLE_PERMISSION_KEYS,
+} from '../src/common/auth/permission-catalog';
 import { resolveDatabaseOptions } from '../src/database/database-options.factory';
 import { seedDatabase } from '../src/database/seeds/seed-database';
 
@@ -52,21 +55,31 @@ async function validateMigrationLifecycle(): Promise<void> {
 
     const initial = await temporary.runMigrations({ transaction: 'all' });
     report.initialMigrations = initial.map((migration) => migration.name);
-    assertEqual(initial.length, 4, 'initial migration count');
+    assertEqual(initial.length, 5, 'initial migration count');
 
     await seedDatabase(temporary);
     await seedDatabase(temporary);
-    const [seedCounts] = await temporary.query<Array<Record<string, number>>>(
+    const [seedCounts] = await temporary.query<
+      Array<{
+        roles: number;
+        distinct_roles: number;
+        permissions: number;
+        distinct_permissions: number;
+        role_permissions: number;
+        role_permission_roles: number;
+      }>
+    >(
       `SELECT
         (SELECT count(*)::int FROM roles) AS roles,
         (SELECT count(DISTINCT key)::int FROM roles) AS distinct_roles,
         (SELECT count(*)::int FROM permissions) AS permissions,
         (SELECT count(DISTINCT key)::int FROM permissions) AS distinct_permissions,
-        (SELECT count(*)::int FROM role_permissions) AS role_permissions`,
+        (SELECT count(*)::int FROM role_permissions) AS role_permissions,
+        (SELECT count(DISTINCT role_id)::int FROM role_permissions) AS role_permission_roles`,
     );
     report.seedCounts = seedCounts;
-    assertEqual(seedCounts.roles, 4, 'seed role count');
-    assertEqual(seedCounts.distinct_roles, 4, 'distinct seed role count');
+    assertEqual(seedCounts.roles, 3, 'seed role count');
+    assertEqual(seedCounts.distinct_roles, 3, 'distinct seed role count');
     assertEqual(
       seedCounts.permissions,
       PERMISSION_CATALOG.length,
@@ -77,6 +90,15 @@ async function validateMigrationLifecycle(): Promise<void> {
       PERMISSION_CATALOG.length,
       'distinct seed permission count',
     );
+    assertEqual(
+      seedCounts.role_permissions,
+      Object.values(ROLE_PERMISSION_KEYS).reduce(
+        (total, permissions) => total + permissions.length,
+        0,
+      ),
+      'role permission count',
+    );
+    assertEqual(seedCounts.role_permission_roles, 3, 'role default count');
 
     await temporary.undoLastMigration({ transaction: 'all' });
     const [searchRollback] = await temporary.query<
@@ -110,7 +132,7 @@ async function validateMigrationLifecycle(): Promise<void> {
     });
     assertEqual(reappliedClient.length, 2, 'client migration reapply count');
 
-    for (let index = 0; index < 4; index += 1) {
+    for (let index = 0; index < 5; index += 1) {
       await temporary.undoLastMigration({ transaction: 'all' });
     }
     const [fullRollback] = await temporary.query<
@@ -125,7 +147,7 @@ async function validateMigrationLifecycle(): Promise<void> {
     assertAllTrue(fullRollback, 'full rollback');
 
     const reapplied = await temporary.runMigrations({ transaction: 'all' });
-    assertEqual(reapplied.length, 4, 'full migration reapply count');
+    assertEqual(reapplied.length, 5, 'full migration reapply count');
     await seedDatabase(temporary);
     const schemaLog = await temporary.driver.createSchemaBuilder().log();
     report.reappliedMigrations = reapplied.map((migration) => migration.name);

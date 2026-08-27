@@ -110,7 +110,7 @@ describe('AuthService', () => {
       userId: 'user-1',
       organizationId: 'organization-1',
       membershipId: 'membership-1',
-      role: MembershipRole.OWNER,
+      role: MembershipRole.ADMIN,
       organizationStatus: 'active',
       membershipStatus: MembershipStatus.PENDING,
       subscriptionType: 'trial',

@@ -4,9 +4,7 @@ import { seedDatabase } from './seed-database';
 async function seed(): Promise<void> {
   const dataSource = await appDataSource;
   await dataSource.initialize();
-
   await seedDatabase(dataSource);
-
   await dataSource.destroy();
 }
 

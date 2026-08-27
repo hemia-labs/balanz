@@ -1,53 +1,71 @@
 import {
-  MFA_SENSITIVE_PERMISSION_KEYS,
   PERMISSION_CATALOG,
+  PERMISSION_KEY_PATTERN,
   ROLE_PERMISSION_KEYS,
+  isPermissionKey,
+  permissionDefinition,
 } from '../src/common/auth/permission-catalog';
+import { resolveEffectivePermission } from '../src/common/auth/authorization-contract';
+import { PermissionEffect } from '../src/modules/permissions/entities/membership-permission.entity';
 import { RoleKey } from '../src/modules/permissions/entities/role.entity';
 
-describe('client module permission defaults', () => {
-  it('contains the fiscal permissions and marks entity mutation as MFA-sensitive', () => {
-    expect(PERMISSION_CATALOG).toEqual(
-      expect.arrayContaining([
-        'fiscal_entities.view',
-        'fiscal_entities.manage',
-        'fiscal_years.view',
-        'fiscal_years.manage',
-      ]),
-    );
-    expect(MFA_SENSITIVE_PERMISSION_KEYS).toContain('clients.assign');
-    expect(MFA_SENSITIVE_PERMISSION_KEYS).toContain('fiscal_entities.manage');
+describe('MVP permission contract', () => {
+  const huPermissions = [
+    'credentials.manage',
+    'sat.download',
+    'payroll.view',
+    'cfdi.exclude',
+    'exceptions.accept',
+    'periods.close',
+    'periods.reopen',
+    'exports.generate',
+    'support.authorize',
+    'members.manage',
+    'permissions.manage',
+  ] as const;
+
+  it('contains only stable atomic permission keys', () => {
+    expect(new Set(PERMISSION_CATALOG).size).toBe(PERMISSION_CATALOG.length);
+    for (const key of PERMISSION_CATALOG) {
+      expect(key).toMatch(PERMISSION_KEY_PATTERN);
+      expect(isPermissionKey(key)).toBe(true);
+    }
+    for (const key of huPermissions) {
+      expect(PERMISSION_CATALOG).toContain(key);
+      expect(permissionDefinition(key)).toMatchObject({
+        sensitive: true,
+        requiresMfa: true,
+        requiresReauthentication: true,
+      });
+    }
+    expect(isPermissionKey('periods.close_client_1')).toBe(false);
+    expect(isPermissionKey('*.*')).toBe(false);
   });
 
-  it('keeps accountants operational while collaborators remain read-only', () => {
-    expect(ROLE_PERMISSION_KEYS[RoleKey.OWNER]).toEqual(PERMISSION_CATALOG);
-    expect(ROLE_PERMISSION_KEYS[RoleKey.ACCOUNTANT]).toEqual(
-      expect.arrayContaining([
-        'clients.view',
-        'clients.manage',
-        'clients.assign',
-        'fiscal_entities.view',
-        'fiscal_entities.manage',
-        'fiscal_years.view',
-        'fiscal_years.manage',
-      ]),
+  it('defines defaults for exactly the three MVP roles', () => {
+    expect(Object.keys(ROLE_PERMISSION_KEYS).sort()).toEqual(
+      Object.values(RoleKey).sort(),
     );
-    expect(ROLE_PERMISSION_KEYS[RoleKey.COLLABORATOR]).toEqual(
-      expect.arrayContaining([
-        'clients.view',
-        'fiscal_entities.view',
-        'fiscal_years.view',
-      ]),
-    );
-    for (const permission of [
-      'clients.manage',
-      'clients.assign',
-      'fiscal_entities.manage',
-      'fiscal_years.manage',
-    ] as const) {
-      expect(ROLE_PERMISSION_KEYS[RoleKey.COLLABORATOR]).not.toContain(
-        permission,
-      );
+    expect(ROLE_PERMISSION_KEYS[RoleKey.ADMIN]).toEqual(PERMISSION_CATALOG);
+    for (const key of huPermissions) {
+      expect(ROLE_PERMISSION_KEYS[RoleKey.COLLABORATOR]).not.toContain(key);
     }
+  });
+
+  it('applies deny, then grant, then the role default', () => {
+    expect(
+      resolveEffectivePermission({
+        roleDefault: true,
+        activeOverride: PermissionEffect.DENY,
+      }),
+    ).toBe(false);
+    expect(
+      resolveEffectivePermission({
+        roleDefault: false,
+        activeOverride: PermissionEffect.GRANT,
+      }),
+    ).toBe(true);
+    expect(resolveEffectivePermission({ roleDefault: true })).toBe(true);
+    expect(resolveEffectivePermission({ roleDefault: false })).toBe(false);
   });
 });
