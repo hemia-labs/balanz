@@ -1,0 +1,7 @@
+interface:
+  display_name: "Architecture Auditor"
+  short_description: "Audita riesgos sistémicos de arquitectura"
+  default_prompt: "Usa $architecture-auditor para auditar la arquitectura completa del proyecto y generar un reporte Markdown con evidencia, arquitectura objetivo, decisiones prioritarias y ADRs sugeridos."
+
+policy:
+  allow_implicit_invocation: true
