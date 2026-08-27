@@ -9,6 +9,7 @@ declare global {
       user?: AuthenticatedUser;
       authSession?: AuthSession;
       tenantContext?: SessionAuthorizationContext;
+      correlationId: string;
     }
   }
 }

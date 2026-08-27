@@ -8,7 +8,7 @@
     "start": "next start",
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
-    "test": "tsc -p tsconfig.tests.json && node --test .test-dist/lib/navigation.test.js .test-dist/lib/auth-types.test.js .test-dist/lib/api-client.test.js .test-dist/lib/navigation-security.test.js"
+    "test": "tsc -p tsconfig.tests.json && node --test .test-dist/lib/navigation.test.js .test-dist/lib/auth-types.test.js .test-dist/lib/api-client.test.js .test-dist/lib/navigation-security.test.js .test-dist/features/clients/fiscal-years-load-state.test.js .test-dist/features/clients/fiscal-periods-load-state.test.js .test-dist/features/clients/entity-context.test.js .test-dist/features/clients/client-list-query.test.js .test-dist/features/clients/submission-guard.test.js .test-dist/features/session/unauthorized-navigation.test.js"
   },
   "dependencies": {
     "@base-ui/react": "^1.5.0",

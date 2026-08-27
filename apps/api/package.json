@@ -5,6 +5,9 @@
   "author": "",
   "private": true,
   "license": "UNLICENSED",
+  "engines": {
+    "node": "^20.19.0 || ^22.13.0 || >=24.11.0"
+  },
   "scripts": {
     "build": "nest build",
     "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
@@ -24,6 +27,7 @@
     "migration:run": "typeorm-ts-node-commonjs -d src/database/data-source.ts migration:run",
     "migration:revert": "typeorm-ts-node-commonjs -d src/database/data-source.ts migration:revert",
     "seed:run": "ts-node --transpile-only src/database/seeds/run-seeds.ts",
+    "qa:migrations": "ts-node --transpile-only test/validate-migration-lifecycle.ts",
     "db:prepare": "npm run migration:run && npm run seed:run"
   },
   "dependencies": {

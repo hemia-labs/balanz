@@ -33,3 +33,21 @@ export function filterNavigation<T extends NavigationRule>(
 export function isNavigationItemActive(pathname: string, href: string) {
   return pathname === href || pathname.startsWith(href + "/");
 }
+
+export function isClientNavigationItemActive(
+  itemId: string,
+  pathname: string,
+  href: string,
+) {
+  if (isNavigationItemActive(pathname, href)) return true;
+  if (itemId !== "fiscal-years" || !href.endsWith("/fiscal-years")) {
+    return false;
+  }
+
+  const clientHref = href.slice(0, -"/fiscal-years".length);
+  const fiscalEntityPrefix = `${clientHref}/legal-entities/`;
+  if (!pathname.startsWith(fiscalEntityPrefix)) return false;
+
+  const entityRoute = pathname.slice(fiscalEntityPrefix.length);
+  return /^[^/]+\/fiscal-years(?:\/|$)/.test(entityRoute);
+}

@@ -12,6 +12,8 @@ export default registerAs('auth', () => ({
   sessionTtlSeconds: Number(process.env.AUTH_SESSION_TTL_SECONDS) || 28_800,
   sessionIdleTtlSeconds:
     Number(process.env.AUTH_SESSION_IDLE_TTL_SECONDS) || 1_800,
+  sessionActivityPersistIntervalSeconds:
+    Number(process.env.AUTH_SESSION_ACTIVITY_PERSIST_INTERVAL_SECONDS) || 300,
   authorizationCacheTtlSeconds:
     Number(process.env.AUTHORIZATION_CACHE_TTL_SECONDS) || 60,
   mfaEncryptionKey: process.env.MFA_ENCRYPTION_KEY,

@@ -67,6 +67,7 @@ export class AuthorizationService {
     let role: string | null = null;
     let permissions: string[] = [];
     let tenantActive = false;
+    let accountAccessMode: 'tenant' | 'assigned' = 'assigned';
     const mfaStatus =
       factor?.status === AuthFactorStatus.ACTIVE
         ? 'active'
@@ -104,6 +105,9 @@ export class AuthorizationService {
         session.status === AuthSessionStatus.ACTIVE &&
         session.expiresAt.getTime() > Date.now() &&
         (!session.requiresMfa || session.mfaVerifiedAt != null);
+      if (organization.ownerUserId === user.id) {
+        accountAccessMode = 'tenant';
+      }
     }
 
     return {
@@ -113,7 +117,10 @@ export class AuthorizationService {
       membershipId: session.membershipId ?? null,
       role,
       permissions,
+      // Compatibility-only field. The paginated client-account query returns
+      // the visible portfolio and PostgreSQL re-checks every account scope.
       assignedAccountIds: [],
+      accountAccessMode,
       mfaVerifiedAt: session.mfaVerifiedAt ?? null,
       requiresMfa: session.requiresMfa,
       mfaStatus,

@@ -10,6 +10,10 @@ export const PERMISSION_CATALOG = [
   'clients.view',
   'clients.manage',
   'clients.assign',
+  'fiscal_entities.view',
+  'fiscal_entities.manage',
+  'fiscal_years.view',
+  'fiscal_years.manage',
   'credentials.manage',
   'sat.download',
   'payroll.view',
@@ -34,6 +38,7 @@ export const MFA_SENSITIVE_PERMISSION_KEYS = [
   'billing.manage',
   'team.manage',
   'clients.assign',
+  'fiscal_entities.manage',
   'credentials.manage',
   'sat.download',
   'period.close',
@@ -80,6 +85,22 @@ export const PERMISSION_METADATA = {
   'clients.assign': {
     name: 'Asignar clientes',
     description: 'Asignar cuentas cliente a miembros de la organización.',
+  },
+  'fiscal_entities.view': {
+    name: 'Ver entidades fiscales',
+    description: 'Consultar RFC y razones sociales de las cuentas asignadas.',
+  },
+  'fiscal_entities.manage': {
+    name: 'Administrar entidades fiscales',
+    description: 'Crear, modificar y archivar entidades fiscales.',
+  },
+  'fiscal_years.view': {
+    name: 'Ver ejercicios fiscales',
+    description: 'Consultar ejercicios y períodos de entidades autorizadas.',
+  },
+  'fiscal_years.manage': {
+    name: 'Administrar ejercicios fiscales',
+    description: 'Crear ejercicios fiscales y sus períodos mensuales.',
   },
   'credentials.manage': {
     name: 'Administrar credenciales',
@@ -150,6 +171,10 @@ export const ROLE_PERMISSION_KEYS: Record<
     'clients.view',
     'clients.manage',
     'clients.assign',
+    'fiscal_entities.view',
+    'fiscal_entities.manage',
+    'fiscal_years.view',
+    'fiscal_years.manage',
     'credentials.manage',
     'sat.download',
     'payroll.view',
@@ -167,6 +192,8 @@ export const ROLE_PERMISSION_KEYS: Record<
   [RoleKey.COLLABORATOR]: [
     'organization.view',
     'clients.view',
+    'fiscal_entities.view',
+    'fiscal_years.view',
     'cfdi.review',
     'obligations.view',
   ],

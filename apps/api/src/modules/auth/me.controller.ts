@@ -28,6 +28,7 @@ export class MeController {
       role: context.role,
       permissions: context.permissions,
       assignedAccountIds: context.assignedAccountIds,
+      accountAccessMode: context.accountAccessMode,
       reauthenticationRequiredActions: [],
     };
   }

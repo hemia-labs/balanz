@@ -2,10 +2,12 @@ import {
   Column,
   CreateDateColumn,
   Entity,
+  ForeignKey,
   Index,
   JoinColumn,
   ManyToOne,
   PrimaryGeneratedColumn,
+  Unique,
   UpdateDateColumn,
 } from 'typeorm';
 import { Role, RoleKey } from '../../permissions/entities/role.entity';
@@ -22,6 +24,20 @@ export enum MembershipStatus {
 
 @Index('uq_memberships_organization_user', ['organizationId', 'userId'], {
   unique: true,
+})
+@Unique('uq_memberships_organization_id', ['organizationId', 'id'])
+@Unique('uq_memberships_organization_id_user', [
+  'organizationId',
+  'id',
+  'userId',
+])
+@ForeignKey('organizations', ['organizationId'], ['id'], {
+  name: 'fk_memberships_organization',
+  onDelete: 'RESTRICT',
+})
+@ForeignKey('users', ['userId'], ['id'], {
+  name: 'fk_memberships_user',
+  onDelete: 'RESTRICT',
 })
 @Entity('memberships')
 export class Membership {

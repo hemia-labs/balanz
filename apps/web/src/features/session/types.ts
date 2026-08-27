@@ -56,6 +56,7 @@ export interface SessionContext {
   role: string | null;
   permissions: string[];
   assignedAccountIds: string[];
+  accountAccessMode: "tenant" | "assigned";
   mfaVerifiedAt: string | null;
   requiresMfa: boolean;
   mfaStatus: string;
@@ -69,6 +70,7 @@ export interface AuthorizationContext {
   role: string;
   permissions: string[];
   assignedAccountIds: string[];
+  accountAccessMode: "tenant" | "assigned";
   reauthenticationRequiredActions: string[];
 }
 
@@ -101,4 +103,3 @@ export function slugifyOrganization(value: string) {
     .slice(0, 100);
   return slug || "despacho";
 }
-

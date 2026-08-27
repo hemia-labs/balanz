@@ -5,11 +5,15 @@ import cookieParser from 'cookie-parser';
 import { createHmac, randomUUID } from 'node:crypto';
 import { DataSource } from 'typeorm';
 import request from 'supertest';
+import type { App } from 'supertest/types';
 import { AppModule } from '../src/app.module';
 import { AllExceptionsFilter } from '../src/common/filters/all-exceptions.filter';
+import { API_VALIDATION_PIPE_OPTIONS } from '../src/common/validation/validation-exception.factory';
 import { ConfigService } from '@nestjs/config';
 import { EmailService } from '../src/modules/email/email.service';
 import { TotpService } from '../src/modules/auth/totp.service';
+
+jest.setTimeout(60_000);
 
 type Registration = {
   userId: string;
@@ -21,10 +25,11 @@ type Registration = {
 };
 
 describe('Auth registration and MFA (e2e)', () => {
-  let app: INestApplication;
+  let app: INestApplication<App>;
   let moduleFixture: TestingModule;
   let dataSource: DataSource;
   let cookieName: string;
+  let allowedOrigin: string;
   const apiPrefix = '/api/v1';
   const startedAt = new Date();
   const registrations: Registration[] = [];
@@ -64,19 +69,20 @@ describe('Auth registration and MFA (e2e)', () => {
     };
     httpServer.set('trust proxy', true);
     app.setGlobalPrefix(apiPrefix.slice(1));
-    app.useGlobalPipes(
-      new ValidationPipe({
-        whitelist: true,
-        forbidNonWhitelisted: true,
-        transform: true,
-      }),
-    );
+    app.useGlobalPipes(new ValidationPipe(API_VALIDATION_PIPE_OPTIONS));
     app.useGlobalFilters(new AllExceptionsFilter());
     await app.init();
 
     dataSource = app.get(DataSource);
     const config = app.get(ConfigService);
     cookieName = config.get<string>('cookies.sessionName', 'balanz_session');
+    allowedOrigin =
+      config
+        .get<string[]>('app.corsOrigins', [])
+        .find((origin) => origin.startsWith('http')) ?? '';
+    if (!allowedOrigin) {
+      throw new Error('An HTTP APP_CORS_ORIGINS value is required for E2E');
+    }
 
     const email = app.get(EmailService);
     jest.spyOn(email, 'sendVerification').mockImplementation((input) => {
@@ -96,12 +102,31 @@ describe('Auth registration and MFA (e2e)', () => {
     }
   });
 
+  it('uses the production validation contract for auth DTOs', async () => {
+    const response = await request(app.getHttpServer())
+      .post(`${apiPrefix}/auth/register`)
+      .set('Origin', allowedOrigin)
+      .send({ unexpected: 'server-owned' })
+      .expect(400);
+
+    const body = response.body as unknown;
+    expect(body).toMatchObject({
+      statusCode: 400,
+      code: 'VALIDATION_ERROR',
+      message: 'Revisa los campos señalados e intenta de nuevo.',
+      fieldErrors: {
+        unexpected: ['Este campo no está permitido.'],
+      },
+    });
+  });
+
   it('limits registration and invalid email confirmation attempts', async () => {
     const registration = await register('rate-limit');
 
     for (let attempt = 0; attempt < 2; attempt += 1) {
       await request(app.getHttpServer())
         .post(`${apiPrefix}/auth/register`)
+        .set('Origin', allowedOrigin)
         .set('X-Forwarded-For', registration.ipAddress)
         .send(
           registrationPayload(registration.email, registration.organizationId),
@@ -111,6 +136,7 @@ describe('Auth registration and MFA (e2e)', () => {
 
     await request(app.getHttpServer())
       .post(`${apiPrefix}/auth/register`)
+      .set('Origin', allowedOrigin)
       .set('X-Forwarded-For', registration.ipAddress)
       .send(
         registrationPayload(registration.email, registration.organizationId),
@@ -121,6 +147,7 @@ describe('Auth registration and MFA (e2e)', () => {
     for (let attempt = 0; attempt < 5; attempt += 1) {
       await request(app.getHttpServer())
         .post(`${apiPrefix}/auth/email/verification/confirm`)
+        .set('Origin', allowedOrigin)
         .set('X-Forwarded-For', '198.51.100.200')
         .send({ token: invalidToken })
         .expect(400);
@@ -128,6 +155,7 @@ describe('Auth registration and MFA (e2e)', () => {
 
     await request(app.getHttpServer())
       .post(`${apiPrefix}/auth/email/verification/confirm`)
+      .set('Origin', allowedOrigin)
       .set('X-Forwarded-For', '198.51.100.200')
       .send({ token: invalidToken })
       .expect(429);
@@ -198,6 +226,7 @@ describe('Auth registration and MFA (e2e)', () => {
 
     const setup = await request(app.getHttpServer())
       .post(`${apiPrefix}/auth/mfa/totp/setup`)
+      .set('Origin', allowedOrigin)
       .set('Cookie', initialCookie)
       .send({});
     if (setup.status !== 201) {
@@ -207,6 +236,7 @@ describe('Auth registration and MFA (e2e)', () => {
     const code = totpCode(setupBody.secret);
     const verified = await request(app.getHttpServer())
       .post(`${apiPrefix}/auth/mfa/totp/verify`)
+      .set('Origin', allowedOrigin)
       .set('Cookie', initialCookie)
       .send({ code })
       .expect(201);
@@ -227,6 +257,7 @@ describe('Auth registration and MFA (e2e)', () => {
 
     await request(app.getHttpServer())
       .delete(`${apiPrefix}/auth/session`)
+      .set('Origin', allowedOrigin)
       .set('Cookie', verifiedCookie)
       .expect(204);
     await request(app.getHttpServer())
@@ -241,6 +272,7 @@ describe('Auth registration and MFA (e2e)', () => {
     const ipAddress = `198.51.100.${10 + registrations.length}`;
     const response = await request(app.getHttpServer())
       .post(`${apiPrefix}/auth/register`)
+      .set('Origin', allowedOrigin)
       .set('X-Forwarded-For', ipAddress)
       .send(registrationPayload(email, suffix))
       .expect(201);
@@ -275,6 +307,7 @@ describe('Auth registration and MFA (e2e)', () => {
   function confirm(token: string, ipAddress: string) {
     return request(app.getHttpServer())
       .post(`${apiPrefix}/auth/email/verification/confirm`)
+      .set('Origin', allowedOrigin)
       .set('X-Forwarded-For', ipAddress)
       .send({ token });
   }

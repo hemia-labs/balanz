@@ -2,6 +2,7 @@ import {
   Column,
   CreateDateColumn,
   Entity,
+  ForeignKey,
   Index,
   PrimaryGeneratedColumn,
   UpdateDateColumn,
@@ -17,6 +18,10 @@ export enum AuthFactorStatus {
 @Index('uq_auth_factors_user_current', ['userId'], {
   unique: true,
   where: "status IN ('pending', 'active')",
+})
+@ForeignKey('users', ['userId'], ['id'], {
+  name: 'fk_auth_factors_user',
+  onDelete: 'RESTRICT',
 })
 @Entity('auth_factors')
 export class AuthFactor {
