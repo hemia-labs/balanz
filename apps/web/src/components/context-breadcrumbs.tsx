@@ -41,27 +41,61 @@ function readableLabel(segment: string) {
 }
 
 function monthLabel(slug: string) {
-  return `Período ${slug}`;
+  const month = Number(slug);
+  const monthNames = [
+    "Enero",
+    "Febrero",
+    "Marzo",
+    "Abril",
+    "Mayo",
+    "Junio",
+    "Julio",
+    "Agosto",
+    "Septiembre",
+    "Octubre",
+    "Noviembre",
+    "Diciembre",
+  ];
+  return monthNames[month - 1] ?? `Período ${slug}`;
 }
 
-function buildClientTrail(relative: string[], clientHref: string): BreadcrumbItem[] {
+function buildFiscalTrail(
+  relative: string[],
+  fiscalYearsHref: string,
+): BreadcrumbItem[] {
+  const [year, periodsSegment, period, tab] = relative;
+  if (!year) return [{ label: "Ejercicios" }];
+  if (periodsSegment !== "periods" || !period) {
+    return [
+      { label: "Ejercicios", href: fiscalYearsHref },
+      { label: `Ejercicio ${year}` },
+    ];
+  }
+
+  const periodHref = `${fiscalYearsHref}/${year}/periods/${period}`;
+  return [
+    { label: "Ejercicios", href: fiscalYearsHref },
+    { label: `Ejercicio ${year}`, href: `${fiscalYearsHref}/${year}` },
+    { label: monthLabel(period), href: periodHref },
+    { label: readableLabel(tab ?? "overview") },
+  ];
+}
+
+export function buildClientTrail(
+  relative: string[],
+  clientHref: string,
+): BreadcrumbItem[] {
   const [section = "overview", second, third, fourth, fifth] = relative;
 
   if (section === "fiscal-years") {
-    if (!second) return [{ label: "Ejercicios" }];
-    if (third !== "periods" || !fourth) {
-      return [
-        { label: "Ejercicios", href: `${clientHref}/fiscal-years` },
-        { label: `Ejercicio ${second}` },
-      ];
-    }
+    return buildFiscalTrail(relative.slice(1), `${clientHref}/fiscal-years`);
+  }
 
-    const periodHref = `${clientHref}/fiscal-years/${second}/periods/${fourth}`;
-    return [
-      { label: `Ejercicio ${second}`, href: `${clientHref}/fiscal-years/${second}` },
-      { label: monthLabel(fourth), href: periodHref },
-      { label: readableLabel(fifth ?? "overview") },
-    ];
+  if (section === "legal-entities" && second && third === "fiscal-years") {
+    return buildFiscalTrail(
+      relative.slice(3),
+      `${clientHref}/legal-entities/${second}/fiscal-years`,
+    );
   }
 
   if (section === "cfdi" && second) {
@@ -90,10 +124,7 @@ function buildClientTrail(relative: string[], clientHref: string): BreadcrumbIte
   }
 
   if (section === "settings" && second) {
-    return [
-      { label: "Configuración", href: `${clientHref}/settings/data` },
-      { label: readableLabel(second) },
-    ];
+    return [{ label: readableLabel(second) }];
   }
 
   return [{ label: readableLabel(section) }];
@@ -101,7 +132,7 @@ function buildClientTrail(relative: string[], clientHref: string): BreadcrumbIte
 
 export function ContextBreadcrumbs() {
   const pathname = usePathname();
-  const { client, organization } = useAccountingContext();
+  const { clientId, clientName, organization } = useAccountingContext();
   const locale = pathname.split("/").filter(Boolean)[0] ?? "es";
   const parts = pathname.split("/").filter(Boolean);
   const organizationIndex = parts.indexOf("organizations");
@@ -109,11 +140,13 @@ export function ContextBreadcrumbs() {
   const organizationHref = `${organizationBase(locale, organization.slug)}/home`;
   const items: BreadcrumbItem[] = [{ label: organization.shortName, href: organizationHref }];
 
-  if (client) {
-    const clientHref = clientBase(locale, organization.slug, client.id);
+  if (clientId) {
+    const clientsHref = `${organizationBase(locale, organization.slug)}/clients`;
+    const clientHref = clientBase(locale, organization.slug, clientId);
     const clientIndex = parts.indexOf("clients");
     const relative = clientIndex >= 0 ? parts.slice(clientIndex + 2) : [];
-    items.push({ label: client.name, href: `${clientHref}/overview` });
+    items.push({ label: "Clientes", href: clientsHref });
+    items.push({ label: clientName ?? "Cliente", href: `${clientHref}/overview` });
     items.push(...buildClientTrail(relative, clientHref));
   } else if (organizationSection && organizationSection !== "home") {
     const sectionHref = `${organizationBase(locale, organization.slug)}/${organizationSection}`;
