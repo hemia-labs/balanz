@@ -30,7 +30,7 @@ No dupliques el mismo defecto en varios reportes.
 
 Revisa entidades, migraciones, seeds, configuración y servicios bajo `apps/api`, además de manifiestos y tests relevantes. Examina Redis, sesiones, rate limits, auditoría y cualquier tabla o keyspace con crecimiento continuo.
 
-Respeta cualquier `AGENTS.md` aplicable. Registra el estado Git para distinguir cambios locales. La única escritura permitida es crear el reporte solicitado; no alteres esquemas, datos, cachés, entidades, migraciones, seeds ni configuración.
+Respeta cualquier `AGENTS.md` aplicable. Registra el estado Git para distinguir cambios locales. Si el usuario solicita un archivo, la única escritura permitida es crear ese reporte; no alteres esquemas, datos, cachés, entidades, migraciones, seeds ni configuración.
 
 ## Cobertura obligatoria
 
@@ -131,7 +131,7 @@ La clasificación temporal y la severidad son ejes distintos: un riesgo futuro p
 
 ## Formato del reporte
 
-Guarda el resultado en la ruta solicitada. Si no se indica una, usa `docs/data/DATA_SCALABILITY_AUDIT_<YYYY-MM-DD>.md` sin sobrescribir un reporte existente.
+Entrega el reporte directamente en la respuesta por defecto. Sólo crea un archivo si el usuario lo solicita explícitamente o proporciona una ruta. Si debe crearse un archivo y no se indica una ruta, usa `docs/data/DATA_SCALABILITY_AUDIT_<YYYY-MM-DD_HHmmss>.md`; si el nombre ya existe, agrega un sufijo incremental (`_2`, `_3`, etc.). Nunca sobrescribas un archivo existente.
 
 ```markdown
 # Auditoría de datos y escalabilidad — <fecha o alcance>

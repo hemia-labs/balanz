@@ -7,7 +7,7 @@ description: "Audita exclusivamente la seguridad de este monorepo NestJS y Next.
 
 Realiza una auditoría de seguridad de solo lectura y entrega hallazgos reproducibles. No mezcles observaciones de arquitectura, calidad o estilo salvo que exista un mecanismo de ataque concreto.
 
-La única escritura permitida es crear el reporte Markdown solicitado. No modifiques código, configuración, tests, manifiestos, lockfiles, datos ni servicios externos. Otro agente implementará las correcciones después de aprobación explícita.
+Si el usuario solicita un archivo, la única escritura permitida es crear el reporte Markdown solicitado. No modifiques código, configuración, tests, manifiestos, lockfiles, datos ni servicios externos. Otro agente implementará las correcciones después de aprobación explícita.
 
 ## Alcance del proyecto
 
@@ -116,7 +116,7 @@ No incluyas secretos, tokens completos, PII ni payloads peligrosos innecesarios.
 
 ## Formato del reporte
 
-Guarda el resultado en la ruta solicitada. Si no se proporciona una, usa `docs/security/SECURITY_AUDIT_<YYYY-MM-DD>.md` sin sobrescribir archivos existentes.
+Entrega el reporte directamente en la respuesta por defecto. Sólo crea un archivo si el usuario lo solicita explícitamente o proporciona una ruta. Si debe crearse un archivo y no se indica una ruta, usa `docs/security/SECURITY_AUDIT_<YYYY-MM-DD_HHmmss>.md`; si el nombre ya existe, agrega un sufijo incremental (`_2`, `_3`, etc.). Nunca sobrescribas un archivo existente.
 
 ```markdown
 # Auditoría de seguridad — <fecha o alcance>

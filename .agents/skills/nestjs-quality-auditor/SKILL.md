@@ -22,7 +22,7 @@ No reportes formato, preferencias de nombres, orden de imports, cobertura por po
 
 Revisa principalmente `apps/api/src` y sus tests. Consulta configuración raíz, manifiestos o consumidores de `apps/web` únicamente cuando ayuden a comprobar el contrato del backend.
 
-Respeta cualquier `AGENTS.md` aplicable. Inspecciona el estado Git y no atribuyas cambios locales al código consolidado. La única escritura permitida es el reporte solicitado; no edites fuente, tests, configuración ni dependencias.
+Respeta cualquier `AGENTS.md` aplicable. Inspecciona el estado Git y no atribuyas cambios locales al código consolidado. Si el usuario solicita un archivo, la única escritura permitida es el reporte solicitado; no edites fuente, tests, configuración ni dependencias.
 
 ## Cobertura obligatoria
 
@@ -116,7 +116,7 @@ Un hallazgo requiere archivo y línea, comportamiento o dependencia observada, i
 
 ## Formato del reporte
 
-Guarda el resultado donde indique el usuario. Si no proporciona una ruta, usa `docs/quality/NESTJS_QUALITY_AUDIT_<YYYY-MM-DD>.md` sin sobrescribir un archivo existente.
+Entrega el reporte directamente en la respuesta por defecto. Sólo crea un archivo si el usuario lo solicita explícitamente o proporciona una ruta. Si debe crearse un archivo y no se indica una ruta, usa `docs/quality/NESTJS_QUALITY_AUDIT_<YYYY-MM-DD_HHmmss>.md`; si el nombre ya existe, agrega un sufijo incremental (`_2`, `_3`, etc.). Nunca sobrescribas un archivo existente.
 
 ```markdown
 # Auditoría de calidad NestJS — <fecha o alcance>

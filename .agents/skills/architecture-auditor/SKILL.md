@@ -79,7 +79,7 @@ Prioriza severidad por impacto y probabilidad, no por el tamaño del cambio prop
 
 ## Contrato del reporte
 
-Guarda el resultado en la ruta solicitada. Si no se indica una, usa `docs/architecture/ARCHITECTURE_AUDIT_<YYYY-MM-DD>.md` sin sobrescribir un reporte existente.
+Entrega el reporte directamente en la respuesta por defecto. Sólo crea un archivo si el usuario lo solicita explícitamente o proporciona una ruta. Si debe crearse un archivo y no se indica una ruta, usa `docs/architecture/ARCHITECTURE_AUDIT_<YYYY-MM-DD_HHmmss>.md`; si el nombre ya existe, agrega un sufijo incremental (`_2`, `_3`, etc.). Nunca sobrescribas un archivo existente.
 
 Usa esta estructura:
 
