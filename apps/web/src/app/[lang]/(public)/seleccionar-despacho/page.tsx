@@ -12,6 +12,7 @@ import { ApiError } from "@/lib/api-client";
 import { getOrganizations, selectOrganization } from "@/features/organizations/api";
 import type { OrganizationSummary } from "@/features/session/types";
 import { safeInternalReturnTo } from "@/lib/navigation-security";
+import { labelBackendRole } from "@/lib/permissions";
 
 let organizationsRequest: Promise<OrganizationSummary[]> | null = null;
 
@@ -20,15 +21,6 @@ function loadOrganizations() {
     organizationsRequest = null;
   });
   return organizationsRequest;
-}
-
-function roleLabel(role: string) {
-  return {
-    titular: "Titular",
-    administrador: "Administrador",
-    responsable: "Responsable",
-    colaborador: "Colaborador",
-  }[role] ?? role;
 }
 
 export function SelectOrganizationPage() {
@@ -78,7 +70,9 @@ export function SelectOrganizationPage() {
   return (
     <main id="main-content" tabIndex={-1} className="grid min-h-[100dvh] bg-auth-background focus:outline-none lg:grid-cols-[minmax(0,0.8fr)_minmax(28rem,1.2fr)]">
       <section className="auth-sidebar relative hidden overflow-hidden p-10 text-sidebar-foreground lg:flex lg:flex-col lg:justify-between xl:p-14">
-        <Image src="/logo-white.png" alt="CFDIOS" width={192} height={48} priority className="h-auto w-48" />
+        <Link href={`/${locale}`} aria-label="Balanz, inicio" className="inline-flex min-h-10 items-center rounded-md">
+          <Image src="/logo-white.png" alt="" width={192} height={48} priority className="h-auto w-48" />
+        </Link>
         <div className="relative z-10 max-w-sm">
           <h2 className="text-heading-lg font-bold">Un mismo acceso, todos tus despachos.</h2>
           <p className="mt-4 text-body-lg text-sidebar-foreground/75">Cambia de espacio cuando lo necesites. Cada despacho conserva su propio perfil, permisos y datos fiscales.</p>
@@ -129,7 +123,7 @@ export function SelectOrganizationPage() {
                         </span>
                         <span className="min-w-0 flex-1">
                           <span className="block truncate text-body-sm font-semibold">{organization.name}</span>
-                          <span className="block truncate text-caption text-muted-foreground">{organization.slug} · {roleLabel(organization.role)}</span>
+                          <span className="block truncate text-caption text-muted-foreground">{organization.slug} · {labelBackendRole(organization.role)}</span>
                         </span>
                         <span className={`grid size-4 shrink-0 place-items-center rounded-full border ${checked ? "border-primary" : "border-input"}`} aria-hidden="true">
                           <span className={`size-2 rounded-full bg-primary ${checked ? "" : "opacity-0"}`} />

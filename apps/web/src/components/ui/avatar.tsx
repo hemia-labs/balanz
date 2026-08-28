@@ -23,7 +23,7 @@ function AvatarImage({ className, onError, alt = "", ...props }: React.Component
     <img
       data-slot="avatar-image"
       alt={alt}
-      className={cn("aspect-square size-full object-cover", className)}
+      className={cn("relative z-10 aspect-square size-full object-cover", className)}
       onError={(event) => {
         setFailed(true);
         onError?.(event);

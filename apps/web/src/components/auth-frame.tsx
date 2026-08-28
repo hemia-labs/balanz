@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import Link from "next/link";
 import Image from "next/image";
 import { BrandMark } from "@/components/brand-mark";
 import { Card, CardContent } from "@/components/ui/card";
@@ -33,7 +34,9 @@ export function AuthFrame({
     return (
       <main id="main-content" tabIndex={-1} className="grid min-h-[100dvh] bg-background focus:outline-none lg:grid-cols-[minmax(0,1fr)_minmax(28rem,0.9fr)]">
         <section className="auth-sidebar relative hidden overflow-hidden p-10 text-sidebar-foreground lg:flex lg:flex-col lg:justify-between xl:p-14">
-          <Image src="/logo-white.png" alt="CFDIOS" width={192} height={48} priority className="h-auto w-48" />
+          <Link href={"/" + locale} aria-label="Balanz, inicio" className="inline-flex min-h-10 items-center rounded-md">
+            <Image src="/logo-white.png" alt="" width={192} height={48} priority className="h-auto w-48" />
+          </Link>
           <div className="relative max-w-lg">
             <p className="text-caption font-semibold text-sidebar-foreground/70">{eyebrow}</p>
             <h2 className="mt-3 text-display font-bold">{systemTitle}</h2>

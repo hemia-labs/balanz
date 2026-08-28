@@ -35,3 +35,14 @@ export const roleLabels: Record<DemoMembership["role"], string> = {
   responsable: "Contador responsable",
   colaborador: "Colaborador/Auxiliar",
 };
+
+const backendRoleLabels: Record<string, string> = {
+  owner: "Titular",
+  accountant: "Contador responsable",
+  collaborator: "Colaborador",
+  admin: "Administrador de plataforma",
+};
+
+export function labelBackendRole(role: string) {
+  return backendRoleLabels[role] ?? role;
+}
