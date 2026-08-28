@@ -32,7 +32,7 @@
   },
   "dependencies": {
     "@aws-sdk/client-sesv2": "^3.1116.0",
-    "@hemia/horus": "^0.0.3",
+    "@hemia/horus": "^0.0.4",
     "@hemia/secrets": "^0.0.2",
     "@nestjs/common": "^11.0.1",
     "@nestjs/config": "^4.0.4",

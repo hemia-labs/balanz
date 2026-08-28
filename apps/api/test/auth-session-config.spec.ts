@@ -70,6 +70,22 @@ describe('auth session environment validation', () => {
     expect(error).toBeUndefined();
   });
 
+  it.each([
+    'https://horus.example.test?tenant=x',
+    'https://horus.example.test#tenant',
+    'https://user:password@horus.example.test',
+  ])('rejects Horus URLs with unsafe components: %s', (HORUS_URL) => {
+    const { error } = envVarsSchema.validate({
+      ...requiredEnv,
+      HORUS_URL,
+      HORUS_KEY: 'development-key',
+    });
+
+    expect(error?.message).toContain(
+      'HORUS_URL must not include query, fragment, or credentials',
+    );
+  });
+
   it('requires HTTPS for configured Horus in production', () => {
     const productionEnv = {
       ...requiredEnv,

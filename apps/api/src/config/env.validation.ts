@@ -310,8 +310,23 @@ export const envVarsSchema = Joi.object({
     });
   }
 
-  if (value.NODE_ENV === 'production' && hasUrl) {
-    if (new URL(horusUrl).protocol !== 'https:') {
+  if (hasUrl) {
+    const parsedHorusUrl = new URL(horusUrl);
+    if (
+      parsedHorusUrl.search ||
+      parsedHorusUrl.hash ||
+      parsedHorusUrl.username ||
+      parsedHorusUrl.password
+    ) {
+      return helpers.message({
+        custom: 'HORUS_URL must not include query, fragment, or credentials',
+      });
+    }
+
+    if (
+      value.NODE_ENV === 'production' &&
+      parsedHorusUrl.protocol !== 'https:'
+    ) {
       return helpers.message({
         custom: 'HORUS_URL must use HTTPS in production',
       });
