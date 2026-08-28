@@ -36,6 +36,7 @@ export function RegisterForm({
       description={auth.registerDescription}
       requiredHint={auth.requiredHint}
       contentClassName="max-w-lg"
+      centered
       footer={
         <p className="text-center">
           {auth.hasAccount}{" "}

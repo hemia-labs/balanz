@@ -61,6 +61,10 @@ type NormalizedRegistrationInput = Omit<
   organizationTimezone: string;
 };
 
+type SessionDetails = SessionAuthorizationContext & {
+  account: { id: string; name: string; email: string };
+};
+
 const invalidMfaCode = () =>
   new BadRequestException({
     code: 'MFA_INVALID_CODE',
@@ -882,8 +886,21 @@ export class AuthService {
 
   sessionDetails(
     context: SessionAuthorizationContext,
-  ): SessionAuthorizationContext {
-    return context;
+  ): Promise<SessionDetails> {
+    return this.dataSource
+      .getRepository(User)
+      .findOne({ where: { id: context.userId } })
+      .then((user) => {
+        if (!user) throw new UnauthorizedException('Session user not found');
+        return {
+          ...context,
+          account: {
+            id: user.id,
+            name: `${user.firstName} ${user.lastName}`.trim(),
+            email: user.email,
+          },
+        };
+      });
   }
 
   async authorizationDetails(
