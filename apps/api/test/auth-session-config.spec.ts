@@ -51,6 +51,15 @@ describe('auth session environment validation', () => {
     expect(error).toBeUndefined();
   });
 
+  it('rejects an excessive Horus timeout', () => {
+    const { error } = envVarsSchema.validate({
+      ...requiredEnv,
+      HORUS_TIMEOUT_MS: 86_400_000,
+    });
+
+    expect(error?.message).toContain('HORUS_TIMEOUT_MS');
+  });
+
   it.each([
     { HORUS_URL: 'https://horus.example.test', HORUS_KEY: '' },
     { HORUS_URL: '', HORUS_KEY: 'public-key' },
@@ -72,7 +81,9 @@ describe('auth session environment validation', () => {
 
   it.each([
     'https://horus.example.test?tenant=x',
+    'https://horus.example.test?',
     'https://horus.example.test#tenant',
+    'https://horus.example.test#',
     'https://user:password@horus.example.test',
   ])('rejects Horus URLs with unsafe components: %s', (HORUS_URL) => {
     const { error } = envVarsSchema.validate({

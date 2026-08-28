@@ -19,6 +19,7 @@ async function bootstrap() {
       key: horus.key,
       release: horus.release,
       timeoutMs: horus.timeoutMs,
+      captureConsole: false,
     });
   }
   const trustProxyHops = config.get<number>('app.trustProxyHops', 0);

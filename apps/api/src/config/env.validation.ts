@@ -43,7 +43,7 @@ export const envVarsSchema = Joi.object({
     .default(''),
   HORUS_KEY: Joi.string().trim().allow('').default(''),
   HORUS_RELEASE: Joi.string().trim().allow('').default(''),
-  HORUS_TIMEOUT_MS: Joi.number().integer().min(1).default(2000),
+  HORUS_TIMEOUT_MS: Joi.number().integer().min(1).max(10_000).default(2000),
 
   // Secrets
   SECRETS_ENABLED: Joi.boolean().truthy('true').falsy('false').default(false),
@@ -313,8 +313,8 @@ export const envVarsSchema = Joi.object({
   if (hasUrl) {
     const parsedHorusUrl = new URL(horusUrl);
     if (
-      parsedHorusUrl.search ||
-      parsedHorusUrl.hash ||
+      horusUrl.includes('?') ||
+      horusUrl.includes('#') ||
       parsedHorusUrl.username ||
       parsedHorusUrl.password
     ) {
