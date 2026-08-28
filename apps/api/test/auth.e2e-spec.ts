@@ -231,6 +231,11 @@ describe('Auth registration and MFA (e2e)', () => {
         role: 'owner',
         tenantActive: true,
         mfaStatus: 'disabled',
+        account: {
+          id: registration.userId,
+          name: 'E2E Test',
+          email: registration.email,
+        },
       }),
     );
 

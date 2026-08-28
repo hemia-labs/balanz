@@ -41,6 +41,9 @@
   --chart-4: #b86432;
   --chart-5: #8a5614;
   --numeric-band: #edf3f0;
+  --auth-background: #f4f6f3;
+  --auth-sidebar: #142d38;
+  --auth-sidebar-foreground: #edf3f1;
   --sidebar: #ffffff;
   --sidebar-foreground: #17242b;
   --sidebar-primary: #0f5f68;
@@ -89,6 +92,9 @@
   --chart-4: #df8b58;
   --chart-5: #efc171;
   --numeric-band: #1b3032;
+  --auth-background: #0a1015;
+  --auth-sidebar: #0e181e;
+  --auth-sidebar-foreground: #edf3f1;
   --sidebar: #0e181e;
   --sidebar-foreground: #edf3f1;
   --sidebar-primary: #6fc8c2;
@@ -162,6 +168,7 @@
   --color-chart-4: var(--chart-4);
   --color-chart-5: var(--chart-5);
   --color-numeric-band: var(--numeric-band);
+  --color-auth-background: var(--auth-background);
   --color-sidebar: var(--sidebar);
   --color-sidebar-foreground: var(--sidebar-foreground);
   --color-sidebar-primary: var(--sidebar-primary);
@@ -221,6 +228,12 @@
 }
 
 @layer utilities {
+  .auth-sidebar {
+    --sidebar-foreground: var(--auth-sidebar-foreground);
+    background-color: var(--auth-sidebar);
+    color: var(--auth-sidebar-foreground);
+  }
+
   .numeric {
     font-variant-numeric: tabular-nums lining-nums;
   }
