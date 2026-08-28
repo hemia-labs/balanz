@@ -7,6 +7,7 @@ import {
   Logger,
 } from '@nestjs/common';
 import { Request, Response } from 'express';
+import { captureException } from '@hemia/horus';
 
 interface ErrorBody {
   statusCode: number;
@@ -33,6 +34,16 @@ export class AllExceptionsFilter implements ExceptionFilter {
       exception instanceof HttpException
         ? exception.getStatus()
         : HttpStatus.INTERNAL_SERVER_ERROR;
+
+    if (status >= 500) {
+      void captureException(exception, {
+        request: { method: request.method, url: request.url },
+        trace_id:
+          typeof request.headers.traceparent === 'string'
+            ? request.headers.traceparent
+            : undefined,
+      });
+    }
 
     let message: string | string[] =
       'Ocurrió un error inesperado. Intenta de nuevo.';

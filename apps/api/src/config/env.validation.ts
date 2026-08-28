@@ -29,6 +29,15 @@ export const envVarsSchema = Joi.object({
   }),
   TRUST_PROXY_HOPS: Joi.number().integer().min(0).max(16).default(0),
 
+  // Horus (opcional hasta que se asignen las variables del proyecto).
+  HORUS_URL: Joi.string()
+    .uri({ scheme: ['http', 'https'] })
+    .allow('')
+    .default(''),
+  HORUS_KEY: Joi.string().trim().allow('').default(''),
+  HORUS_RELEASE: Joi.string().trim().allow('').default(''),
+  HORUS_TIMEOUT_MS: Joi.number().integer().min(1).default(2000),
+
   // Secrets
   SECRETS_ENABLED: Joi.boolean().truthy('true').falsy('false').default(false),
   SECRETS_ENVIRONMENT: Joi.string()
