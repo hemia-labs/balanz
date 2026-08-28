@@ -10,6 +10,7 @@
       "version": "0.0.1",
       "dependencies": {
         "@aws-sdk/client-sesv2": "^3.1116.0",
+        "@hemia/horus": "^0.0.5",
         "@hemia/secrets": "^0.0.2",
         "@nestjs/common": "^11.0.1",
         "@nestjs/config": "^4.0.4",
@@ -283,6 +284,8 @@
     "@hapi/tlds": ["@hapi/tlds@1.1.7", "", {}, "sha512-MgNjRwy9Ti92yVAixLmDc8dd1bJIKwO9qlWCfFQRwRmUEDPQHYn4G6hwPFvFGUTzAa0FsS+inMjLin7GnyBRhA=="],
 
     "@hapi/topo": ["@hapi/topo@6.0.2", "", { "dependencies": { "@hapi/hoek": "^11.0.2" } }, "sha512-KR3rD5inZbGMrHmgPxsJ9dbi6zEK+C3ZwUwTa+eMwWLz7oijWUTWD2pMSNNYJAU6Qq+65NkxXjqHr/7LM2Xkqg=="],
+
+    "@hemia/horus": ["@hemia/horus@0.0.5", "", { "peerDependencies": { "@nestjs/common": ">=9", "@nestjs/core": ">=9" }, "optionalPeers": ["@nestjs/common", "@nestjs/core"] }, "sha512-CueA7tZxCsNWtYqG6NdQQeiY86PNRw1d5Uma9jOalmavah5Eq54ip1t1ABCERIRCrH/yhgrT/EDWaRFohbKCPA=="],
 
     "@hemia/secrets": ["@hemia/secrets@0.0.2", "", { "peerDependencies": { "@nestjs/common": ">=10" }, "optionalPeers": ["@nestjs/common"] }, "sha512-iVVEEXAy+19gAt0FncwHI5EsC4rj9asqdx186U/QjSyflBz42J/Dcz/i8DESupRSb22TL22VGl7H6D5qbgMzaw=="],
 
