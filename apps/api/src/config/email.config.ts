@@ -14,11 +14,13 @@ export interface EmailConfig {
     welcomeTemplate: string;
     mfaEnabledTemplate: string;
     mfaDisabledTemplate: string;
+    passwordResetTemplate: string;
   };
   appName: string;
   appSubtitle: string;
   appUrl: string;
   assetsBaseUrl: string;
+  iconEmailUrl: string;
   supportEmail: string;
   helpUrl: string;
   privacyUrl: string;
@@ -34,7 +36,7 @@ export default registerAs('email', (): EmailConfig => {
     ses: {
       project,
       environment,
-      fromName: process.env.EMAIL_FROM_NAME || 'CFDIOS',
+      fromName: process.env.EMAIL_FROM_NAME || 'Balanz',
       fromAuth: process.env.EMAIL_FROM_AUTH || `auth@${project}.hemia.dev`,
       fromNotifications:
         process.env.EMAIL_FROM_NOTIFICATIONS ||
@@ -57,6 +59,9 @@ export default registerAs('email', (): EmailConfig => {
       mfaDisabledTemplate:
         process.env.EMAIL_MFA_DISABLED_TEMPLATE ||
         `${project}-${environment}-mfa-disabled`,
+      passwordResetTemplate:
+        process.env.EMAIL_PASSWORD_RESET_TEMPLATE ||
+        `${project}-${environment}-forgot-password`,
     },
     appName: process.env.EMAIL_APP_NAME || 'Balanz',
     appSubtitle: process.env.EMAIL_APP_SUBTITLE || 'Contable',
@@ -64,11 +69,16 @@ export default registerAs('email', (): EmailConfig => {
     assetsBaseUrl: (
       process.env.EMAIL_ASSETS_BASE_URL || 'https://cdn.hemia.dev'
     ).replace(/\/+$/, ''),
+    iconEmailUrl:
+      process.env.EMAIL_ICON_EMAIL_URL ||
+      'https://cdn.hemia.dev/icon-email.png',
     supportEmail: process.env.EMAIL_SUPPORT_EMAIL || 'soporte@balanz.mx',
     helpUrl: process.env.EMAIL_HELP_URL || 'https://app.balanz.mx/ayuda',
     privacyUrl:
       process.env.EMAIL_PRIVACY_URL || 'https://app.balanz.mx/privacidad',
     termsUrl: process.env.EMAIL_TERMS_URL || 'https://app.balanz.mx/terminos',
-    companyAddress: process.env.EMAIL_COMPANY_ADDRESS || '',
+    companyAddress:
+      process.env.EMAIL_COMPANY_ADDRESS ||
+      'Av. Reforma 123, Ciudad de México, México',
   };
 });

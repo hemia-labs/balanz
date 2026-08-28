@@ -16,6 +16,7 @@ import { DisableMfaDto } from './dtos/disable-mfa.dto';
 import { RegisterResponseDto } from './dtos/register-response.dto';
 import { EmailService } from '../email/email.service';
 import { EmailVerificationToken } from './entities/email-verification-token.entity';
+import { PasswordResetToken } from './entities/password-reset-token.entity';
 import { AuthFactor, AuthFactorStatus } from './entities/auth-factor.entity';
 import {
   Membership,
@@ -276,6 +277,178 @@ export class AuthService {
       email: user.email,
       firstName: user.firstName,
       token: rawToken,
+    });
+  }
+
+  async requestPasswordReset(input: {
+    email: string;
+    ipAddress: string;
+  }): Promise<void> {
+    const email = input.email.trim().toLowerCase();
+    const [emailAllowed, ipAllowed] = await Promise.all([
+      this.rateLimits.consume(
+        'password-reset-request-email',
+        email,
+        this.rateLimits.passwordResetRequestLimit(),
+        this.rateLimits.passwordResetRequestWindowSeconds(),
+      ),
+      this.rateLimits.consume(
+        'password-reset-request-ip',
+        input.ipAddress,
+        this.rateLimits.passwordResetRequestLimit(),
+        this.rateLimits.passwordResetRequestWindowSeconds(),
+      ),
+    ]);
+    if (!emailAllowed || !ipAllowed) {
+      throw new HttpException(
+        'Too many password reset requests',
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
+    }
+
+    const user = await this.dataSource.getRepository(User).findOne({
+      where: { email },
+    });
+    if (!user) return;
+
+    const rawToken = randomBytes(32).toString('hex');
+    const tokenHash = this.hashToken(rawToken);
+    const correlationId = randomUUID();
+    const now = new Date();
+    const expiresAt = new Date(
+      now.getTime() + this.passwordResetTtlMinutes() * 60_000,
+    );
+
+    const shouldSend = await this.dataSource.transaction(async (manager) => {
+      const userRepository = manager.getRepository(User);
+      const lockedUser = await userRepository.findOne({
+        where: { id: user.id },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (
+        !lockedUser ||
+        lockedUser.status !== UserStatus.ACTIVE ||
+        !lockedUser.emailVerifiedAt
+      ) {
+        return false;
+      }
+
+      const tokenRepository = manager.getRepository(PasswordResetToken);
+      await tokenRepository.update(
+        { userId: lockedUser.id, usedAt: IsNull() },
+        { usedAt: now },
+      );
+      await tokenRepository.save(
+        tokenRepository.create({
+          userId: lockedUser.id,
+          tokenHash,
+          expiresAt,
+          usedAt: null,
+        }),
+      );
+      await this.audit.record(manager, {
+        organizationId: null,
+        actorType: AuditActorType.SYSTEM,
+        actorUserId: lockedUser.id,
+        actorMembershipId: null,
+        action: 'auth.password.reset.requested',
+        decision: AuditDecision.ALLOW,
+        objectType: 'user',
+        objectId: lockedUser.id,
+        correlationId,
+        ipAddress: input.ipAddress,
+        metadata: { schemaVersion: 1 },
+      });
+      return true;
+    });
+
+    if (!shouldSend) return;
+    await this.email.sendPasswordReset({
+      email: user.email,
+      firstName: user.firstName,
+      token: rawToken,
+      locale: user.locale,
+    });
+  }
+
+  async confirmPasswordReset(input: {
+    token: string;
+    newPassword: string;
+    ipAddress: string;
+  }): Promise<void> {
+    const token = input.token.trim();
+    if (!token) throw new BadRequestException('Invalid password reset token');
+    const tokenHash = this.hashToken(token);
+    const [tokenAllowed, ipAllowed] = await Promise.all([
+      this.rateLimits.consume(
+        'password-reset-confirm-token',
+        tokenHash,
+        this.rateLimits.passwordResetConfirmLimit(),
+        this.rateLimits.passwordResetConfirmWindowSeconds(),
+      ),
+      this.rateLimits.consume(
+        'password-reset-confirm-ip',
+        input.ipAddress,
+        this.rateLimits.passwordResetConfirmLimit(),
+        this.rateLimits.passwordResetConfirmWindowSeconds(),
+      ),
+    ]);
+    if (!tokenAllowed || !ipAllowed) {
+      throw new HttpException(
+        'Too many password reset attempts',
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
+    }
+
+    const passwordHash = await this.passwords.hash(input.newPassword);
+    const correlationId = randomUUID();
+
+    await this.dataSource.transaction(async (manager) => {
+      const tokenRepository = manager.getRepository(PasswordResetToken);
+      const resetToken = await tokenRepository.findOne({
+        where: { tokenHash },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (
+        !resetToken ||
+        resetToken.usedAt ||
+        resetToken.expiresAt.getTime() <= Date.now()
+      ) {
+        throw new BadRequestException('Invalid password reset token');
+      }
+
+      const userRepository = manager.getRepository(User);
+      const user = await userRepository.findOne({
+        where: { id: resetToken.userId },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!user || user.status !== UserStatus.ACTIVE || !user.emailVerifiedAt) {
+        throw new BadRequestException('Invalid password reset token');
+      }
+
+      const now = new Date();
+      user.passwordHash = passwordHash;
+      await userRepository.save(user);
+      resetToken.usedAt = now;
+      await tokenRepository.save(resetToken);
+      await this.sessions.revokeUserSessionsForManager(
+        manager,
+        user.id,
+        'password_reset',
+      );
+      await this.audit.record(manager, {
+        organizationId: null,
+        actorType: AuditActorType.SYSTEM,
+        actorUserId: user.id,
+        actorMembershipId: null,
+        action: 'auth.password.reset.completed',
+        decision: AuditDecision.ALLOW,
+        objectType: 'user',
+        objectId: user.id,
+        correlationId,
+        ipAddress: input.ipAddress,
+        metadata: { schemaVersion: 1 },
+      });
     });
   }
 
@@ -997,6 +1170,10 @@ export class AuthService {
 
   private verificationTtlMinutes(): number {
     return this.config.get<number>('auth.emailVerificationTtlMinutes') ?? 30;
+  }
+
+  private passwordResetTtlMinutes(): number {
+    return this.config.get<number>('auth.passwordResetTtlMinutes') ?? 30;
   }
 
   private trialDurationDays(): number {

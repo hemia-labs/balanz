@@ -23,6 +23,14 @@ export function resendEmailVerification(email: string, signal?: AbortSignal) {
   return apiClient<void>("/auth/email/verification/resend", { method: "POST", body: JSON.stringify({ email }), signal });
 }
 
+export function requestPasswordReset(email: string, signal?: AbortSignal) {
+  return apiClient<void>("/auth/password-reset/request", { method: "POST", body: JSON.stringify({ email }), signal });
+}
+
+export function confirmPasswordReset(token: string, newPassword: string, signal?: AbortSignal) {
+  return apiClient<void>("/auth/password-reset/confirm", { method: "POST", body: JSON.stringify({ token, newPassword }), signal });
+}
+
 export function getOnboarding(signal?: AbortSignal) {
   return apiClient<OnboardingResponse>("/auth/onboarding", { signal });
 }

@@ -116,6 +116,11 @@ export const envVarsSchema = Joi.object({
     .min(15)
     .max(60)
     .default(30),
+  AUTH_PASSWORD_RESET_TTL_MINUTES: Joi.number()
+    .integer()
+    .min(15)
+    .max(60)
+    .default(30),
   AUTH_VERIFICATION_REGISTER_LIMIT: Joi.number()
     .integer()
     .positive()
@@ -126,6 +131,22 @@ export const envVarsSchema = Joi.object({
     .default(900),
   AUTH_VERIFICATION_CONFIRM_LIMIT: Joi.number().integer().positive().default(5),
   AUTH_VERIFICATION_CONFIRM_WINDOW_SECONDS: Joi.number()
+    .integer()
+    .positive()
+    .default(300),
+  AUTH_PASSWORD_RESET_REQUEST_LIMIT: Joi.number()
+    .integer()
+    .positive()
+    .default(3),
+  AUTH_PASSWORD_RESET_REQUEST_WINDOW_SECONDS: Joi.number()
+    .integer()
+    .positive()
+    .default(900),
+  AUTH_PASSWORD_RESET_CONFIRM_LIMIT: Joi.number()
+    .integer()
+    .positive()
+    .default(5),
+  AUTH_PASSWORD_RESET_CONFIRM_WINDOW_SECONDS: Joi.number()
     .integer()
     .positive()
     .default(300),
@@ -154,7 +175,7 @@ export const envVarsSchema = Joi.object({
   EMAIL_ENVIRONMENT: Joi.string()
     .valid('dev', 'qa', 'staging', 'prod')
     .default('dev'),
-  EMAIL_FROM_NAME: Joi.string().trim().min(1).default('CFDIOS'),
+  EMAIL_FROM_NAME: Joi.string().trim().min(1).default('Balanz'),
   EMAIL_FROM_AUTH: Joi.string().email().default('auth@cfdios.hemia.dev'),
   EMAIL_FROM_NOTIFICATIONS: Joi.string()
     .email()
@@ -184,6 +205,13 @@ export const envVarsSchema = Joi.object({
     .trim()
     .pattern(/^[a-z0-9]+(?:-[a-z0-9]+)*$/)
     .default('cfdios-dev-mfa-disabled'),
+  EMAIL_PASSWORD_RESET_TEMPLATE: Joi.string()
+    .trim()
+    .pattern(/^[a-z0-9]+(?:-[a-z0-9]+)*$/)
+    .default('cfdios-dev-forgot-password'),
+  EMAIL_ICON_EMAIL_URL: Joi.string()
+    .uri({ scheme: ['http', 'https'] })
+    .default('https://cdn.hemia.dev/icon-email.png'),
   EMAIL_APP_NAME: Joi.string().trim().min(1).default('Balanz'),
   EMAIL_APP_SUBTITLE: Joi.string().trim().min(1).default('Contable'),
   EMAIL_SUPPORT_EMAIL: Joi.string().email().default('soporte@balanz.mx'),

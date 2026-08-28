@@ -65,6 +65,71 @@ describe('SesEmailDeliveryAdapter', () => {
     expect(data.expirationText).toBe('Este enlace es válido por 30 min.');
   });
 
+  it('sends the forgot-password template with the published variables', async () => {
+    const send = jest
+      .fn<Promise<{ MessageId: string }>, [SendEmailCommand]>()
+      .mockResolvedValue({ MessageId: 'message-id' });
+    const client = { send } as unknown as SESv2Client;
+    const config = {
+      getOrThrow: jest.fn().mockReturnValue({
+        ses: {
+          fromName: 'Balanz',
+          fromAuth: 'auth@cfdios.hemia.dev',
+          replyTo: 'support@hemia.dev',
+          configurationSetAuth: 'hemia-dev-auth',
+          passwordResetTemplate: 'cfdios-dev-forgot-password',
+        },
+        appName: 'Balanz',
+        appUrl: 'https://app.example.com',
+        assetsBaseUrl: 'https://cdn.hemia.dev',
+        iconEmailUrl: 'https://cdn.hemia.dev/icon-email.png',
+        companyAddress: 'Av. Reforma 123, Ciudad de México, México',
+      }),
+    } as unknown as ConfigService;
+    const adapter = new SesEmailDeliveryAdapter(client, config);
+
+    await adapter.sendPasswordReset({
+      email: 'cristian@example.test',
+      firstName: 'Cristian',
+      token: 'raw-token',
+      locale: 'es-MX',
+    });
+
+    const command = send.mock.calls[0]?.[0];
+    if (!command) throw new Error('SES command was not sent');
+    expect(command.input).toMatchObject({
+      FromEmailAddress: 'Balanz <auth@cfdios.hemia.dev>',
+      Destination: { ToAddresses: ['cristian@example.test'] },
+      ReplyToAddresses: ['support@hemia.dev'],
+      ConfigurationSetName: 'hemia-dev-auth',
+      Content: {
+        Template: { TemplateName: 'cfdios-dev-forgot-password' },
+      },
+    });
+
+    const template = command.input.Content?.Template;
+    if (!template?.TemplateData) throw new Error('Template data was not sent');
+    const data = JSON.parse(template.TemplateData) as Record<string, string>;
+    expect(Object.keys(data).sort()).toEqual([
+      'app_name',
+      'assets_base_url',
+      'company_address',
+      'icon_email_url',
+      'reset_url',
+      'user_name',
+    ]);
+    expect(data).toMatchObject({
+      app_name: 'Balanz',
+      assets_base_url: 'https://cdn.hemia.dev',
+      company_address: 'Av. Reforma 123, Ciudad de México, México',
+      icon_email_url: 'https://cdn.hemia.dev/icon-email.png',
+      user_name: 'Cristian',
+    });
+    expect(data.reset_url).toBe(
+      'https://app.example.com/es/forgot-password#token=raw-token',
+    );
+  });
+
   it('sends welcome through notifications and the transactional set', async () => {
     const send = jest
       .fn<Promise<{ MessageId: string }>, [SendEmailCommand]>()

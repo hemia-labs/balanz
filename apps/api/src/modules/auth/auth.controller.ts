@@ -27,6 +27,8 @@ import { VerifyEmailDto } from './dtos/verify-email.dto';
 import { VerifyMfaDto } from './dtos/verify-mfa.dto';
 import { LoginDto } from './dtos/login.dto';
 import { DisableMfaDto } from './dtos/disable-mfa.dto';
+import { RequestPasswordResetDto } from './dtos/request-password-reset.dto';
+import { ConfirmPasswordResetDto } from './dtos/confirm-password-reset.dto';
 import type { SessionAuthorizationContext } from '../sessions/session.types';
 
 @Controller('auth')
@@ -86,6 +88,31 @@ export class AuthController {
   ): Promise<void> {
     await this.auth.resendVerification({
       email: input.email,
+      ipAddress: this.clientIp(request),
+    });
+  }
+
+  @Post('password-reset/request')
+  @HttpCode(HttpStatus.ACCEPTED)
+  async requestPasswordReset(
+    @Body() input: RequestPasswordResetDto,
+    @Req() request: Request,
+  ): Promise<void> {
+    await this.auth.requestPasswordReset({
+      email: input.email,
+      ipAddress: this.clientIp(request),
+    });
+  }
+
+  @Post('password-reset/confirm')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async confirmPasswordReset(
+    @Body() input: ConfirmPasswordResetDto,
+    @Req() request: Request,
+  ): Promise<void> {
+    await this.auth.confirmPasswordReset({
+      token: input.token,
+      newPassword: input.newPassword,
       ipAddress: this.clientIp(request),
     });
   }

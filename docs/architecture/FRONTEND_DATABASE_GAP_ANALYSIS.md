@@ -63,7 +63,7 @@ Los parámetros `:organizationId`, `:clientId`, `:year`, `:period`, `:uuid` y `:
 |---|---|---|---|---|---|
 | `/es/login` | Usuario | correo, contraseña, recordar | iniciar sesión, recuperar | público | Demo; no valida |
 | `/es/register` | Usuario | nombre, correo, contraseña, términos | registrar | público | Demo; no persiste |
-| `/es/forgot-password` | Usuario | correo | solicitar recuperación | público | Bloqueada |
+| `/es/forgot-password` | Usuario | correo | solicitar recuperación | público | Backend implementado; UI bloqueada |
 | `/es/onboarding` | Usuario → organización | nombre, zona, pasos iniciales | abrir demo | público | No persiste |
 | `/es/seleccionar-despacho` | Usuario global | membresías, rol, número de asignaciones | elegir organización | membresía | Fixture |
 | `/es/{perfil,seguridad,preferencias,ayuda}` | Usuario; ayuda puede usar organización | perfil, MFA, tema/locale/zona, ticket | guardar o solicitar ayuda | sesión demo | Formularios bloqueados |
