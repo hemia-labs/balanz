@@ -34,7 +34,7 @@ export function AuthFrame({
     return (
       <main id="main-content" tabIndex={-1} className="grid min-h-[100dvh] bg-background focus:outline-none lg:grid-cols-[minmax(0,1fr)_minmax(28rem,0.9fr)]">
         <section className="auth-sidebar relative hidden overflow-hidden p-10 text-sidebar-foreground lg:flex lg:flex-col lg:justify-between xl:p-14">
-          <Link href={"/" + locale} aria-label="Balanz, inicio" className="inline-flex min-h-10 items-center rounded-md">
+          <Link href={"/" + locale} aria-label="CFDIOS, inicio" className="inline-flex min-h-10 items-center rounded-md">
             <Image src="/logo-white.png" alt="" width={192} height={48} priority className="h-auto w-48" />
           </Link>
           <div className="relative max-w-lg">

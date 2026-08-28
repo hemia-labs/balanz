@@ -70,7 +70,7 @@ export function SelectOrganizationPage() {
   return (
     <main id="main-content" tabIndex={-1} className="grid min-h-[100dvh] bg-auth-background focus:outline-none lg:grid-cols-[minmax(0,0.8fr)_minmax(28rem,1.2fr)]">
       <section className="auth-sidebar relative hidden overflow-hidden p-10 text-sidebar-foreground lg:flex lg:flex-col lg:justify-between xl:p-14">
-        <Link href={`/${locale}`} aria-label="Balanz, inicio" className="inline-flex min-h-10 items-center rounded-md">
+        <Link href={`/${locale}`} aria-label="CFDIOS, inicio" className="inline-flex min-h-10 items-center rounded-md">
           <Image src="/logo-white.png" alt="" width={192} height={48} priority className="h-auto w-48" />
         </Link>
         <div className="relative z-10 max-w-sm">
@@ -80,7 +80,7 @@ export function SelectOrganizationPage() {
         <Image src="/isotipo-white.svg" alt="" width={560} height={560} aria-hidden="true" className="pointer-events-none absolute -bottom-16 -right-20 size-72 opacity-25" />
       </section>
 
-      <section className="flex min-h-[100dvh] items-center justify-center px-4 py-8 sm:px-8 lg:px-10">
+      <section className="flex min-w-0 min-h-[100dvh] items-center justify-center px-4 py-8 sm:px-8 lg:px-10">
         <div className="w-full max-w-sm">
           <div className="mb-6 lg:hidden">
             <BrandMark locale={locale as "es"} />
@@ -103,7 +103,7 @@ export function SelectOrganizationPage() {
             ) : organizations.length === 0 ? (
               <p className="mt-5 text-body-sm text-muted-foreground">No tienes despachos disponibles.</p>
             ) : (
-              <fieldset className="mt-5 space-y-2" disabled={changing !== null}>
+              <fieldset className="mt-5 min-w-0 space-y-2" disabled={changing !== null}>
                 <legend className="sr-only">Despachos disponibles</legend>
                 {organizations.map((organization) => {
                   const checked = selectedId === organization.id;
