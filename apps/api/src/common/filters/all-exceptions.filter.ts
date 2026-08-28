@@ -37,7 +37,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
 
     if (status >= 500) {
       void captureException(exception, {
-        request: { method: request.method, url: request.url },
+        request: { method: request.method, url: request.path },
         trace_id:
           typeof request.headers.traceparent === 'string'
             ? request.headers.traceparent

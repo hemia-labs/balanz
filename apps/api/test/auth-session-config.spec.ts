@@ -40,4 +40,63 @@ describe('auth session environment validation', () => {
 
     expect(error).toBeUndefined();
   });
+
+  it('allows Horus to remain disabled when both values are empty', () => {
+    const { error } = envVarsSchema.validate({
+      ...requiredEnv,
+      HORUS_URL: '',
+      HORUS_KEY: '',
+    });
+
+    expect(error).toBeUndefined();
+  });
+
+  it.each([
+    { HORUS_URL: 'https://horus.example.test', HORUS_KEY: '' },
+    { HORUS_URL: '', HORUS_KEY: 'public-key' },
+  ])('rejects partial Horus configuration', (horus) => {
+    const { error } = envVarsSchema.validate({ ...requiredEnv, ...horus });
+
+    expect(error?.message).toContain('HORUS_URL and HORUS_KEY');
+  });
+
+  it('allows HTTP for Horus outside production', () => {
+    const { error } = envVarsSchema.validate({
+      ...requiredEnv,
+      HORUS_URL: 'http://localhost:4318',
+      HORUS_KEY: 'development-key',
+    });
+
+    expect(error).toBeUndefined();
+  });
+
+  it('requires HTTPS for configured Horus in production', () => {
+    const productionEnv = {
+      ...requiredEnv,
+      NODE_ENV: 'production',
+      APP_CORS_ORIGINS: 'https://app.example.test',
+      EMAIL_APP_URL: 'https://app.example.test',
+      COOKIE_SECURE: true,
+      HORUS_URL: 'http://horus.example.test',
+      HORUS_KEY: 'production-key',
+    };
+    const { error } = envVarsSchema.validate(productionEnv);
+
+    expect(error?.message).toContain('HORUS_URL must use HTTPS');
+  });
+
+  it('allows HTTPS for configured Horus in production', () => {
+    const productionEnv = {
+      ...requiredEnv,
+      NODE_ENV: 'production',
+      APP_CORS_ORIGINS: 'https://app.example.test',
+      EMAIL_APP_URL: 'https://app.example.test',
+      COOKIE_SECURE: true,
+      HORUS_URL: 'https://horus.example.test',
+      HORUS_KEY: 'production-key',
+    };
+    const { error } = envVarsSchema.validate(productionEnv);
+
+    expect(error).toBeUndefined();
+  });
 });

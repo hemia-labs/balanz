@@ -13,6 +13,13 @@ const corsOriginsSetting = Joi.string().custom((value: string, helpers) => {
   }
 }, 'HTTP(S) origins validation');
 
+interface EnvironmentConfig {
+  NODE_ENV?: string;
+  HORUS_URL?: string;
+  HORUS_KEY?: string;
+  [key: string]: unknown;
+}
+
 // Valida las env al boot: la app falla-rápido si falta o es inválida alguna variable.
 export const envVarsSchema = Joi.object({
   NODE_ENV: Joi.string()
@@ -291,4 +298,25 @@ export const envVarsSchema = Joi.object({
     then: Joi.number().integer().min(4).max(31).optional(),
     otherwise: Joi.number().integer().min(4).max(31).required(),
   }),
-});
+}).custom((value: EnvironmentConfig, helpers) => {
+  const horusUrl = value.HORUS_URL ?? '';
+  const horusKey = value.HORUS_KEY ?? '';
+  const hasUrl = horusUrl.trim().length > 0;
+  const hasKey = horusKey.trim().length > 0;
+
+  if (hasUrl !== hasKey) {
+    return helpers.message({
+      custom: 'HORUS_URL and HORUS_KEY must be configured together',
+    });
+  }
+
+  if (value.NODE_ENV === 'production' && hasUrl) {
+    if (new URL(horusUrl).protocol !== 'https:') {
+      return helpers.message({
+        custom: 'HORUS_URL must use HTTPS in production',
+      });
+    }
+  }
+
+  return value;
+}, 'Horus configuration validation');
