@@ -72,6 +72,8 @@ const invalidMfaCode = () =>
     message: 'El código MFA no es válido o ha expirado.',
   });
 
+const PASSWORD_RESET_MIN_RESPONSE_MS = 500;
+
 @Injectable()
 export class AuthService {
   constructor(
@@ -288,91 +290,145 @@ export class AuthService {
     email: string;
     ipAddress: string;
   }): Promise<void> {
-    const email = input.email.trim().toLowerCase();
-    const [emailAllowed, ipAllowed] = await Promise.all([
+    const startedAt = Date.now();
+    try {
+      const email = input.email.trim().toLowerCase();
+      const [emailAllowed, ipAllowed] = await Promise.all([
+        this.rateLimits.consume(
+          'password-reset-request-email',
+          email,
+          this.rateLimits.passwordResetRequestLimit(),
+          this.rateLimits.passwordResetRequestWindowSeconds(),
+        ),
+        this.rateLimits.consume(
+          'password-reset-request-ip',
+          input.ipAddress,
+          this.rateLimits.passwordResetRequestLimit(),
+          this.rateLimits.passwordResetRequestWindowSeconds(),
+        ),
+      ]);
+      if (!emailAllowed || !ipAllowed) {
+        throw new HttpException(
+          'Too many password reset requests',
+          HttpStatus.TOO_MANY_REQUESTS,
+        );
+      }
+
+      const user = await this.dataSource.getRepository(User).findOne({
+        where: { email },
+      });
+      if (!user) return;
+
+      const rawToken = randomBytes(32).toString('hex');
+      const tokenHash = this.hashToken(rawToken);
+      const correlationId = randomUUID();
+      const now = new Date();
+      const expiresAt = new Date(
+        now.getTime() + this.passwordResetTtlMinutes() * 60_000,
+      );
+
+      const shouldSend = await this.dataSource.transaction(async (manager) => {
+        const userRepository = manager.getRepository(User);
+        const lockedUser = await userRepository.findOne({
+          where: { id: user.id },
+          lock: { mode: 'pessimistic_write' },
+        });
+        if (
+          !lockedUser ||
+          lockedUser.status !== UserStatus.ACTIVE ||
+          !lockedUser.emailVerifiedAt
+        ) {
+          return false;
+        }
+
+        const tokenRepository = manager.getRepository(PasswordResetToken);
+        await tokenRepository.update(
+          { userId: lockedUser.id, usedAt: IsNull() },
+          { usedAt: now },
+        );
+        await tokenRepository.save(
+          tokenRepository.create({
+            userId: lockedUser.id,
+            tokenHash,
+            expiresAt,
+            usedAt: null,
+          }),
+        );
+        await this.audit.record(manager, {
+          organizationId: null,
+          actorType: AuditActorType.SYSTEM,
+          actorUserId: lockedUser.id,
+          actorMembershipId: null,
+          action: 'auth.password.reset.requested',
+          decision: AuditDecision.ALLOW,
+          objectType: 'user',
+          objectId: lockedUser.id,
+          correlationId,
+          ipAddress: input.ipAddress,
+          metadata: { schemaVersion: 1 },
+        });
+        return true;
+      });
+
+      if (!shouldSend) return;
+      setImmediate(() => {
+        void this.email.sendPasswordReset({
+          email: user.email,
+          firstName: user.firstName,
+          token: rawToken,
+          locale: user.locale,
+        });
+      });
+    } finally {
+      await this.waitForPasswordResetResponse(startedAt);
+    }
+  }
+
+  async validatePasswordReset(token: string, ipAddress: string): Promise<void> {
+    const normalizedToken = token.trim();
+    if (!normalizedToken) {
+      throw new BadRequestException('Invalid password reset token');
+    }
+
+    const tokenHash = this.hashToken(normalizedToken);
+    const [tokenAllowed, ipAllowed] = await Promise.all([
       this.rateLimits.consume(
-        'password-reset-request-email',
-        email,
-        this.rateLimits.passwordResetRequestLimit(),
-        this.rateLimits.passwordResetRequestWindowSeconds(),
+        'password-reset-validate-token',
+        tokenHash,
+        this.rateLimits.passwordResetConfirmLimit(),
+        this.rateLimits.passwordResetConfirmWindowSeconds(),
       ),
       this.rateLimits.consume(
-        'password-reset-request-ip',
-        input.ipAddress,
-        this.rateLimits.passwordResetRequestLimit(),
-        this.rateLimits.passwordResetRequestWindowSeconds(),
+        'password-reset-validate-ip',
+        ipAddress,
+        this.rateLimits.passwordResetConfirmLimit(),
+        this.rateLimits.passwordResetConfirmWindowSeconds(),
       ),
     ]);
-    if (!emailAllowed || !ipAllowed) {
+    if (!tokenAllowed || !ipAllowed) {
       throw new HttpException(
-        'Too many password reset requests',
+        'Too many password reset attempts',
         HttpStatus.TOO_MANY_REQUESTS,
       );
     }
 
+    const resetToken = await this.dataSource
+      .getRepository(PasswordResetToken)
+      .findOne({ where: { tokenHash } });
+    if (
+      !resetToken ||
+      resetToken.usedAt ||
+      resetToken.expiresAt.getTime() <= Date.now()
+    ) {
+      throw new BadRequestException('Invalid password reset token');
+    }
+
     const user = await this.dataSource.getRepository(User).findOne({
-      where: { email },
+      where: { id: resetToken.userId },
     });
-    if (!user) return;
-
-    const rawToken = randomBytes(32).toString('hex');
-    const tokenHash = this.hashToken(rawToken);
-    const correlationId = randomUUID();
-    const now = new Date();
-    const expiresAt = new Date(
-      now.getTime() + this.passwordResetTtlMinutes() * 60_000,
-    );
-
-    const shouldSend = await this.dataSource.transaction(async (manager) => {
-      const userRepository = manager.getRepository(User);
-      const lockedUser = await userRepository.findOne({
-        where: { id: user.id },
-        lock: { mode: 'pessimistic_write' },
-      });
-      if (
-        !lockedUser ||
-        lockedUser.status !== UserStatus.ACTIVE ||
-        !lockedUser.emailVerifiedAt
-      ) {
-        return false;
-      }
-
-      const tokenRepository = manager.getRepository(PasswordResetToken);
-      await tokenRepository.update(
-        { userId: lockedUser.id, usedAt: IsNull() },
-        { usedAt: now },
-      );
-      await tokenRepository.save(
-        tokenRepository.create({
-          userId: lockedUser.id,
-          tokenHash,
-          expiresAt,
-          usedAt: null,
-        }),
-      );
-      await this.audit.record(manager, {
-        organizationId: null,
-        actorType: AuditActorType.SYSTEM,
-        actorUserId: lockedUser.id,
-        actorMembershipId: null,
-        action: 'auth.password.reset.requested',
-        decision: AuditDecision.ALLOW,
-        objectType: 'user',
-        objectId: lockedUser.id,
-        correlationId,
-        ipAddress: input.ipAddress,
-        metadata: { schemaVersion: 1 },
-      });
-      return true;
-    });
-
-    if (!shouldSend) return;
-    await this.email.sendPasswordReset({
-      email: user.email,
-      firstName: user.firstName,
-      token: rawToken,
-      locale: user.locale,
-    });
+    if (!user || user.status !== UserStatus.ACTIVE || !user.emailVerifiedAt) {
+      throw new BadRequestException('Invalid password reset token');
+    }
   }
 
   async confirmPasswordReset(input: {
@@ -1190,7 +1246,15 @@ export class AuthService {
   }
 
   private passwordResetTtlMinutes(): number {
-    return this.config.get<number>('auth.passwordResetTtlMinutes') ?? 30;
+    return this.config.get<number>('auth.passwordResetTtlMinutes') ?? 60;
+  }
+
+  private async waitForPasswordResetResponse(startedAt: number): Promise<void> {
+    const remainingMs =
+      PASSWORD_RESET_MIN_RESPONSE_MS - (Date.now() - startedAt);
+    if (remainingMs > 0) {
+      await new Promise<void>((resolve) => setTimeout(resolve, remainingMs));
+    }
   }
 
   private trialDurationDays(): number {

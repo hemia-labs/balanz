@@ -84,7 +84,7 @@ export class SesEmailDeliveryAdapter implements EmailDeliveryPort {
 
     await this.client.send(
       new SendEmailCommand({
-        FromEmailAddress: `${email.ses.fromName} <${email.ses.fromAuth}>`,
+        FromEmailAddress: `${email.appName} <${email.ses.fromAuth}>`,
         Destination: { ToAddresses: [input.email] },
         ReplyToAddresses: [email.ses.replyTo],
         ConfigurationSetName: email.ses.configurationSetAuth,

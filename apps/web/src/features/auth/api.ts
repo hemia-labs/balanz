@@ -27,6 +27,10 @@ export function requestPasswordReset(email: string, signal?: AbortSignal) {
   return apiClient<void>("/auth/password-reset/request", { method: "POST", body: JSON.stringify({ email }), signal });
 }
 
+export function validatePasswordReset(token: string, signal?: AbortSignal) {
+  return apiClient<void>("/auth/password-reset/validate", { method: "POST", body: JSON.stringify({ token }), signal });
+}
+
 export function confirmPasswordReset(token: string, newPassword: string, signal?: AbortSignal) {
   return apiClient<void>("/auth/password-reset/confirm", { method: "POST", body: JSON.stringify({ token, newPassword }), signal });
 }

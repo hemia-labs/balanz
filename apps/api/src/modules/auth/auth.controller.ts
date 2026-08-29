@@ -104,6 +104,15 @@ export class AuthController {
     });
   }
 
+  @Post('password-reset/validate')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async validatePasswordReset(
+    @Body() input: VerifyEmailDto,
+    @Req() request: Request,
+  ): Promise<void> {
+    await this.auth.validatePasswordReset(input.token, this.clientIp(request));
+  }
+
   @Post('password-reset/confirm')
   @HttpCode(HttpStatus.NO_CONTENT)
   async confirmPasswordReset(

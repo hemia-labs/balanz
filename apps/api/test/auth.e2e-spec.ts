@@ -315,9 +315,16 @@ describe('Auth registration and MFA (e2e)', () => {
     expect(stored[0]?.token_hash).not.toBe(rawToken);
 
     await request(app.getHttpServer())
-      .post(`${apiPrefix}/auth/password-reset/confirm`)
+      .post(`${apiPrefix}/auth/password-reset/validate`)
       .set('Origin', allowedOrigin)
       .set('X-Forwarded-For', runIp(32))
+      .send({ token: rawToken })
+      .expect(204);
+
+    await request(app.getHttpServer())
+      .post(`${apiPrefix}/auth/password-reset/confirm`)
+      .set('Origin', allowedOrigin)
+      .set('X-Forwarded-For', runIp(33))
       .send({ token: rawToken, newPassword: 'new-secret-123' })
       .expect(204);
 
@@ -338,8 +345,15 @@ describe('Auth registration and MFA (e2e)', () => {
     await request(app.getHttpServer())
       .post(`${apiPrefix}/auth/password-reset/confirm`)
       .set('Origin', allowedOrigin)
-      .set('X-Forwarded-For', runIp(33))
+      .set('X-Forwarded-For', runIp(34))
       .send({ token: rawToken, newPassword: 'another-secret-123' })
+      .expect(400);
+
+    await request(app.getHttpServer())
+      .post(`${apiPrefix}/auth/password-reset/validate`)
+      .set('Origin', allowedOrigin)
+      .set('X-Forwarded-For', runIp(35))
+      .send({ token: rawToken })
       .expect(400);
   });
 

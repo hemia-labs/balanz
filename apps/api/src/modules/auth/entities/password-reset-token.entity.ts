@@ -9,6 +9,8 @@ import {
 
 @Index('uq_password_reset_tokens_hash', ['tokenHash'], { unique: true })
 @Index('idx_password_reset_tokens_user_expires', ['userId', 'expiresAt'])
+@Index('idx_password_reset_tokens_expires_at', ['expiresAt'])
+@Index('idx_password_reset_tokens_used_at', ['usedAt'])
 @ForeignKey('users', ['userId'], ['id'], {
   name: 'fk_password_reset_tokens_user',
   onDelete: 'RESTRICT',

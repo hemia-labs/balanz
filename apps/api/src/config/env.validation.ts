@@ -136,7 +136,7 @@ export const envVarsSchema = Joi.object({
     .integer()
     .min(15)
     .max(60)
-    .default(30),
+    .default(60),
   AUTH_VERIFICATION_REGISTER_LIMIT: Joi.number()
     .integer()
     .positive()

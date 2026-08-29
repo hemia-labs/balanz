@@ -79,7 +79,7 @@ describe('SesEmailDeliveryAdapter', () => {
           configurationSetAuth: 'hemia-dev-auth',
           passwordResetTemplate: 'cfdios-dev-forgot-password',
         },
-        appName: 'Balanz',
+        appName: 'CFDIOS',
         appUrl: 'https://app.example.com',
         assetsBaseUrl: 'https://cdn.hemia.dev',
         iconEmailUrl: 'https://cdn.hemia.dev/icon-email.png',
@@ -98,7 +98,7 @@ describe('SesEmailDeliveryAdapter', () => {
     const command = send.mock.calls[0]?.[0];
     if (!command) throw new Error('SES command was not sent');
     expect(command.input).toMatchObject({
-      FromEmailAddress: 'Balanz <auth@cfdios.hemia.dev>',
+      FromEmailAddress: 'CFDIOS <auth@cfdios.hemia.dev>',
       Destination: { ToAddresses: ['cristian@example.test'] },
       ReplyToAddresses: ['support@hemia.dev'],
       ConfigurationSetName: 'hemia-dev-auth',
@@ -119,7 +119,7 @@ describe('SesEmailDeliveryAdapter', () => {
       'user_name',
     ]);
     expect(data).toMatchObject({
-      app_name: 'Balanz',
+      app_name: 'CFDIOS',
       assets_base_url: 'https://cdn.hemia.dev',
       company_address: 'Av. Reforma 123, Ciudad de México, México',
       icon_email_url: 'https://cdn.hemia.dev/icon-email.png',

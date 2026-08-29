@@ -9,7 +9,7 @@ export default registerAs('auth', () => ({
   emailVerificationTtlMinutes:
     Number(process.env.EMAIL_VERIFICATION_TTL_MINUTES) || 30,
   passwordResetTtlMinutes:
-    Number(process.env.AUTH_PASSWORD_RESET_TTL_MINUTES) || 30,
+    Number(process.env.AUTH_PASSWORD_RESET_TTL_MINUTES) || 60,
   trialDurationDays: Number(process.env.TRIAL_DURATION_DAYS) || 30,
   sessionTtlSeconds: Number(process.env.AUTH_SESSION_TTL_SECONDS) || 28_800,
   sessionIdleTtlSeconds:

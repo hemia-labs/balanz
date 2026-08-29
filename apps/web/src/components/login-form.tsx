@@ -99,6 +99,7 @@ export function LoginForm({
             inputMode="numeric"
             pattern="[0-9]*"
             autoComplete="one-time-code"
+            autoFocus
             aria-label="Código de verificación de 6 dígitos"
           >
             <InputOTPGroup className="w-full justify-between gap-2">
