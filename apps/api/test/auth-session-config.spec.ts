@@ -103,6 +103,7 @@ describe('auth session environment validation', () => {
       NODE_ENV: 'production',
       APP_CORS_ORIGINS: 'https://app.example.test',
       EMAIL_APP_URL: 'https://app.example.test',
+      EMAIL_COMPANY_ADDRESS: 'Ciudad de México, México',
       COOKIE_SECURE: true,
       HORUS_URL: 'http://horus.example.test',
       HORUS_KEY: 'production-key',
@@ -118,6 +119,7 @@ describe('auth session environment validation', () => {
       NODE_ENV: 'production',
       APP_CORS_ORIGINS: 'https://app.example.test',
       EMAIL_APP_URL: 'https://app.example.test',
+      EMAIL_COMPANY_ADDRESS: 'Ciudad de México, México',
       COOKIE_SECURE: true,
       HORUS_URL: 'https://horus.example.test',
       HORUS_KEY: 'production-key',
@@ -125,5 +127,18 @@ describe('auth session environment validation', () => {
     const { error } = envVarsSchema.validate(productionEnv);
 
     expect(error).toBeUndefined();
+  });
+
+  it('requires a company address in production', () => {
+    const { error } = envVarsSchema.validate({
+      ...requiredEnv,
+      NODE_ENV: 'production',
+      APP_CORS_ORIGINS: 'https://app.example.test',
+      EMAIL_APP_URL: 'https://app.example.test',
+      COOKIE_SECURE: true,
+      EMAIL_COMPANY_ADDRESS: '',
+    });
+
+    expect(error?.message).toContain('EMAIL_COMPANY_ADDRESS');
   });
 });

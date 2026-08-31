@@ -236,7 +236,11 @@ export const envVarsSchema = Joi.object({
     .uri()
     .default('https://app.balanz.mx/privacidad'),
   EMAIL_TERMS_URL: Joi.string().uri().default('https://app.balanz.mx/terminos'),
-  EMAIL_COMPANY_ADDRESS: Joi.string().trim().allow('').default(''),
+  EMAIL_COMPANY_ADDRESS: Joi.when('NODE_ENV', {
+    is: 'production',
+    then: Joi.string().trim().min(1).required(),
+    otherwise: Joi.string().trim().allow('').default(''),
+  }),
   EMAIL_APP_URL: Joi.when('NODE_ENV', {
     is: 'production',
     then: Joi.string()

@@ -184,7 +184,19 @@ export function ForgotPasswordForm({ locale, dictionary }: { locale: Locale; dic
       {message ? <p id={errorId} role={state === "error" || validationError ? "alert" : "status"} aria-live="polite" className={state === "error" || validationError ? "mb-4 rounded-md border border-destructive/30 bg-destructive/10 p-3 text-body-sm text-destructive" : "mb-4 rounded-md border border-success/30 bg-success/10 p-3 text-body-sm text-success"}>{message}</p> : null}
       {state === "success" ? (
         <Link href={`/${locale}/login`} className="inline-flex min-h-10 w-full items-center justify-center rounded-md bg-primary px-4 text-body-sm font-semibold text-primary-foreground hover:bg-primary/90">{auth.passwordResetGoToLogin}</Link>
-      ) : invalidReset ? null : validatingReset ? (
+      ) : invalidReset ? (
+        <Button
+          type="button"
+          onClick={() => {
+            setToken(null);
+            setPendingToken(null);
+            setMessage(null);
+            setState("request");
+          }}
+        >
+          {auth.passwordResetRequestNewLink}
+        </Button>
+      ) : validatingReset ? (
         <p role="status" aria-live="polite" className="text-center text-body-sm text-muted-foreground">{auth.passwordResetValidating}</p>
       ) : validationError ? (
         <Button type="button" className="w-full" onClick={retryValidation} disabled={cooldown > 0}>{cooldown > 0 ? `${auth.passwordResetCooldown} ${cooldown}s` : auth.passwordResetRetryValidation}</Button>

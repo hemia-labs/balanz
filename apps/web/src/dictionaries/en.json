@@ -149,6 +149,7 @@
     "passwordResetPasswordTooShort": "The password must be at least 8 characters.",
     "passwordResetPasswordsDoNotMatch": "The passwords do not match.",
     "passwordResetInvalidLink": "The link is invalid, expired, or has already been used.",
+    "passwordResetRequestNewLink": "Request a new link",
     "passwordResetCompleted": "Your password was updated. You can now sign in.",
     "passwordResetSuccessTitle": "Password updated",
     "passwordResetSuccessDescription": "For your security, your previous sessions were signed out.",

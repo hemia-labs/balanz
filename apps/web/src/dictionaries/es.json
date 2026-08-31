@@ -149,6 +149,7 @@
     "passwordResetPasswordTooShort": "La contraseña debe tener al menos 8 caracteres.",
     "passwordResetPasswordsDoNotMatch": "Las contraseñas no coinciden.",
     "passwordResetInvalidLink": "El enlace no es válido, expiró o ya fue utilizado.",
+    "passwordResetRequestNewLink": "Solicitar un nuevo enlace",
     "passwordResetCompleted": "Tu contraseña se actualizó. Ya puedes iniciar sesión.",
     "passwordResetSuccessTitle": "Contraseña actualizada",
     "passwordResetSuccessDescription": "Por seguridad, tus sesiones anteriores fueron cerradas.",

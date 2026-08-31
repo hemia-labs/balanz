@@ -77,8 +77,6 @@ export default registerAs('email', (): EmailConfig => {
     privacyUrl:
       process.env.EMAIL_PRIVACY_URL || 'https://app.balanz.mx/privacidad',
     termsUrl: process.env.EMAIL_TERMS_URL || 'https://app.balanz.mx/terminos',
-    companyAddress:
-      process.env.EMAIL_COMPANY_ADDRESS ||
-      'Av. Reforma 123, Ciudad de México, México',
+    companyAddress: process.env.EMAIL_COMPANY_ADDRESS || '',
   };
 });
