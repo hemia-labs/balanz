@@ -6,10 +6,10 @@ Este documento define los correos transaccionales recomendados para CFDIOS,
 el remitente que debe usarse, el evento que los dispara, sus destinatarios y
 su objetivo.
 
-Actualmente están implementados el correo de verificación y la bienvenida
-posterior a la confirmación. Los demás correos deben agregarse cuando exista el
-evento correspondiente en el backend; no deben dispararse desde pantallas demo
-ni desde el frontend.
+Actualmente están implementados el correo de verificación, la bienvenida
+posterior a la confirmación y la solicitud de recuperación de contraseña. Los
+demás correos deben agregarse cuando exista el evento correspondiente en el
+backend; no deben dispararse desde pantallas demo ni desde el frontend.
 
 ## Remitentes
 
@@ -36,7 +36,7 @@ buzones para recibir correo.
 | Tipo | Remitente | Evento de origen | Destinatario | Objetivo | Estado |
 | --- | --- | --- | --- | --- | --- |
 | Verificación de correo | `auth@cfdios.hemia.dev` | Registro o reenvío desde `AuthService` | Correo de la cuenta | Confirmar la propiedad del correo y activar la cuenta | Implementado |
-| Recuperación de contraseña | `auth@cfdios.hemia.dev` | Solicitud y token creados por el backend | Correo de la cuenta | Restablecer la contraseña mediante un enlace temporal | Pendiente de backend |
+| Recuperación de contraseña | `auth@cfdios.hemia.dev` | Solicitud y token creados por el backend | Correo de la cuenta | Restablecer la contraseña mediante un enlace temporal | Backend implementado; frontend pendiente |
 | MFA activado | `auth@cfdios.hemia.dev` | Confirmación exitosa del TOTP | Correo de la cuenta | Informar que se agregó un segundo factor | Recomendado siguiente |
 | MFA desactivado | `auth@cfdios.hemia.dev` | Desactivación confirmada del TOTP | Correo de la cuenta | Alertar inmediatamente de un cambio sensible | Recomendado siguiente |
 | Correo o contraseña modificados | `auth@cfdios.hemia.dev` | Cambio confirmado por el backend | Correo anterior y/o actual, según el cambio | Alertar sobre modificaciones de credenciales | Futuro |
@@ -91,8 +91,7 @@ saturar a los usuarios.
 ## Orden recomendado de implementación
 
 1. Mantener la verificación de correo existente.
-2. Agregar recuperación de contraseña y alertas de activación/desactivación de
-   MFA.
+2. Agregar alertas de activación/desactivación de MFA.
 3. Enviar bienvenida e inicio de prueba al confirmar el correo.
 4. Agregar recordatorios sobre `trialEndsAt` cuando exista un scheduler.
 5. Incorporar invitaciones cuando el backend pueda crear y aceptar membresías.

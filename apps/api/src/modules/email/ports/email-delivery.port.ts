@@ -7,6 +7,13 @@ export interface EmailDeliveryPort {
     token: string;
   }): Promise<void>;
 
+  sendPasswordReset(input: {
+    email: string;
+    firstName?: string;
+    token: string;
+    locale?: string;
+  }): Promise<void>;
+
   sendWelcome(input: {
     email: string;
     firstName?: string;

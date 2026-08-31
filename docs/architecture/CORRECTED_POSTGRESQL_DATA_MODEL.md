@@ -1667,7 +1667,7 @@ Los estados `validated` o `generated` significan “validado internamente” y �
 | `/es` | resolver entrada | sesión sólo cuando exista auth real | organización activa/membresías | — | sesión |
 | `/es/login` | autenticar | `auth_sessions`, auditoría | `users`, factors | — | público + MFA |
 | `/es/register` | identidad/primer despacho | user/org/membership/subscription pending | alta transaccional | email verification | público |
-| `/es/forgot-password` | recuperar | factor/session/audit según proveedor | user por token opaco | email | público |
+| `/es/forgot-password` | recuperar | `password_reset_tokens`, `users.password_hash`, `auth_sessions`, `audit_events` | user por token opaco | email | público |
 | `/es/onboarding` | configurar despacho | org/settings, client/entity/year | wizard read model | — | owner |
 | `/es/seleccionar-despacho` | elegir tenant | `auth_sessions` | memberships/orgs | — | sesión |
 | `/es/perfil` | editar perfil | `users` | `users` | — | identidad propia |

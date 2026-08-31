@@ -52,7 +52,7 @@ async function validateMigrationLifecycle(): Promise<void> {
 
     const initial = await temporary.runMigrations({ transaction: 'all' });
     report.initialMigrations = initial.map((migration) => migration.name);
-    assertEqual(initial.length, 4, 'initial migration count');
+    assertEqual(initial.length, 6, 'initial migration count');
 
     await seedDatabase(temporary);
     await seedDatabase(temporary);
@@ -77,6 +77,27 @@ async function validateMigrationLifecycle(): Promise<void> {
       PERMISSION_CATALOG.length,
       'distinct seed permission count',
     );
+
+    await temporary.undoLastMigration({ transaction: 'all' });
+    const [cleanupIndexesRollback] = await temporary.query<
+      Array<Record<string, boolean>>
+    >(
+      `SELECT
+        to_regclass('public.idx_password_reset_tokens_expires_at') IS NULL AS expires_index_removed,
+        to_regclass('public.idx_password_reset_tokens_used_at') IS NULL AS used_index_removed,
+        to_regclass('public.password_reset_tokens') IS NOT NULL AS password_reset_tokens_preserved`,
+    );
+    report.cleanupIndexesRollback = cleanupIndexesRollback;
+    assertAllTrue(cleanupIndexesRollback, 'auth cleanup indexes rollback');
+
+    await temporary.undoLastMigration({ transaction: 'all' });
+    const [passwordResetRollback] = await temporary.query<
+      Array<Record<string, boolean>>
+    >(
+      `SELECT to_regclass('public.password_reset_tokens') IS NULL AS password_reset_tokens_removed`,
+    );
+    report.passwordResetRollback = passwordResetRollback;
+    assertAllTrue(passwordResetRollback, 'password reset rollback');
 
     await temporary.undoLastMigration({ transaction: 'all' });
     const [searchRollback] = await temporary.query<
@@ -108,9 +129,9 @@ async function validateMigrationLifecycle(): Promise<void> {
     const reappliedClient = await temporary.runMigrations({
       transaction: 'all',
     });
-    assertEqual(reappliedClient.length, 2, 'client migration reapply count');
+    assertEqual(reappliedClient.length, 4, 'client migration reapply count');
 
-    for (let index = 0; index < 4; index += 1) {
+    for (let index = 0; index < 6; index += 1) {
       await temporary.undoLastMigration({ transaction: 'all' });
     }
     const [fullRollback] = await temporary.query<
@@ -119,13 +140,14 @@ async function validateMigrationLifecycle(): Promise<void> {
       `SELECT
         to_regclass('public.client_accounts') IS NULL AS clients_removed,
         to_regclass('public.memberships') IS NULL AS memberships_removed,
+        to_regclass('public.password_reset_tokens') IS NULL AS password_reset_tokens_removed,
         to_regclass('public.users') IS NULL AS users_removed`,
     );
     report.fullRollback = fullRollback;
     assertAllTrue(fullRollback, 'full rollback');
 
     const reapplied = await temporary.runMigrations({ transaction: 'all' });
-    assertEqual(reapplied.length, 4, 'full migration reapply count');
+    assertEqual(reapplied.length, 6, 'full migration reapply count');
     await seedDatabase(temporary);
     const schemaLog = await temporary.driver.createSchemaBuilder().log();
     report.reappliedMigrations = reapplied.map((migration) => migration.name);

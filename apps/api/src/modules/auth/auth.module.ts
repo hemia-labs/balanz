@@ -7,6 +7,7 @@ import { OrganizationsModule } from '../organizations/organizations.module';
 import { SessionsModule } from '../sessions/sessions.module';
 import { SubscriptionsModule } from '../subscriptions/subscriptions.module';
 import { EmailVerificationToken } from './entities/email-verification-token.entity';
+import { PasswordResetToken } from './entities/password-reset-token.entity';
 import { AuthFactor } from './entities/auth-factor.entity';
 import { AuthRateLimit } from './entities/auth-rate-limit.entity';
 import { AuthService } from './auth.service';
@@ -22,6 +23,7 @@ import { MfaEncryptionService } from './mfa-encryption.service';
   imports: [
     TypeOrmModule.forFeature([
       EmailVerificationToken,
+      PasswordResetToken,
       AuthFactor,
       AuthRateLimit,
     ]),
