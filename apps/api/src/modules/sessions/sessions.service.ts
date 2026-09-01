@@ -69,6 +69,7 @@ export class SessionsService {
         membershipId: input.membershipId ?? null,
         status: AuthSessionStatus.ACTIVE,
         mfaVerifiedAt: input.mfaVerifiedAt ?? null,
+        reauthenticatedAt: input.reauthenticatedAt ?? null,
         requiresMfa: input.requiresMfa ?? false,
         expiresAt: new Date(now.getTime() + this.sessionTtlMs()),
         lastActivityAt: now,
@@ -362,13 +363,14 @@ export class SessionsService {
     persistedLastActivityAt = session.lastActivityAt,
   ): CachedSessionEntry {
     return {
-      version: 4,
+      version: 5,
       sessionId: session.id,
       userId: session.userId,
       organizationId: session.organizationId ?? null,
       membershipId: session.membershipId ?? null,
       status: session.status,
       mfaVerifiedAt: session.mfaVerifiedAt?.toISOString() ?? null,
+      reauthenticatedAt: session.reauthenticatedAt?.toISOString() ?? null,
       requiresMfa: session.requiresMfa,
       mfaStatus: context.mfaStatus,
       expiresAt: session.expiresAt.toISOString(),
@@ -390,6 +392,9 @@ export class SessionsService {
       membershipId: entry.membershipId,
       status: entry.status,
       mfaVerifiedAt: entry.mfaVerifiedAt ? new Date(entry.mfaVerifiedAt) : null,
+      reauthenticatedAt: entry.reauthenticatedAt
+        ? new Date(entry.reauthenticatedAt)
+        : null,
       requiresMfa: entry.requiresMfa,
       expiresAt: new Date(entry.expiresAt),
       lastActivityAt: new Date(entry.lastActivityAt),
@@ -409,6 +414,9 @@ export class SessionsService {
       assignedAccountIds: [],
       accountAccessMode: entry.accountAccessMode,
       mfaVerifiedAt: entry.mfaVerifiedAt ? new Date(entry.mfaVerifiedAt) : null,
+      reauthenticatedAt: entry.reauthenticatedAt
+        ? new Date(entry.reauthenticatedAt)
+        : null,
       requiresMfa: entry.requiresMfa,
       mfaStatus: entry.mfaStatus,
       expiresAt: new Date(entry.expiresAt),

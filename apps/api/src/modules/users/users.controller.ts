@@ -32,6 +32,7 @@ export class UsersController {
   constructor(private readonly service: UsersService) {}
 
   @Get()
+  @Permissions('team.view')
   findAll(
     @Query() query: FindUsersDto,
     @CurrentTenant() tenant: SessionAuthorizationContext,
@@ -40,6 +41,7 @@ export class UsersController {
   }
 
   @Get(':id')
+  @Permissions('team.view')
   findOne(
     @Param('id', ParseUUIDPipe) id: string,
     @CurrentTenant() tenant: SessionAuthorizationContext,

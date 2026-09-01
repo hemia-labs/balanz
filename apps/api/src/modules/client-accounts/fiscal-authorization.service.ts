@@ -101,7 +101,7 @@ export class FiscalAuthorizationService {
     }
     if (
       input.requireReauthentication &&
-      !hasRecentReauthentication(session.mfaVerifiedAt)
+      !hasRecentReauthentication(session.reauthenticatedAt)
     ) {
       await this.denied(
         context,

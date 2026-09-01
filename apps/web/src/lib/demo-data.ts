@@ -1,6 +1,29 @@
 import type { Capability, DemoFixtureSet } from "@/lib/accounting-types";
 
-const titularCapabilities: Capability[] = ["organization.view", "organization.manage", "ownership.manage", "billing.manage", "team.view", "members.manage", "permissions.manage", "clients.view", "clients.manage", "clients.assign", "credentials.manage", "sat.download", "payroll.view", "cfdi.review", "cfdi.exclude", "periods.close", "periods.reopen", "exports.generate", "obligations.view", "obligations.configure", "diot.generate", "ieps.generate", "audit.view", "support.authorize"];
+const titularCapabilities: Capability[] = [
+  "organization.view",
+  "organization.manage",
+  "ownership.manage",
+  "billing.manage",
+  "team.view",
+  "members.manage",
+  "permissions.manage",
+  "clients.view",
+  "clients.manage",
+  "clients.assign",
+  "fiscal_entities.view",
+  "fiscal_entities.manage",
+  "fiscal_years.view",
+  "fiscal_years.manage",
+  "credentials.manage",
+  "sat.download",
+  "payroll.view",
+  "cfdi.exclude",
+  "periods.close",
+  "periods.reopen",
+  "exports.generate",
+  "support.authorize",
+];
 
 export const demoData: DemoFixtureSet = {
   mode: "demo",
@@ -33,7 +56,12 @@ export const demoData: DemoFixtureSet = {
     {
       organizationId: "colectivo-centro",
       role: "colaborador",
-      capabilities: ["organization.view", "clients.view", "cfdi.review", "obligations.view"],
+      capabilities: [
+        "organization.view",
+        "clients.view",
+        "fiscal_entities.view",
+        "fiscal_years.view",
+      ],
       assignedClientIds: ["distribuidora-lago"],
     },
   ],
@@ -375,16 +403,27 @@ export function organizationById(id: string) {
   return demoData.organizations.find((organization) => organization.id === id);
 }
 export function organizationBySlug(slug: string) {
-  return demoData.organizations.find((organization) => organization.slug === slug);
+  return demoData.organizations.find(
+    (organization) => organization.slug === slug,
+  );
 }
 export function membershipFor(organizationId: string) {
-  return demoData.memberships.find((membership) => membership.organizationId === organizationId);
+  return demoData.memberships.find(
+    (membership) => membership.organizationId === organizationId,
+  );
 }
 export function clientsFor(organizationId: string) {
   const membership = membershipFor(organizationId);
   if (!membership) return [];
-  return demoData.clients.filter((client) => client.organizationId === organizationId && membership.assignedClientIds.includes(client.id));
+  return demoData.clients.filter(
+    (client) =>
+      client.organizationId === organizationId &&
+      membership.assignedClientIds.includes(client.id),
+  );
 }
 export function clientById(organizationId: string, clientId: string) {
-  return demoData.clients.find((client) => client.organizationId === organizationId && client.id === clientId);
+  return demoData.clients.find(
+    (client) =>
+      client.organizationId === organizationId && client.id === clientId,
+  );
 }

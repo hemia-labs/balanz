@@ -17,6 +17,7 @@ describe('FiscalAuthorizationService', () => {
     assignedAccountIds: [],
     accountAccessMode: 'assigned',
     mfaVerifiedAt: new Date(),
+    reauthenticatedAt: new Date(),
     requiresMfa: true,
     mfaStatus: 'active',
     expiresAt: new Date(Date.now() + 60_000),
@@ -35,7 +36,10 @@ describe('FiscalAuthorizationService', () => {
     );
     await expect(
       service.authorize(
-        { mfaVerifiedAt: new Date() } as AuthSession,
+        {
+          mfaVerifiedAt: new Date(),
+          reauthenticatedAt: new Date(),
+        } as AuthSession,
         context(),
         request,
         {
@@ -65,7 +69,10 @@ describe('FiscalAuthorizationService', () => {
     denied.permissions = [];
     await expect(
       service.authorize(
-        { mfaVerifiedAt: new Date() } as AuthSession,
+        {
+          mfaVerifiedAt: new Date(),
+          reauthenticatedAt: new Date(),
+        } as AuthSession,
         denied,
         request,
         {
@@ -88,10 +95,45 @@ describe('FiscalAuthorizationService', () => {
       audit as never,
       {} as never,
     );
-    const oldMfa = new Date(Date.now() - 16 * 60 * 1000);
+    const oldReauthentication = new Date(Date.now() - 16 * 60 * 1000);
     await expect(
       service.authorize(
-        { mfaVerifiedAt: oldMfa } as AuthSession,
+        {
+          mfaVerifiedAt: new Date(),
+          reauthenticatedAt: oldReauthentication,
+        } as AuthSession,
+        context(),
+        request,
+        {
+          permission: 'periods.close',
+          clientAccountId: accountId,
+          objectType: 'period',
+          requireReauthentication: true,
+        },
+      ),
+    ).rejects.toBeInstanceOf(UnauthorizedException);
+    expect(audit.recordDirect).toHaveBeenCalledWith(
+      expect.objectContaining({
+        decision: AuditDecision.REAUTHENTICATION_REQUIRED,
+      }),
+    );
+  });
+
+  it('does not treat login MFA as recent reauthentication', async () => {
+    const scope = { requireAccessibleAccount: jest.fn().mockResolvedValue({}) };
+    const audit = { recordDirect: jest.fn().mockResolvedValue({}) };
+    const service = new FiscalAuthorizationService(
+      scope as never,
+      audit as never,
+      {} as never,
+    );
+
+    await expect(
+      service.authorize(
+        {
+          mfaVerifiedAt: new Date(),
+          reauthenticatedAt: null,
+        } as AuthSession,
         context(),
         request,
         {

@@ -362,7 +362,7 @@ export class PermissionAdministrationService {
     tenant: SessionAuthorizationContext,
     request: RequestContext,
   ): Promise<void> {
-    if (!hasRecentReauthentication(tenant.mfaVerifiedAt)) {
+    if (!hasRecentReauthentication(tenant.reauthenticatedAt)) {
       await this.auditDenial(
         organizationId,
         membershipId,

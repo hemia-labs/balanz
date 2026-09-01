@@ -53,6 +53,70 @@ const COLLABORATOR_PERMISSION_KEYS = [
   'fiscal_years.view',
 ] as const;
 
+const LEGACY_PERMISSION_KEYS = [
+  'organization.view',
+  'organization.manage',
+  'ownership.manage',
+  'billing.manage',
+  'team.view',
+  'team.manage',
+  'clients.view',
+  'clients.manage',
+  'clients.assign',
+  'fiscal_entities.view',
+  'fiscal_entities.manage',
+  'fiscal_years.view',
+  'fiscal_years.manage',
+  'credentials.manage',
+  'sat.download',
+  'payroll.view',
+  'cfdi.review',
+  'cfdi.exclude',
+  'period.close',
+  'period.reopen',
+  'exports.create',
+  'obligations.view',
+  'obligations.configure',
+  'diot.generate',
+  'ieps.generate',
+  'audit.view',
+  'support.authorize',
+] as const;
+
+const LEGACY_ACCOUNTANT_PERMISSION_KEYS = [
+  'organization.view',
+  'team.view',
+  'clients.view',
+  'clients.manage',
+  'clients.assign',
+  'fiscal_entities.view',
+  'fiscal_entities.manage',
+  'fiscal_years.view',
+  'fiscal_years.manage',
+  'credentials.manage',
+  'sat.download',
+  'payroll.view',
+  'cfdi.review',
+  'cfdi.exclude',
+  'period.close',
+  'period.reopen',
+  'exports.create',
+  'obligations.view',
+  'obligations.configure',
+  'diot.generate',
+  'ieps.generate',
+  'audit.view',
+] as const;
+
+const LEGACY_COLLABORATOR_PERMISSION_KEYS = [
+  'organization.view',
+  'clients.view',
+  'fiscal_entities.view',
+  'fiscal_years.view',
+  'cfdi.review',
+  'obligations.view',
+] as const;
+
 const sqlList = (values: readonly string[]): string =>
   values.map((value) => `'${value}'`).join(', ');
 
@@ -169,6 +233,7 @@ export class AuthorizationModel1787690050000 implements MigrationInterface {
   public async down(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.query(`DROP TABLE membership_permissions`);
     await queryRunner.query(`
+      DELETE FROM role_permissions;
       ALTER TABLE role_permissions DROP CONSTRAINT role_permissions_validity_chk;
       ALTER TABLE role_permissions DROP COLUMN updated_at;
       ALTER TABLE role_permissions DROP COLUMN created_at;
@@ -179,10 +244,48 @@ export class AuthorizationModel1787690050000 implements MigrationInterface {
       UPDATE roles SET key = 'owner', name = 'Titular',
         description = 'Control total de una organización.', scope = 'organization'
       WHERE key = 'admin';
+      UPDATE roles SET name = 'Contador responsable',
+        description = 'Acceso operativo contable dentro de una organización.',
+        scope = 'organization' WHERE key = 'accountant';
+      UPDATE roles SET name = 'Colaborador',
+        description = 'Acceso básico de consulta y revisión.',
+        scope = 'organization' WHERE key = 'collaborator';
       INSERT INTO roles (id, key, name, description, scope) VALUES
         (uuid_generate_v4(), 'admin', 'Administrador de plataforma',
          'Administración interna de la plataforma fuera de tenants.', 'platform')
       ON CONFLICT (key) DO NOTHING;
+
+      DELETE FROM permissions WHERE key = 'periods.close'
+        AND EXISTS (SELECT 1 FROM permissions WHERE key = 'period.close');
+      UPDATE permissions SET key = 'period.close', name = 'Cerrar períodos',
+        description = 'Cerrar un período contable o fiscal.'
+      WHERE key = 'periods.close';
+      DELETE FROM permissions WHERE key = 'periods.reopen'
+        AND EXISTS (SELECT 1 FROM permissions WHERE key = 'period.reopen');
+      UPDATE permissions SET key = 'period.reopen', name = 'Reabrir períodos',
+        description = 'Reabrir un período previamente cerrado.'
+      WHERE key = 'periods.reopen';
+      DELETE FROM permissions WHERE key = 'exports.generate'
+        AND EXISTS (SELECT 1 FROM permissions WHERE key = 'exports.create');
+      UPDATE permissions SET key = 'exports.create', name = 'Crear exportaciones',
+        description = 'Generar exportaciones de información autorizada.'
+      WHERE key = 'exports.generate';
+      DELETE FROM permissions WHERE key = 'members.manage'
+        AND EXISTS (SELECT 1 FROM permissions WHERE key = 'team.manage');
+      UPDATE permissions SET key = 'team.manage', name = 'Administrar equipo',
+        description = 'Crear, actualizar, suspender o revocar miembros.'
+      WHERE key = 'members.manage';
+      DELETE FROM permissions
+      WHERE key NOT IN (${sqlList(LEGACY_PERMISSION_KEYS)});
+      INSERT INTO permissions (id, key, name, description) VALUES
+        (uuid_generate_v4(), 'cfdi.review', 'Revisar CFDI', 'Consultar y revisar comprobantes fiscales digitales.'),
+        (uuid_generate_v4(), 'obligations.view', 'Ver obligaciones', 'Consultar obligaciones y su estado.'),
+        (uuid_generate_v4(), 'obligations.configure', 'Configurar obligaciones', 'Configurar obligaciones y reglas operativas.'),
+        (uuid_generate_v4(), 'diot.generate', 'Generar DIOT', 'Generar información para la declaración DIOT.'),
+        (uuid_generate_v4(), 'ieps.generate', 'Generar IEPS', 'Generar información para procesos IEPS.'),
+        (uuid_generate_v4(), 'audit.view', 'Ver auditoría', 'Consultar eventos de auditoría de la organización.')
+      ON CONFLICT (key) DO NOTHING;
+
       ALTER TABLE permissions DROP CONSTRAINT permissions_status_chk;
       ALTER TABLE permissions DROP CONSTRAINT permissions_key_format_chk;
       ALTER TABLE permissions DROP COLUMN updated_at;
@@ -191,6 +294,18 @@ export class AuthorizationModel1787690050000 implements MigrationInterface {
       ALTER TABLE permissions DROP COLUMN requires_reauthentication;
       ALTER TABLE permissions DROP COLUMN requires_mfa;
       ALTER TABLE permissions DROP COLUMN sensitive;
+
+      INSERT INTO role_permissions (role_id, permission_id)
+      SELECT r.id, p.id FROM roles r CROSS JOIN permissions p
+      WHERE r.key = 'owner' AND p.key IN (${sqlList(LEGACY_PERMISSION_KEYS)});
+      INSERT INTO role_permissions (role_id, permission_id)
+      SELECT r.id, p.id FROM roles r CROSS JOIN permissions p
+      WHERE r.key = 'accountant'
+        AND p.key IN (${sqlList(LEGACY_ACCOUNTANT_PERMISSION_KEYS)});
+      INSERT INTO role_permissions (role_id, permission_id)
+      SELECT r.id, p.id FROM roles r CROSS JOIN permissions p
+      WHERE r.key = 'collaborator'
+        AND p.key IN (${sqlList(LEGACY_COLLABORATOR_PERMISSION_KEYS)});
     `);
   }
 }

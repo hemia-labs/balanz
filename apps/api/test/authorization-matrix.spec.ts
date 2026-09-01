@@ -58,6 +58,7 @@ describe('TA-P0-003-04 authorization matrix', () => {
       assignedAccountIds: [accountId],
       accountAccessMode: 'assigned',
       mfaVerifiedAt: mfa ? new Date() : null,
+      reauthenticatedAt: mfa ? new Date() : null,
       requiresMfa: true,
       mfaStatus: mfa ? 'active' : 'disabled',
       expiresAt: new Date(Date.now() + 60_000),
@@ -66,10 +67,11 @@ describe('TA-P0-003-04 authorization matrix', () => {
     };
   }
 
-  const activeSession = (mfaVerifiedAt = new Date()) =>
+  const activeSession = (reauthenticatedAt = new Date()) =>
     ({
       id: sessionId,
-      mfaVerifiedAt,
+      mfaVerifiedAt: new Date(),
+      reauthenticatedAt,
       status: AuthSessionStatus.ACTIVE,
       expiresAt: new Date(Date.now() + 60_000),
     }) as AuthSession;
@@ -310,6 +312,7 @@ describe('TA-P0-003-04 authorization matrix', () => {
       status: AuthSessionStatus.ACTIVE,
       requiresMfa: true,
       mfaVerifiedAt: new Date(),
+      reauthenticatedAt: new Date(),
       expiresAt: new Date(Date.now() + 60_000),
     } as AuthSession);
     expect(resolved.permissions).toContain(permission);

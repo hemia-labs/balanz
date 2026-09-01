@@ -57,26 +57,6 @@ const periodTabs = [
   "close",
   "exports",
 ];
-const diotTabs = [
-  "overview",
-  "operations",
-  "validations",
-  "adjustments",
-  "preview",
-  "files",
-];
-const iepsTabs = [
-  "overview",
-  "source-cfdi",
-  "taxes",
-  "products",
-  "classification",
-  "additional-information",
-  "validations",
-  "preview",
-  "files",
-];
-
 export function resolveProductRoute(
   organizationId: string,
   segments: string[] = [],
@@ -108,8 +88,6 @@ export function resolveProductRoute(
     };
   if (first === "team" && !second)
     return { screen: "team", organizationId, capability: "team.view" };
-  if (first === "audit" && !second)
-    return { screen: "audit", organizationId, capability: "audit.view" };
   if (first === "settings") {
     const capability =
       second === "billing-plan" ? "billing.manage" : "organization.view";
@@ -210,7 +188,6 @@ export function resolveProductRoute(
       data: "clients.manage",
       responsibles: "clients.assign",
       "e-signature-sat": "credentials.manage",
-      obligations: "obligations.configure",
       access: "clients.assign",
     };
     if (!capabilities[fourth]) return null;
@@ -219,42 +196,6 @@ export function resolveProductRoute(
       ...base,
       section: fourth,
       capability: capabilities[fourth],
-    };
-  }
-  if (third !== "obligations") return null;
-  if (!fourth)
-    return { screen: "obligations", ...base, capability: "obligations.view" };
-  if (fourth === "generated-files" && !fifth)
-    return {
-      screen: "generated-files",
-      ...base,
-      capability: "obligations.view",
-    };
-  if (fourth === "diot" && !fifth)
-    return { screen: "diot-list", ...base, capability: "obligations.view" };
-  if (fourth === "diot" && fifth && sixth) {
-    const tab = seventh ?? "overview";
-    if (!diotTabs.includes(tab)) return null;
-    return {
-      screen: "diot-period",
-      ...base,
-      year: fifth,
-      period: sixth,
-      tab,
-      capability: "obligations.view",
-    };
-  }
-  if (fourth === "ieps" && !fifth)
-    return { screen: "ieps-list", ...base, capability: "obligations.view" };
-  if (fourth === "ieps" && fifth) {
-    const tab = sixth ?? "overview";
-    if (!iepsTabs.includes(tab)) return null;
-    return {
-      screen: "ieps-instance",
-      ...base,
-      instanceId: fifth,
-      tab,
-      capability: "obligations.view",
     };
   }
   return null;

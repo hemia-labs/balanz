@@ -964,6 +964,7 @@ export class AuthService {
       await factorRepository.save(factor);
       lockedSession.requiresMfa = true;
       lockedSession.mfaVerifiedAt = now;
+      lockedSession.reauthenticatedAt = reauthenticating ? now : null;
       lockedSession.lastActivityAt = now;
       await sessionRepository.save(lockedSession);
       const rotation = await this.sessions.rotateForManager(
@@ -1081,6 +1082,7 @@ export class AuthService {
       if (!lockedSession) throw new UnauthorizedException('Invalid session');
       lockedSession.requiresMfa = false;
       lockedSession.mfaVerifiedAt = null;
+      lockedSession.reauthenticatedAt = null;
       lockedSession.lastActivityAt = now;
       await sessionRepository.save(lockedSession);
       const rotation = await this.sessions.rotateForManager(

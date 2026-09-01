@@ -44,6 +44,7 @@ describe('TA-P0-003-04 permission administration audit', () => {
     assignedAccountIds: [],
     accountAccessMode: 'assigned',
     mfaVerifiedAt: new Date(),
+    reauthenticatedAt: new Date(),
     requiresMfa: true,
     mfaStatus: 'active',
     expiresAt: new Date(Date.now() + 60_000),
@@ -204,7 +205,7 @@ describe('TA-P0-003-04 permission administration audit', () => {
     const { service, audit, dataSource } = harness(null);
     const staleTenant = {
       ...tenant,
-      mfaVerifiedAt: new Date(Date.now() - 16 * 60 * 1000),
+      reauthenticatedAt: new Date(Date.now() - 16 * 60 * 1000),
     };
 
     await expect(

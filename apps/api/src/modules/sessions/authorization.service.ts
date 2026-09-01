@@ -174,6 +174,7 @@ export class AuthorizationService {
       assignedAccountIds: assignedAccountIds.sort(),
       accountAccessMode,
       mfaVerifiedAt: session.mfaVerifiedAt ?? null,
+      reauthenticatedAt: session.reauthenticatedAt ?? null,
       requiresMfa: session.requiresMfa,
       mfaStatus,
       expiresAt: session.expiresAt,
@@ -305,6 +306,7 @@ export class AuthorizationService {
       const previousMembershipId = session.membershipId ?? null;
       session.organizationId = organization.id;
       session.membershipId = membership.id;
+      session.reauthenticatedAt = null;
       session.lastActivityAt = new Date();
       await sessions.save(session);
       return { session, previousOrganizationId, previousMembershipId };

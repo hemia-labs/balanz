@@ -8,13 +8,14 @@ describe('SessionsService Redis resolution', () => {
   it('resolves a cache hit after confirming it is active in PostgreSQL', async () => {
     const rawToken = 'raw-session-token';
     const entry: CachedSessionEntry = {
-      version: 4,
+      version: 5,
       sessionId: 'session-1',
       userId: 'user-1',
       organizationId: 'org-1',
       membershipId: 'membership-1',
       status: 'active',
       mfaVerifiedAt: new Date().toISOString(),
+      reauthenticatedAt: new Date().toISOString(),
       requiresMfa: false,
       mfaStatus: 'disabled',
       expiresAt: new Date(Date.now() + 60_000).toISOString(),
@@ -72,6 +73,7 @@ describe('SessionsService Redis resolution', () => {
           assignedAccountIds: [],
           accountAccessMode: 'assigned',
           mfaVerifiedAt: new Date(entry.mfaVerifiedAt!),
+          reauthenticatedAt: new Date(entry.reauthenticatedAt!),
           requiresMfa: false,
           mfaStatus: 'active',
           expiresAt: new Date(entry.expiresAt),
@@ -116,13 +118,14 @@ describe('SessionsService Redis resolution', () => {
   it('rejects and removes a cached session revoked in PostgreSQL', async () => {
     const rawToken = 'revoked-session-token';
     const entry: CachedSessionEntry = {
-      version: 4,
+      version: 5,
       sessionId: 'session-1',
       userId: 'user-1',
       organizationId: 'org-1',
       membershipId: 'membership-1',
       status: 'active',
       mfaVerifiedAt: null,
+      reauthenticatedAt: null,
       requiresMfa: false,
       mfaStatus: 'disabled',
       expiresAt: new Date(Date.now() + 60_000).toISOString(),
@@ -185,13 +188,14 @@ describe('SessionsService Redis resolution', () => {
     },
   ])('does not slide past $label', async ({ expiresAt, lastActivityAt }) => {
     const entry: CachedSessionEntry = {
-      version: 4,
+      version: 5,
       sessionId: 'session-expired',
       userId: 'user-1',
       organizationId: 'org-1',
       membershipId: 'membership-1',
       status: 'active',
       mfaVerifiedAt: null,
+      reauthenticatedAt: null,
       requiresMfa: false,
       mfaStatus: 'disabled',
       expiresAt,
@@ -246,6 +250,7 @@ describe('SessionsService Redis resolution', () => {
         membershipId: 'membership-1',
         status: AuthSessionStatus.ACTIVE,
         mfaVerifiedAt: null,
+        reauthenticatedAt: null,
         requiresMfa: false,
         expiresAt: new Date('2026-08-26T14:00:00.000Z'),
         // The durable value is 120 seconds beyond the idle TTL, still inside
@@ -262,6 +267,7 @@ describe('SessionsService Redis resolution', () => {
         assignedAccountIds: [],
         accountAccessMode: 'assigned',
         mfaVerifiedAt: null,
+        reauthenticatedAt: null,
         requiresMfa: false,
         mfaStatus: 'disabled',
         expiresAt: session.expiresAt,
@@ -314,7 +320,7 @@ describe('SessionsService Redis resolution', () => {
       );
       expect(cache.set).toHaveBeenCalledWith(
         session.sessionTokenHash,
-        expect.objectContaining({ version: 4 }),
+        expect.objectContaining({ version: 5 }),
       );
     } finally {
       jest.useRealTimers();
@@ -436,6 +442,7 @@ describe('SessionsService Redis resolution', () => {
       membershipId: null,
       status: AuthSessionStatus.ACTIVE,
       mfaVerifiedAt: new Date(),
+      reauthenticatedAt: new Date(),
       requiresMfa: true,
       expiresAt: new Date(Date.now() + 60_000),
       lastActivityAt: new Date(),
@@ -450,6 +457,7 @@ describe('SessionsService Redis resolution', () => {
       assignedAccountIds: [],
       accountAccessMode: 'assigned',
       mfaVerifiedAt: session.mfaVerifiedAt,
+      reauthenticatedAt: session.reauthenticatedAt,
       requiresMfa: true,
       mfaStatus: 'active',
       expiresAt: session.expiresAt,
