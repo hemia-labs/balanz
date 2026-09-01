@@ -1,6 +1,7 @@
 const API_BASE =
   process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001/api/v1";
 const DEFAULT_TIMEOUT_MS = 10_000;
+const activeApiRequests = new Set<AbortController>();
 
 export type FieldErrors = Record<string, string[]>;
 
@@ -32,9 +33,7 @@ const unauthorizedApiListeners = new Set<UnauthorizedApiListener>();
  * regardless of which feature made the request. Authentication bootstrap and
  * login requests deliberately remain local to their own flows.
  */
-export function subscribeToUnauthorizedApi(
-  listener: UnauthorizedApiListener,
-) {
+export function subscribeToUnauthorizedApi(listener: UnauthorizedApiListener) {
   unauthorizedApiListeners.add(listener);
   return () => {
     unauthorizedApiListeners.delete(listener);
@@ -80,6 +79,10 @@ export function isAbortError(error: unknown) {
   return isApiError(error) && error.code === "ABORTED";
 }
 
+export function abortPendingApiRequests() {
+  for (const controller of [...activeApiRequests]) controller.abort();
+}
+
 const FRIENDLY_ERROR_MESSAGES: Record<string, string> = {
   ACCOUNT_ASSIGNMENT_CONFLICT:
     "Este integrante ya tiene una asignación activa en la cuenta.",
@@ -110,10 +113,18 @@ const FRIENDLY_ERROR_MESSAGES: Record<string, string> = {
   STALE_LEGAL_ENTITY:
     "La entidad fiscal cambió mientras la editabas. Recarga e intenta de nuevo.",
   VALIDATION_ERROR: "Revisa los campos señalados e intenta de nuevo.",
+  INSUFFICIENT_PERMISSION: "No tienes permiso para realizar esta acción.",
+  PERMISSION_DENIED: "No tienes permiso para realizar esta acción.",
+  OUT_OF_SCOPE: "El recurso no está dentro de tus cuentas asignadas.",
+  REAUTHENTICATION_REQUIRED:
+    "Vuelve a autenticarte para confirmar esta acción sensible.",
 };
 
 export type ApiErrorKind =
   | "unauthenticated"
+  | "mfa_required"
+  | "reauthentication_required"
+  | "out_of_scope"
   | "forbidden"
   | "conflict"
   | "validation"
@@ -126,10 +137,14 @@ export function classifyApiError(error: unknown): ApiErrorKind {
   if (error.code === "NETWORK_ERROR" || error.code === "TIMEOUT")
     return "network";
   if (error.code === "VALIDATION_ERROR") return "validation";
-  if (error.status === 401 || error.code === "MFA_REQUIRED")
-    return "unauthenticated";
-  if (error.status === 403 || error.code === "MFA_SETUP_REQUIRED")
-    return "forbidden";
+  if (error.code === "MFA_REQUIRED" || error.code === "MFA_SETUP_REQUIRED")
+    return "mfa_required";
+  if (error.code === "REAUTHENTICATION_REQUIRED")
+    return "reauthentication_required";
+  if (error.code === "OUT_OF_SCOPE" || error.code === "RESOURCE_NOT_FOUND")
+    return "out_of_scope";
+  if (error.status === 401) return "unauthenticated";
+  if (error.status === 403) return "forbidden";
   if (error.status === 409) return "conflict";
   if (error.status === 422) return "validation";
   if (error.status === 429) return "rate_limited";
@@ -182,6 +197,7 @@ export async function apiClient<T>(
   init: RequestInit = {},
 ): Promise<T> {
   const controller = new AbortController();
+  activeApiRequests.add(controller);
   const timeout = globalThis.setTimeout(
     () => controller.abort(),
     DEFAULT_TIMEOUT_MS,
@@ -219,6 +235,8 @@ export async function apiClient<T>(
       const requestMethod = (init.method ?? "GET").toUpperCase();
       if (
         requestError.status === 401 &&
+        requestError.code !== "MFA_REQUIRED" &&
+        requestError.code !== "REAUTHENTICATION_REQUIRED" &&
         shouldNotifyUnauthorizedApi(path, requestMethod)
       ) {
         notifyUnauthorizedApi({
@@ -247,6 +265,7 @@ export async function apiClient<T>(
       error,
     );
   } finally {
+    activeApiRequests.delete(controller);
     globalThis.clearTimeout(timeout);
     externalSignal?.removeEventListener("abort", abort);
   }

@@ -62,16 +62,32 @@ const LiveFiscalYearScreen = dynamic(() =>
   ),
 );
 
+const PermissionAdministrationScreen = dynamic(() =>
+  import('@/features/permissions/permission-administration-screen').then(
+    (module) => module.PermissionAdministrationScreen,
+  ),
+);
+
 export function AccountingScreen({ route }: { route: ResolvedProductRoute }) {
-  const { capabilities, isDemo, locale, organization } = useAccountingContext();
+  const { capabilities, isDemo, locale, membership, organization } =
+    useAccountingContext();
   const { organizationId, clientId } = route;
   if (!canOpenResolvedProductRoute(route, capabilities)) {
     return <LiveForbiddenScreen capability={route.capability!} />;
+  }
+  if (
+    !isDemo &&
+    route.clientId &&
+    !membership.assignedClientIds.includes(route.clientId)
+  ) {
+    return <LiveForbiddenScreen reason="out_of_scope" />;
   }
   if (!isDemo) {
     switch (route.screen) {
       case "clients":
         return <LiveClientsScreen />;
+      case "team":
+        return <PermissionAdministrationScreen />;
       case "client-overview":
         return (
           <LiveClientDetailScreen clientId={clientId!} section="overview" />

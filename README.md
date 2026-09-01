@@ -11,6 +11,9 @@ Actualmente el proyecto contiene:
 - Configuración de JWT, guards de autenticación y servicio de contraseñas.
 - Migraciones TypeORM y un runner preparado para seeds.
 
+El contrato normativo de roles, permisos, alcance y decisiones de autorización
+del MVP está en [`docs/AUTHORIZATION_MODEL.md`](docs/AUTHORIZATION_MODEL.md).
+
 ## Requisitos
 
 - [Bun](https://bun.sh)

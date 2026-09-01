@@ -6,10 +6,7 @@ import {
   isEligiblePrimaryRole,
   validateFiscalYear,
 } from '../src/modules/client-accounts/client-domain.rules';
-import {
-  RoleKey,
-  RoleScope,
-} from '../src/modules/permissions/entities/role.entity';
+import { RoleKey } from '../src/modules/permissions/entities/role.entity';
 
 const pipe = new ValidationPipe(API_VALIDATION_PIPE_OPTIONS);
 
@@ -103,17 +100,8 @@ describe('Client account input rules', () => {
   });
 
   it('only allows owner or accountant organization memberships as primary', () => {
-    expect(isEligiblePrimaryRole(RoleKey.OWNER, RoleScope.ORGANIZATION)).toBe(
-      true,
-    );
-    expect(
-      isEligiblePrimaryRole(RoleKey.ACCOUNTANT, RoleScope.ORGANIZATION),
-    ).toBe(true);
-    expect(
-      isEligiblePrimaryRole(RoleKey.COLLABORATOR, RoleScope.ORGANIZATION),
-    ).toBe(false);
-    expect(isEligiblePrimaryRole(RoleKey.ADMIN, RoleScope.PLATFORM)).toBe(
-      false,
-    );
+    expect(isEligiblePrimaryRole(RoleKey.ADMIN)).toBe(true);
+    expect(isEligiblePrimaryRole(RoleKey.ACCOUNTANT)).toBe(true);
+    expect(isEligiblePrimaryRole(RoleKey.COLLABORATOR)).toBe(false);
   });
 });

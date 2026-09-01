@@ -6,7 +6,7 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, In, Repository } from 'typeorm';
+import { DataSource, In, IsNull, Repository } from 'typeorm';
 import {
   Membership,
   MembershipStatus,
@@ -23,8 +23,20 @@ import {
   AuthFactorStatus,
 } from '../auth/entities/auth-factor.entity';
 import { RolePermission } from '../permissions/entities/role-permission.entity';
-import { RoleScope } from '../permissions/entities/role.entity';
-import { MFA_SENSITIVE_PERMISSION_KEYS } from '../../common/auth/permission-catalog';
+import {
+  MembershipPermission,
+  PermissionEffect,
+} from '../permissions/entities/membership-permission.entity';
+import {
+  MFA_SENSITIVE_PERMISSION_KEYS,
+  PermissionStatus,
+  isPermissionKey,
+  permissionDefinition,
+} from '../../common/auth/permission-catalog';
+import {
+  AccountAssignment,
+  AccountAssignmentStatus,
+} from '../client-accounts/entities/account-assignment.entity';
 
 export const MFA_SENSITIVE_PERMISSIONS = new Set<string>(
   MFA_SENSITIVE_PERMISSION_KEYS,
@@ -45,6 +57,12 @@ export class AuthorizationService {
     @InjectRepository(AuthFactor)
     private readonly factors: Repository<AuthFactor>,
     private readonly dataSource: DataSource,
+    @Optional()
+    @InjectRepository(MembershipPermission)
+    private readonly membershipPermissions?: Repository<MembershipPermission>,
+    @Optional()
+    @InjectRepository(AccountAssignment)
+    private readonly accountAssignments?: Repository<AccountAssignment>,
   ) {}
 
   async resolve(session: AuthSession): Promise<SessionAuthorizationContext> {
@@ -67,7 +85,8 @@ export class AuthorizationService {
     let role: string | null = null;
     let permissions: string[] = [];
     let tenantActive = false;
-    let accountAccessMode: 'tenant' | 'assigned' = 'assigned';
+    let assignedAccountIds: string[] = [];
+    const accountAccessMode: 'tenant' | 'assigned' = 'assigned';
     const mfaStatus =
       factor?.status === AuthFactorStatus.ACTIVE
         ? 'active'
@@ -92,22 +111,57 @@ export class AuthorizationService {
       if (!organization || !membership) {
         throw new ForbiddenException('Invalid tenant context');
       }
-      if (membership.role.scope !== RoleScope.ORGANIZATION) {
-        throw new ForbiddenException('Invalid tenant role');
-      }
       role = membership.role.key;
-      permissions = await this.rolePermissions
-        .find({ where: { roleId: membership.roleId } })
-        .then((items) => items.map((item) => item.permission.key).sort());
+      const now = Date.now();
+      const [defaults, overrides] = await Promise.all([
+        this.rolePermissions.find({
+          where: { roleId: membership.roleId, enabled: true },
+        }),
+        this.membershipPermissions?.find({
+          where: {
+            organizationId: membership.organizationId,
+            membershipId: membership.id,
+            revokedAt: IsNull(),
+          },
+        }) ?? Promise.resolve([]),
+      ]);
+      const effective = new Set(
+        defaults
+          .filter(
+            (item) =>
+              (!item.validFrom || item.validFrom.getTime() <= now) &&
+              (!item.validUntil || item.validUntil.getTime() > now) &&
+              item.permission.status === PermissionStatus.ACTIVE,
+          )
+          .map((item) => item.permission.key),
+      );
+      for (const override of overrides) {
+        if (override.permission.status !== PermissionStatus.ACTIVE) continue;
+        if (override.effect === PermissionEffect.DENY) {
+          effective.delete(override.permission.key);
+        } else if (override.effect === PermissionEffect.GRANT) {
+          effective.add(override.permission.key);
+        }
+      }
+      permissions = [...effective].sort();
+      assignedAccountIds = this.accountAssignments
+        ? (
+            await this.accountAssignments.find({
+              where: {
+                organizationId: membership.organizationId,
+                membershipId: membership.id,
+                status: AccountAssignmentStatus.ACTIVE,
+              },
+              select: { clientAccountId: true },
+            })
+          ).map((assignment) => assignment.clientAccountId)
+        : [];
       tenantActive =
         organization.status === OrganizationStatus.ACTIVE &&
         membership.status === MembershipStatus.ACTIVE &&
         session.status === AuthSessionStatus.ACTIVE &&
         session.expiresAt.getTime() > Date.now() &&
         (!session.requiresMfa || session.mfaVerifiedAt != null);
-      if (organization.ownerUserId === user.id) {
-        accountAccessMode = 'tenant';
-      }
     }
 
     return {
@@ -117,15 +171,19 @@ export class AuthorizationService {
       membershipId: session.membershipId ?? null,
       role,
       permissions,
-      // Compatibility-only field. The paginated client-account query returns
-      // the visible portfolio and PostgreSQL re-checks every account scope.
-      assignedAccountIds: [],
+      assignedAccountIds: assignedAccountIds.sort(),
       accountAccessMode,
       mfaVerifiedAt: session.mfaVerifiedAt ?? null,
+      reauthenticatedAt: session.reauthenticatedAt ?? null,
       requiresMfa: session.requiresMfa,
       mfaStatus,
       expiresAt: session.expiresAt,
       tenantActive,
+      reauthenticationRequiredActions: permissions.filter(
+        (permission) =>
+          isPermissionKey(permission) &&
+          permissionDefinition(permission).requiresReauthentication,
+      ),
     };
   }
 
@@ -137,6 +195,20 @@ export class AuthorizationService {
       throw new ForbiddenException('Active tenant required');
     }
     return context;
+  }
+
+  /** Workers must call this immediately before processing or delivering data. */
+  async revalidateSession(sessionId: string): Promise<{
+    session: AuthSession;
+    context: SessionAuthorizationContext;
+  }> {
+    const session = await this.dataSource.getRepository(AuthSession).findOne({
+      where: { id: sessionId, status: AuthSessionStatus.ACTIVE },
+    });
+    if (!session || session.expiresAt.getTime() <= Date.now()) {
+      throw new UnauthorizedException('Invalid session');
+    }
+    return { session, context: await this.requireTenant(session) };
   }
 
   requireMfa(session: AuthSession, permission: string): void {
@@ -177,9 +249,7 @@ export class AuthorizationService {
 
     return memberships.flatMap((membership) => {
       const organization = byId.get(membership.organizationId);
-      if (!organization || membership.role?.scope !== RoleScope.ORGANIZATION) {
-        return [];
-      }
+      if (!organization) return [];
       return [
         {
           id: organization.id,
@@ -228,11 +298,7 @@ export class AuthorizationService {
         },
         relations: { role: true },
       });
-      if (
-        !organization ||
-        !membership ||
-        membership.role?.scope !== RoleScope.ORGANIZATION
-      ) {
+      if (!organization || !membership) {
         throw new NotFoundException('Organization not found');
       }
 
@@ -240,6 +306,7 @@ export class AuthorizationService {
       const previousMembershipId = session.membershipId ?? null;
       session.organizationId = organization.id;
       session.membershipId = membership.id;
+      session.reauthenticatedAt = null;
       session.lastActivityAt = new Date();
       await sessions.save(session);
       return { session, previousOrganizationId, previousMembershipId };

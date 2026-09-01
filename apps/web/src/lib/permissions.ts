@@ -1,10 +1,7 @@
 import type { Capability, DemoMembership } from "./accounting-types";
 
 export function permissionMatches(granted: string, required: string) {
-  if (granted === "*.*" || granted === required) return true;
-  const [grantedResource, grantedAction] = granted.split(".");
-  const [requiredResource] = required.split(".");
-  return grantedAction === "*" && grantedResource === requiredResource;
+  return granted === required;
 }
 
 export function hasCapability(
@@ -31,6 +28,7 @@ export function canAccessClient(membership: DemoMembership, clientId: string) {
 }
 
 export const roleLabels: Record<DemoMembership["role"], string> = {
+  administrador: "Administrador",
   titular: "Titular",
   responsable: "Contador responsable",
   colaborador: "Colaborador/Auxiliar",

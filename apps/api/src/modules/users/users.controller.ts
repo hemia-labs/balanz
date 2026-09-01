@@ -50,7 +50,7 @@ export class UsersController {
   }
 
   @Post()
-  @Permissions('team.manage')
+  @Permissions('members.manage')
   create(
     @Body() dto: CreateUserDto,
     @CurrentTenant() tenant: SessionAuthorizationContext,
@@ -59,7 +59,7 @@ export class UsersController {
   }
 
   @Put(':id')
-  @Permissions('team.manage')
+  @Permissions('members.manage')
   update(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: UpdateUserDto,
@@ -69,7 +69,7 @@ export class UsersController {
   }
 
   @Delete(':id')
-  @Permissions('team.manage')
+  @Permissions('members.manage')
   @HttpCode(HttpStatus.NO_CONTENT)
   remove(
     @Param('id', ParseUUIDPipe) id: string,

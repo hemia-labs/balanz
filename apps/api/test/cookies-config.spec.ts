@@ -10,6 +10,7 @@ const requiredEnv = {
   JWT_REFRESH_SECRET: 'b'.repeat(32),
   BCRYPT_SALT_ROUNDS: 10,
   EMAIL_APP_URL: 'https://app.example',
+  EMAIL_COMPANY_ADDRESS: 'Ciudad de México, México',
 };
 
 describe('cookie configuration', () => {

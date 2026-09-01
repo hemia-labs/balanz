@@ -23,6 +23,7 @@
     "src/lib/api-client.test.ts",
     "src/lib/navigation-security.ts",
     "src/lib/navigation-security.test.ts",
+    "src/lib/authorization-matrix.test.ts",
     "src/features/clients/fiscal-years-load-state.ts",
     "src/features/clients/fiscal-years-load-state.test.ts",
     "src/features/clients/fiscal-periods-load-state.ts",

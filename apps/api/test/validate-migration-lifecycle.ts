@@ -1,7 +1,10 @@
 import { randomBytes } from 'node:crypto';
 import * as dotenv from 'dotenv';
 import { DataSource } from 'typeorm';
-import { PERMISSION_CATALOG } from '../src/common/auth/permission-catalog';
+import {
+  PERMISSION_CATALOG,
+  ROLE_PERMISSION_KEYS,
+} from '../src/common/auth/permission-catalog';
 import { resolveDatabaseOptions } from '../src/database/database-options.factory';
 import { seedDatabase } from '../src/database/seeds/seed-database';
 
@@ -52,21 +55,31 @@ async function validateMigrationLifecycle(): Promise<void> {
 
     const initial = await temporary.runMigrations({ transaction: 'all' });
     report.initialMigrations = initial.map((migration) => migration.name);
-    assertEqual(initial.length, 6, 'initial migration count');
+    assertEqual(initial.length, 9, 'initial migration count');
 
     await seedDatabase(temporary);
     await seedDatabase(temporary);
-    const [seedCounts] = await temporary.query<Array<Record<string, number>>>(
+    const [seedCounts] = await temporary.query<
+      Array<{
+        roles: number;
+        distinct_roles: number;
+        permissions: number;
+        distinct_permissions: number;
+        role_permissions: number;
+        role_permission_roles: number;
+      }>
+    >(
       `SELECT
         (SELECT count(*)::int FROM roles) AS roles,
         (SELECT count(DISTINCT key)::int FROM roles) AS distinct_roles,
         (SELECT count(*)::int FROM permissions) AS permissions,
         (SELECT count(DISTINCT key)::int FROM permissions) AS distinct_permissions,
-        (SELECT count(*)::int FROM role_permissions) AS role_permissions`,
+        (SELECT count(*)::int FROM role_permissions) AS role_permissions,
+        (SELECT count(DISTINCT role_id)::int FROM role_permissions) AS role_permission_roles`,
     );
     report.seedCounts = seedCounts;
-    assertEqual(seedCounts.roles, 4, 'seed role count');
-    assertEqual(seedCounts.distinct_roles, 4, 'distinct seed role count');
+    assertEqual(seedCounts.roles, 3, 'seed role count');
+    assertEqual(seedCounts.distinct_roles, 3, 'distinct seed role count');
     assertEqual(
       seedCounts.permissions,
       PERMISSION_CATALOG.length,
@@ -77,6 +90,28 @@ async function validateMigrationLifecycle(): Promise<void> {
       PERMISSION_CATALOG.length,
       'distinct seed permission count',
     );
+    assertEqual(
+      seedCounts.role_permissions,
+      Object.values(ROLE_PERMISSION_KEYS).reduce(
+        (total, permissions) => total + permissions.length,
+        0,
+      ),
+      'role permission count',
+    );
+    assertEqual(seedCounts.role_permission_roles, 3, 'role default count');
+
+    await temporary.undoLastMigration({ transaction: 'all' });
+    const [reauthenticationRollback] = await temporary.query<
+      Array<Record<string, boolean>>
+    >(
+      `SELECT NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name = 'auth_sessions'
+          AND column_name = 'reauthenticated_at'
+      ) AS reauthenticated_at_removed`,
+    );
+    report.reauthenticationRollback = reauthenticationRollback;
+    assertAllTrue(reauthenticationRollback, 'reauthentication rollback');
 
     await temporary.undoLastMigration({ transaction: 'all' });
     const [cleanupIndexesRollback] = await temporary.query<
@@ -98,6 +133,19 @@ async function validateMigrationLifecycle(): Promise<void> {
     );
     report.passwordResetRollback = passwordResetRollback;
     assertAllTrue(passwordResetRollback, 'password reset rollback');
+
+    await temporary.undoLastMigration({ transaction: 'all' });
+    const [operationsRollback] = await temporary.query<
+      Array<Record<string, boolean>>
+    >(
+      `SELECT
+        to_regclass('public.fiscal_operations') IS NULL AS operations_removed,
+        to_regclass('public.private_objects') IS NULL AS private_objects_removed,
+        to_regclass('public.object_access_grants') IS NULL AS access_grants_removed,
+        to_regclass('public.client_accounts') IS NOT NULL AS clients_preserved`,
+    );
+    report.operationsRollback = operationsRollback;
+    assertAllTrue(operationsRollback, 'fiscal operations rollback');
 
     await temporary.undoLastMigration({ transaction: 'all' });
     const [searchRollback] = await temporary.query<
@@ -129,9 +177,33 @@ async function validateMigrationLifecycle(): Promise<void> {
     const reappliedClient = await temporary.runMigrations({
       transaction: 'all',
     });
-    assertEqual(reappliedClient.length, 4, 'client migration reapply count');
+    assertEqual(reappliedClient.length, 6, 'client migration reapply count');
 
     for (let index = 0; index < 6; index += 1) {
+      await temporary.undoLastMigration({ transaction: 'all' });
+    }
+    await temporary.undoLastMigration({ transaction: 'all' });
+    const [authorizationRollback] = await temporary.query<
+      Array<Record<string, boolean>>
+    >(
+      `SELECT
+        (SELECT count(*) = 4 FROM roles
+          WHERE key IN ('owner', 'admin', 'accountant', 'collaborator')) AS legacy_roles_restored,
+        EXISTS (SELECT 1 FROM roles
+          WHERE key = 'admin' AND scope = 'platform') AS platform_admin_restored,
+        (SELECT count(*) = 27 FROM permissions) AS legacy_permissions_restored,
+        NOT EXISTS (SELECT 1 FROM permissions
+          WHERE key IN ('periods.close', 'periods.reopen', 'exports.generate',
+            'members.manage', 'permissions.manage', 'exceptions.accept')) AS modern_permissions_removed,
+        (SELECT count(*) = 6 FROM permissions
+          WHERE key IN ('period.close', 'period.reopen', 'exports.create',
+            'team.manage', 'audit.view', 'obligations.view')) AS legacy_keys_restored,
+        (SELECT count(*) = 55 FROM role_permissions) AS legacy_defaults_restored`,
+    );
+    report.authorizationRollback = authorizationRollback;
+    assertAllTrue(authorizationRollback, 'authorization data rollback');
+
+    for (let index = 0; index < 2; index += 1) {
       await temporary.undoLastMigration({ transaction: 'all' });
     }
     const [fullRollback] = await temporary.query<
@@ -147,14 +219,18 @@ async function validateMigrationLifecycle(): Promise<void> {
     assertAllTrue(fullRollback, 'full rollback');
 
     const reapplied = await temporary.runMigrations({ transaction: 'all' });
-    assertEqual(reapplied.length, 6, 'full migration reapply count');
+    assertEqual(reapplied.length, 9, 'full migration reapply count');
     await seedDatabase(temporary);
     const schemaLog = await temporary.driver.createSchemaBuilder().log();
     report.reappliedMigrations = reapplied.map((migration) => migration.name);
     report.schemaDrift = {
       upQueries: schemaLog.upQueries.length,
       downQueries: schemaLog.downQueries.length,
+      queries: schemaLog.upQueries.map((query) => query.query),
     };
+    if (schemaLog.upQueries.length > 0) {
+      console.error(JSON.stringify(report.schemaDrift, null, 2));
+    }
     assertEqual(schemaLog.upQueries.length, 0, 'schema drift up query count');
     assertEqual(
       schemaLog.downQueries.length,

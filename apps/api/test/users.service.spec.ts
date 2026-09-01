@@ -48,12 +48,11 @@ describe('UsersService', () => {
     } as unknown as jest.Mocked<Repository<Role>>;
     const manager = {
       getRepository: jest.fn(
-        (entity: typeof User | typeof Membership | typeof Role) =>
-          entity === User
-            ? repository
-            : entity === Membership
-              ? membershipRepository
-              : roleRepository,
+        (entity: typeof User | typeof Membership | typeof Role) => {
+          if (entity === User) return repository;
+          if (entity === Role) return roleRepository;
+          return membershipRepository;
+        },
       ),
     };
     const module = await Test.createTestingModule({
@@ -342,14 +341,14 @@ describe('UsersService', () => {
     );
   });
 
-  it('impide revocar al último owner activo', async () => {
+  it('impide revocar la membresía del titular', async () => {
     const user = { id: 'owner-1', status: 'active' } as User;
     const membership = {
       id: 'membership-owner',
       organizationId: 'organization-a',
       userId: 'owner-1',
       status: MembershipStatus.ACTIVE,
-      role: { key: RoleKey.OWNER },
+      role: RoleKey.ADMIN,
     } as Membership;
     const userRepository = {
       findOne: jest.fn().mockResolvedValue(user),
@@ -367,9 +366,10 @@ describe('UsersService', () => {
             : entity === Membership
               ? membershipRepository
               : {
-                  findOne: jest
-                    .fn()
-                    .mockResolvedValue({ id: 'organization-a' }),
+                  findOne: jest.fn().mockResolvedValue({
+                    id: 'organization-a',
+                    ownerUserId: 'owner-1',
+                  }),
                 },
       ),
     };

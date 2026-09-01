@@ -9,11 +9,15 @@ import type { Capability } from "@/lib/accounting-types";
 
 export function LiveForbiddenScreen({
   capability,
+  reason = "insufficient_permission",
 }: {
-  capability: Capability;
+  capability?: Capability;
+  reason?: "insufficient_permission" | "out_of_scope";
 }) {
   const { clientId, organization, locale } = useAccountingContext();
-  const canReturnToClient = Boolean(clientId && capability !== "clients.view");
+  const canReturnToClient = Boolean(
+    reason !== "out_of_scope" && clientId && capability !== "clients.view",
+  );
   const destination = canReturnToClient
     ? `/${locale}/organizations/${encodeURIComponent(organization.slug)}/clients/${encodeURIComponent(clientId!)}/overview`
     : `/${locale}/organizations/${encodeURIComponent(organization.slug)}/home`;
@@ -25,8 +29,9 @@ export function LiveForbiddenScreen({
         </p>
         <h1 className="text-heading-lg font-bold">Acceso restringido</h1>
         <p className="mt-1 max-w-reading text-body text-muted-foreground">
-          Tu membresía no incluye la capacidad necesaria para abrir esta
-          sección.
+          {reason === "out_of_scope"
+            ? "La cuenta solicitada no forma parte de tus asignaciones activas."
+            : "Tu membresía no incluye el permiso necesario para abrir esta sección."}
         </p>
       </header>
       <Surface className="flex min-h-64 items-start gap-4 p-6">
@@ -35,12 +40,14 @@ export function LiveForbiddenScreen({
         </div>
         <div>
           <h2 className="text-heading-sm font-emphasis">
-            Revisa tu asignación o capacidad
+            {reason === "out_of_scope"
+              ? "Cuenta fuera de alcance"
+              : "Permiso insuficiente"}
           </h2>
           <p className="mt-2 max-w-reading text-body text-muted-foreground">
             Solicita acceso a una persona administradora del despacho si
             necesitas trabajar en esta sección. No se cargaron los datos
-            restringidos.
+            restringidos ni se muestran detalles del recurso.
           </p>
           <Button render={<Link href={destination} />} className="mt-5">
             {canReturnToClient ? "Volver al cliente" : "Volver al inicio"}
