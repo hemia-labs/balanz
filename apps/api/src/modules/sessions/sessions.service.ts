@@ -221,6 +221,21 @@ export class SessionsService {
     await this.revokeSessionsByUser(userId, reason);
   }
 
+  async revokeUserSessionsForManager(
+    manager: EntityManager,
+    userId: string,
+    reason: string,
+  ): Promise<void> {
+    await manager.getRepository(AuthSession).update(
+      { userId, status: AuthSessionStatus.ACTIVE },
+      {
+        status: AuthSessionStatus.REVOKED,
+        revokedReason: reason.slice(0, 100),
+        revokedAt: new Date(),
+      },
+    );
+  }
+
   async revokeMembershipSessions(
     organizationId: string,
     membershipId: string,

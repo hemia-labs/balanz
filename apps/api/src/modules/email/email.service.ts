@@ -26,6 +26,22 @@ export class EmailService {
     }
   }
 
+  async sendPasswordReset(input: {
+    email: string;
+    firstName?: string;
+    token: string;
+    locale?: string;
+  }): Promise<void> {
+    try {
+      await this.delivery.sendPasswordReset(input);
+    } catch (error) {
+      this.logger.error(
+        'Password reset email delivery failed',
+        error instanceof Error ? error.stack : undefined,
+      );
+    }
+  }
+
   async sendWelcome(input: {
     email: string;
     firstName?: string;

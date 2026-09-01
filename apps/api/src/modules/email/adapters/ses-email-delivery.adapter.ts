@@ -71,6 +71,40 @@ export class SesEmailDeliveryAdapter implements EmailDeliveryPort {
     );
   }
 
+  async sendPasswordReset(input: {
+    email: string;
+    firstName?: string;
+    token: string;
+    locale?: string;
+  }): Promise<void> {
+    const email = this.config.getOrThrow<EmailConfig>('email');
+    const locale = input.locale?.split('-')[0] === 'en' ? 'en' : 'es';
+    const resetUrl = new URL(`/${locale}/forgot-password`, email.appUrl);
+    resetUrl.hash = new URLSearchParams({ token: input.token }).toString();
+
+    await this.client.send(
+      new SendEmailCommand({
+        FromEmailAddress: `${email.appName} <${email.ses.fromAuth}>`,
+        Destination: { ToAddresses: [input.email] },
+        ReplyToAddresses: [email.ses.replyTo],
+        ConfigurationSetName: email.ses.configurationSetAuth,
+        Content: {
+          Template: {
+            TemplateName: email.ses.passwordResetTemplate,
+            TemplateData: JSON.stringify({
+              app_name: email.appName,
+              assets_base_url: email.assetsBaseUrl,
+              company_address: email.companyAddress,
+              icon_email_url: email.iconEmailUrl,
+              reset_url: resetUrl.toString(),
+              user_name: input.firstName ?? '',
+            }),
+          },
+        },
+      }),
+    );
+  }
+
   async sendWelcome(input: {
     email: string;
     firstName?: string;

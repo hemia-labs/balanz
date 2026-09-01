@@ -5,11 +5,23 @@ import cookieParser from 'cookie-parser';
 import { AppModule } from './app.module';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
 import { getCorsOptions } from './config/app.config';
+import { init } from '@hemia/horus';
+import type { HorusConfig } from './config/horus.config';
 import { API_VALIDATION_PIPE_OPTIONS } from './common/validation/validation-exception.factory';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
   const config = app.get(ConfigService);
+  const horus = config.get<HorusConfig>('horus');
+  if (horus?.endpoint && horus.key) {
+    init({
+      endpoint: horus.endpoint,
+      key: horus.key,
+      release: horus.release,
+      timeoutMs: horus.timeoutMs,
+      captureConsole: false,
+    });
+  }
   const trustProxyHops = config.get<number>('app.trustProxyHops', 0);
   if (trustProxyHops > 0) {
     const expressInstance = app.getHttpAdapter().getInstance() as {

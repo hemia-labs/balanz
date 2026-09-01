@@ -13,6 +13,13 @@ const corsOriginsSetting = Joi.string().custom((value: string, helpers) => {
   }
 }, 'HTTP(S) origins validation');
 
+interface EnvironmentConfig {
+  NODE_ENV?: string;
+  HORUS_URL?: string;
+  HORUS_KEY?: string;
+  [key: string]: unknown;
+}
+
 // Valida las env al boot: la app falla-rápido si falta o es inválida alguna variable.
 export const envVarsSchema = Joi.object({
   NODE_ENV: Joi.string()
@@ -28,6 +35,15 @@ export const envVarsSchema = Joi.object({
     otherwise: corsOriginsSetting.allow('').default(''),
   }),
   TRUST_PROXY_HOPS: Joi.number().integer().min(0).max(16).default(0),
+
+  // Horus (opcional hasta que se asignen las variables del proyecto).
+  HORUS_URL: Joi.string()
+    .uri({ scheme: ['http', 'https'] })
+    .allow('')
+    .default(''),
+  HORUS_KEY: Joi.string().trim().allow('').default(''),
+  HORUS_RELEASE: Joi.string().trim().allow('').default(''),
+  HORUS_TIMEOUT_MS: Joi.number().integer().min(1).max(10_000).default(2000),
 
   // Secrets
   SECRETS_ENABLED: Joi.boolean().truthy('true').falsy('false').default(false),
@@ -116,6 +132,11 @@ export const envVarsSchema = Joi.object({
     .min(15)
     .max(60)
     .default(30),
+  AUTH_PASSWORD_RESET_TTL_MINUTES: Joi.number()
+    .integer()
+    .min(15)
+    .max(60)
+    .default(60),
   AUTH_VERIFICATION_REGISTER_LIMIT: Joi.number()
     .integer()
     .positive()
@@ -126,6 +147,22 @@ export const envVarsSchema = Joi.object({
     .default(900),
   AUTH_VERIFICATION_CONFIRM_LIMIT: Joi.number().integer().positive().default(5),
   AUTH_VERIFICATION_CONFIRM_WINDOW_SECONDS: Joi.number()
+    .integer()
+    .positive()
+    .default(300),
+  AUTH_PASSWORD_RESET_REQUEST_LIMIT: Joi.number()
+    .integer()
+    .positive()
+    .default(3),
+  AUTH_PASSWORD_RESET_REQUEST_WINDOW_SECONDS: Joi.number()
+    .integer()
+    .positive()
+    .default(900),
+  AUTH_PASSWORD_RESET_CONFIRM_LIMIT: Joi.number()
+    .integer()
+    .positive()
+    .default(5),
+  AUTH_PASSWORD_RESET_CONFIRM_WINDOW_SECONDS: Joi.number()
     .integer()
     .positive()
     .default(300),
@@ -154,7 +191,7 @@ export const envVarsSchema = Joi.object({
   EMAIL_ENVIRONMENT: Joi.string()
     .valid('dev', 'qa', 'staging', 'prod')
     .default('dev'),
-  EMAIL_FROM_NAME: Joi.string().trim().min(1).default('CFDIOS'),
+  EMAIL_FROM_NAME: Joi.string().trim().min(1).default('Balanz'),
   EMAIL_FROM_AUTH: Joi.string().email().default('auth@cfdios.hemia.dev'),
   EMAIL_FROM_NOTIFICATIONS: Joi.string()
     .email()
@@ -184,6 +221,13 @@ export const envVarsSchema = Joi.object({
     .trim()
     .pattern(/^[a-z0-9]+(?:-[a-z0-9]+)*$/)
     .default('cfdios-dev-mfa-disabled'),
+  EMAIL_PASSWORD_RESET_TEMPLATE: Joi.string()
+    .trim()
+    .pattern(/^[a-z0-9]+(?:-[a-z0-9]+)*$/)
+    .default('cfdios-dev-forgot-password'),
+  EMAIL_ICON_EMAIL_URL: Joi.string()
+    .uri({ scheme: ['http', 'https'] })
+    .default('https://cdn.hemia.dev/icon-email.png'),
   EMAIL_APP_NAME: Joi.string().trim().min(1).default('Balanz'),
   EMAIL_APP_SUBTITLE: Joi.string().trim().min(1).default('Contable'),
   EMAIL_SUPPORT_EMAIL: Joi.string().email().default('soporte@balanz.mx'),
@@ -192,7 +236,11 @@ export const envVarsSchema = Joi.object({
     .uri()
     .default('https://app.balanz.mx/privacidad'),
   EMAIL_TERMS_URL: Joi.string().uri().default('https://app.balanz.mx/terminos'),
-  EMAIL_COMPANY_ADDRESS: Joi.string().trim().allow('').default(''),
+  EMAIL_COMPANY_ADDRESS: Joi.when('NODE_ENV', {
+    is: 'production',
+    then: Joi.string().trim().min(1).required(),
+    otherwise: Joi.string().trim().allow('').default(''),
+  }),
   EMAIL_APP_URL: Joi.when('NODE_ENV', {
     is: 'production',
     then: Joi.string()
@@ -282,4 +330,40 @@ export const envVarsSchema = Joi.object({
     then: Joi.number().integer().min(4).max(31).optional(),
     otherwise: Joi.number().integer().min(4).max(31).required(),
   }),
-});
+}).custom((value: EnvironmentConfig, helpers) => {
+  const horusUrl = value.HORUS_URL ?? '';
+  const horusKey = value.HORUS_KEY ?? '';
+  const hasUrl = horusUrl.trim().length > 0;
+  const hasKey = horusKey.trim().length > 0;
+
+  if (hasUrl !== hasKey) {
+    return helpers.message({
+      custom: 'HORUS_URL and HORUS_KEY must be configured together',
+    });
+  }
+
+  if (hasUrl) {
+    const parsedHorusUrl = new URL(horusUrl);
+    if (
+      horusUrl.includes('?') ||
+      horusUrl.includes('#') ||
+      parsedHorusUrl.username ||
+      parsedHorusUrl.password
+    ) {
+      return helpers.message({
+        custom: 'HORUS_URL must not include query, fragment, or credentials',
+      });
+    }
+
+    if (
+      value.NODE_ENV === 'production' &&
+      parsedHorusUrl.protocol !== 'https:'
+    ) {
+      return helpers.message({
+        custom: 'HORUS_URL must use HTTPS in production',
+      });
+    }
+  }
+
+  return value;
+}, 'Horus configuration validation');

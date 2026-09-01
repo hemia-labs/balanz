@@ -22,6 +22,7 @@ import {
 import {
   clientById,
   clientsFor,
+  demoData,
   membershipFor,
   organizationById,
   organizationBySlug,
@@ -192,7 +193,7 @@ export function AccountingContextProvider({
         : undefined);
     return {
       locale,
-      account: { id: session?.userId ?? "", name: "Cuenta global", email: "" },
+      account: session?.account ?? (isDemo ? demoData.account : { id: session?.userId ?? "", name: "Cuenta global", email: "" }),
       organization,
       membership,
       clients: isDemo ? clientsFor(organization.id) : [],

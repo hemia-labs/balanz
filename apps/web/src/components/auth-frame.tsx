@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import Link from "next/link";
 import Image from "next/image";
 import { BrandMark } from "@/components/brand-mark";
 import { Card, CardContent } from "@/components/ui/card";
@@ -32,18 +33,26 @@ export function AuthFrame({
   if (centered) {
     return (
       <main id="main-content" tabIndex={-1} className="grid min-h-[100dvh] bg-background focus:outline-none lg:grid-cols-[minmax(0,1fr)_minmax(28rem,0.9fr)]">
-        <section className="relative hidden overflow-hidden bg-sidebar p-10 text-sidebar-foreground lg:flex lg:flex-col lg:justify-between xl:p-14">
-          <BrandMark locale={locale} inverse />
+        <section className="auth-sidebar relative hidden overflow-hidden p-10 text-sidebar-foreground lg:flex lg:flex-col lg:justify-between xl:p-14">
+          <Link href={"/" + locale} aria-label="CFDIOS, inicio" className="inline-flex min-h-10 items-center rounded-md">
+            <Image src="/logo-white.png" alt="" width={192} height={48} priority className="h-auto w-48" />
+          </Link>
           <div className="relative max-w-lg">
             <p className="text-caption font-semibold text-sidebar-foreground/70">{eyebrow}</p>
             <h2 className="mt-3 text-display font-bold">{systemTitle}</h2>
             <p className="mt-4 max-w-md text-body-lg text-sidebar-foreground/75">{systemDescription}</p>
           </div>
           <p className="text-caption text-sidebar-foreground/60">Hemia · México</p>
-          <div aria-hidden="true" className="absolute -bottom-32 -right-20 size-80 rounded-full border border-sidebar-foreground/10" />
-          <div aria-hidden="true" className="absolute -bottom-20 -right-8 size-48 rounded-full border border-sidebar-foreground/10" />
+          <Image
+            src="/isotipo-white.svg"
+            alt=""
+            width={560}
+            height={560}
+            aria-hidden="true"
+            className="pointer-events-none absolute -bottom-16 -right-20 size-72 opacity-25"
+          />
         </section>
-        <section className="flex min-h-[100dvh] items-center justify-center px-4 py-8 sm:px-8 lg:px-10">
+        <section className="flex min-h-[100dvh] items-center justify-center bg-auth-background px-4 py-8 sm:px-8 lg:px-10">
           <div className={"w-full " + (contentClassName ?? "max-w-md")}>
             <Card className="border-border shadow-float ring-0">
               <CardContent className="p-6 sm:p-7">

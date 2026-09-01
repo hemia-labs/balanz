@@ -8,6 +8,8 @@ export default registerAs('auth', () => ({
   passwordSaltRounds: Number(process.env.BCRYPT_SALT_ROUNDS),
   emailVerificationTtlMinutes:
     Number(process.env.EMAIL_VERIFICATION_TTL_MINUTES) || 30,
+  passwordResetTtlMinutes:
+    Number(process.env.AUTH_PASSWORD_RESET_TTL_MINUTES) || 60,
   trialDurationDays: Number(process.env.TRIAL_DURATION_DAYS) || 30,
   sessionTtlSeconds: Number(process.env.AUTH_SESSION_TTL_SECONDS) || 28_800,
   sessionIdleTtlSeconds:
@@ -29,6 +31,14 @@ export default registerAs('auth', () => ({
     Number(process.env.AUTH_VERIFICATION_CONFIRM_LIMIT) || 5,
   verificationConfirmWindowSeconds:
     Number(process.env.AUTH_VERIFICATION_CONFIRM_WINDOW_SECONDS) || 300,
+  passwordResetRequestLimit:
+    Number(process.env.AUTH_PASSWORD_RESET_REQUEST_LIMIT) || 3,
+  passwordResetRequestWindowSeconds:
+    Number(process.env.AUTH_PASSWORD_RESET_REQUEST_WINDOW_SECONDS) || 900,
+  passwordResetConfirmLimit:
+    Number(process.env.AUTH_PASSWORD_RESET_CONFIRM_LIMIT) || 5,
+  passwordResetConfirmWindowSeconds:
+    Number(process.env.AUTH_PASSWORD_RESET_CONFIRM_WINDOW_SECONDS) || 300,
   mfaVerifyLimit: Number(process.env.AUTH_MFA_VERIFY_LIMIT) || 5,
   mfaVerifyWindowSeconds:
     Number(process.env.AUTH_MFA_VERIFY_WINDOW_SECONDS) || 300,

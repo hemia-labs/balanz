@@ -14,6 +14,7 @@
     "src/lib/accounting-types.ts",
     "src/lib/navigation-core.ts",
     "src/lib/permissions.ts",
+    "src/lib/permissions.test.ts",
     "src/lib/product-route.ts",
     "src/lib/auth-types.ts",
     "src/lib/auth-types.test.ts",

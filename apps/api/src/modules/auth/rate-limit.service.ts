@@ -84,6 +84,28 @@ export class AuthRateLimitService {
     );
   }
 
+  passwordResetRequestLimit(): number {
+    return this.config.get<number>('auth.passwordResetRequestLimit', 3);
+  }
+
+  passwordResetRequestWindowSeconds(): number {
+    return this.config.get<number>(
+      'auth.passwordResetRequestWindowSeconds',
+      900,
+    );
+  }
+
+  passwordResetConfirmLimit(): number {
+    return this.config.get<number>('auth.passwordResetConfirmLimit', 5);
+  }
+
+  passwordResetConfirmWindowSeconds(): number {
+    return this.config.get<number>(
+      'auth.passwordResetConfirmWindowSeconds',
+      300,
+    );
+  }
+
   mfaVerifyLimit(): number {
     return this.config.get<number>('auth.mfaVerifyLimit', 5);
   }

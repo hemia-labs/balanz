@@ -11,6 +11,7 @@ import databaseConfig from './config/database.config';
 import emailConfig from './config/email.config';
 import redisConfig from './config/redis.config';
 import secretsConfig from './config/secrets.config';
+import horusConfig from './config/horus.config';
 import { envVarsSchema } from './config/env.validation';
 import { AuthModule as CommonAuthModule } from './common/auth/auth.module';
 import { DatabaseModule } from './database/database.module';
@@ -37,6 +38,7 @@ import { PermissionsModule } from './modules/permissions/permissions.module';
         emailConfig,
         redisConfig,
         secretsConfig,
+        horusConfig,
       ],
       validationSchema: envVarsSchema,
       validationOptions: { allowUnknown: true, abortEarly: true },

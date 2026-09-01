@@ -28,10 +28,12 @@
     "migration:revert": "typeorm-ts-node-commonjs -d src/database/data-source.ts migration:revert",
     "seed:run": "ts-node --transpile-only src/database/seeds/run-seeds.ts",
     "qa:migrations": "ts-node --transpile-only test/validate-migration-lifecycle.ts",
+    "maintenance:auth-cleanup": "ts-node --transpile-only src/database/maintenance/cleanup-auth-data.ts",
     "db:prepare": "npm run migration:run && npm run seed:run"
   },
   "dependencies": {
     "@aws-sdk/client-sesv2": "^3.1116.0",
+    "@hemia/horus": "^0.0.5",
     "@hemia/secrets": "^0.0.2",
     "@nestjs/common": "^11.0.1",
     "@nestjs/config": "^4.0.4",

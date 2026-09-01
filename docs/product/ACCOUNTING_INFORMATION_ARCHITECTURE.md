@@ -117,7 +117,7 @@ El prefijo `/es` se conserva.
 | --- | --- |
 | `/es/login` | Acceso demostrativo; no crea sesión real. |
 | `/es/register` | Registro visual existente; backend pendiente. |
-| `/es/forgot-password` | Recuperación visual; envío pendiente. |
+| `/es/forgot-password` | Recuperación visual; backend disponible, integración frontend pendiente. |
 | `/es/onboarding` | Alta base del primer despacho. |
 | `/es/seleccionar-despacho` | Selección cuando existen varias membresías. |
 | `/es/perfil`, `/es/seguridad`, `/es/preferencias`, `/es/ayuda` | Rutas personales. |
