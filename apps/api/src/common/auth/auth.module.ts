@@ -5,10 +5,11 @@ import { PermissionsGuard } from '../guards/permissions.guard';
 import { SecretsModule } from '../../modules/secrets/secrets.module';
 import { JWT_SECRETS, isJwtSecrets, type JwtSecrets } from './types/jwt.types';
 import { PasswordService } from './password.service';
+import { AuditModule } from '../../modules/audit/audit.module';
 
 @Global()
 @Module({
-  imports: [ConfigModule, SecretsModule],
+  imports: [ConfigModule, SecretsModule, AuditModule],
   providers: [
     {
       provide: JWT_SECRETS,
@@ -45,6 +46,6 @@ import { PasswordService } from './password.service';
     PermissionsGuard,
     PasswordService,
   ],
-  exports: [PermissionsGuard, JWT_SECRETS, PasswordService],
+  exports: [AuditModule, PermissionsGuard, JWT_SECRETS, PasswordService],
 })
 export class AuthModule {}

@@ -1,11 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { EntityManager } from 'typeorm';
 import { Membership, MembershipStatus } from './entities/membership.entity';
-import {
-  Role,
-  RoleKey,
-  RoleScope,
-} from '../permissions/entities/role.entity';
+import { Role, RoleKey, RoleScope } from '../permissions/entities/role.entity';
 
 @Injectable()
 export class MembershipsService {

@@ -164,6 +164,23 @@ export class AuthController {
     return this.auth.sessionDetails(context);
   }
 
+  @Post('session/reauthenticate')
+  @UseGuards(SessionGuard)
+  async reauthenticate(
+    @CurrentSession() session: AuthSession,
+    @Body() input: VerifyMfaDto,
+    @Req() request: Request,
+    @Res({ passthrough: true }) response: Response,
+  ) {
+    const result = await this.auth.reauthenticate(
+      session,
+      input.code,
+      this.clientIp(request),
+    );
+    this.sessions.setCookie(response, result.rawSessionToken);
+    return result.context;
+  }
+
   @Delete('session')
   @UseGuards(SessionGuard)
   @HttpCode(HttpStatus.NO_CONTENT)

@@ -4,7 +4,8 @@ export const capabilities = [
   "ownership.manage",
   "billing.manage",
   "team.view",
-  "team.manage",
+  "members.manage",
+  "permissions.manage",
   "clients.view",
   "clients.manage",
   "clients.assign",
@@ -17,9 +18,9 @@ export const capabilities = [
   "payroll.view",
   "cfdi.review",
   "cfdi.exclude",
-  "period.close",
-  "period.reopen",
-  "exports.create",
+  "periods.close",
+  "periods.reopen",
+  "exports.generate",
   "obligations.view",
   "obligations.configure",
   "diot.generate",
@@ -29,7 +30,8 @@ export const capabilities = [
 ] as const;
 
 export type Capability = (typeof capabilities)[number];
-export type MembershipRole = "titular" | "responsable" | "colaborador";
+export type MembershipRole =
+  "administrador" | "titular" | "responsable" | "colaborador";
 export type PeriodStatus =
   | "Sin iniciar"
   | "En preparación"

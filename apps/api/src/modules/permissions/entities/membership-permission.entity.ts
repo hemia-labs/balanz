@@ -3,6 +3,7 @@ import {
   Column,
   CreateDateColumn,
   Entity,
+  ForeignKey,
   Index,
   JoinColumn,
   ManyToOne,
@@ -18,6 +19,28 @@ export enum PermissionEffect {
 }
 
 @Check('membership_permissions_effect_chk', `"effect" IN ('grant', 'deny')`)
+@ForeignKey('permissions', ['permissionId'], ['id'], {
+  name: 'membership_permissions_permission_fk',
+  onDelete: 'RESTRICT',
+})
+@ForeignKey(
+  'memberships',
+  ['organizationId', 'membershipId'],
+  ['organizationId', 'id'],
+  { name: 'membership_permissions_target_fk', onDelete: 'RESTRICT' },
+)
+@ForeignKey(
+  'memberships',
+  ['organizationId', 'grantedByMembershipId'],
+  ['organizationId', 'id'],
+  { name: 'membership_permissions_actor_fk', onDelete: 'RESTRICT' },
+)
+@ForeignKey(
+  'memberships',
+  ['organizationId', 'revokedByMembershipId'],
+  ['organizationId', 'id'],
+  { name: 'membership_permissions_revoker_fk', onDelete: 'RESTRICT' },
+)
 @Index(
   'uq_membership_permissions_active',
   ['organizationId', 'membershipId', 'permissionId'],
@@ -68,14 +91,17 @@ export class MembershipPermission {
   @UpdateDateColumn({ name: 'updated_at', type: 'timestamptz' })
   updatedAt: Date;
 
-  @ManyToOne(() => Membership, { onDelete: 'RESTRICT' })
+  @ManyToOne(() => Membership, { createForeignKeyConstraints: false })
   @JoinColumn([
     { name: 'organization_id', referencedColumnName: 'organizationId' },
     { name: 'membership_id', referencedColumnName: 'id' },
   ])
   membership: Membership;
 
-  @ManyToOne(() => Permission, { eager: true, onDelete: 'RESTRICT' })
+  @ManyToOne(() => Permission, {
+    eager: true,
+    createForeignKeyConstraints: false,
+  })
   @JoinColumn({ name: 'permission_id' })
   permission: Permission;
 }

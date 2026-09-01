@@ -38,10 +38,7 @@ export const ROLE_DEFINITIONS: ReadonlyArray<{
   },
 ];
 
-@Check(
-  'roles_key_chk',
-  `"key" IN ('admin', 'accountant', 'collaborator')`,
-)
+@Check('roles_key_chk', `"key" IN ('admin', 'accountant', 'collaborator')`)
 @Index('uq_roles_key', ['key'], { unique: true })
 @Entity('roles')
 export class Role {

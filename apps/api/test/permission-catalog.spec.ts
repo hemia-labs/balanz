@@ -39,6 +39,7 @@ describe('MVP permission contract', () => {
       });
     }
     expect(isPermissionKey('periods.close_client_1')).toBe(false);
+    expect(isPermissionKey('close_period')).toBe(false);
     expect(isPermissionKey('*.*')).toBe(false);
   });
 

@@ -16,7 +16,22 @@ import {
 export async function seedDatabase(dataSource: DataSource): Promise<void> {
   await dataSource.transaction(async (manager) => {
     const roles = manager.getRepository(Role);
-    await roles.upsert([...ROLE_DEFINITIONS], ['key']);
+    await roles
+      .createQueryBuilder()
+      .insert()
+      .values([...ROLE_DEFINITIONS])
+      .orIgnore()
+      .execute();
+    for (const definition of ROLE_DEFINITIONS) {
+      await roles.update(
+        { key: definition.key },
+        {
+          name: definition.name,
+          description: definition.description,
+          scope: definition.scope,
+        },
+      );
+    }
     const storedRoles = await roles.findBy({
       key: In(Object.values(RoleKey)),
     });

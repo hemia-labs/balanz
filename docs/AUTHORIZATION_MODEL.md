@@ -294,6 +294,24 @@ y experiencia; cada endpoint vuelve a evaluar autorización en backend.
 `GET /auth/session` expone tenant, membresía, rol y permisos efectivos, pero
 tampoco concede acceso por sí mismo.
 
+El frontend carga ambos contratos al iniciar y después de cambiar de tenant.
+También refresca `/me/authorization` cuando la ventana recupera foco o
+visibilidad y cada 30 segundos mientras la sesión esté activa. Esto actualiza
+navegación y acciones cuando cambia un rol u override, sin convertir esa copia
+en autoridad: cada mutación continúa validándose en backend. El cambio de
+tenant cancela solicitudes pendientes, descarta sesión, autorización e
+identidad de cuenta anteriores y navega al inicio del nuevo tenant.
+
+La ruta personal `/es/authorization` permite consultar organización,
+membresía, rol, permisos efectivos y `assignedAccountIds`. La ruta
+`/es/security` permite ejecutar la reautenticación TOTP real mediante
+`POST /auth/session/reauthenticate`; los controles sensibles enlazan a ese
+flujo cuando el contrato los marca como sujetos a reautenticación.
+
+La evidencia automatizada transversal de política, HTTP, workers, objetos,
+URLs privadas, auditoría, navegación y cambio de tenant se mantiene en
+`docs/AUTHORIZATION_TEST_MATRIX.md`.
+
 ### Administración de overrides
 
 ```text
@@ -330,11 +348,48 @@ firmadas permanentes.
 
 ## Frontera de implementación
 
-Este contrato no autoriza a confiar en la UI ni implementa todavía la política
-en controllers, workers, archivos o exportaciones. La existencia de `roles` no
-habilita CRUD ni roles personalizados en el MVP. Esos cambios corresponden a
-TA-P0-003-02 y TA-P0-003-03; la
-matriz automatizada completa corresponde a TA-P0-003-04.
+La existencia de `roles` no habilita CRUD ni roles personalizados en el MVP.
+TA-P0-003-02 implementa la evaluación efectiva en backend, la revalidación de
+workers, las transiciones de períodos, los trabajos SAT/exportación y los
+grants efímeros para objetos privados. La navegación basada en este contexto
+corresponde a TA-P0-003-03 y la matriz automatizada completa a TA-P0-003-04.
+
+### Administración del catálogo y membresías
+
+Los roles permanecen cerrados y sólo se consultan con `GET /roles`. El catálogo
+de permisos se consulta con `GET /permissions`; no se crean claves arbitrarias
+desde la API. La administración opera sobre membresías:
+
+- `GET /organizations/{organizationId}/memberships`
+- `PATCH /organizations/{organizationId}/memberships/{membershipId}/role`
+- `GET /organizations/{organizationId}/memberships/{membershipId}/permissions`
+- `POST /organizations/{organizationId}/memberships/{membershipId}/permissions`
+- `DELETE /organizations/{organizationId}/memberships/{membershipId}/permissions/{permission}`
+
+Los cambios exigen los permisos administrativos correspondientes, rechazan
+mutaciones sobre la propia membresía y protegen la membresía del titular. Todo
+cambio queda auditado. Revocar un override conserva su historial mediante
+`revoked_at` y devuelve la evaluación al default del rol.
+
+### Implementación de runtime
+
+- Cada petición puede reutilizar la sesión de Redis, pero vuelve a resolver en
+  PostgreSQL tenant, membresía, rol, defaults y overrides; los permisos
+  efectivos no quedan confiados a una copia cacheada.
+- El titular no recibe alcance fiscal global: también requiere una fila activa
+  en `account_assignments`.
+- `POST /auth/session/reauthenticate` verifica TOTP, actualiza
+  `mfa_verified_at` y rota el token de sesión. La ventana sensible es de 15
+  minutos.
+- `POST /periods/{periodId}/close` y `reopen` bloquean la fila, validan estado y
+  auditan la transición dentro de la misma transacción.
+- `POST /sat-download-jobs` y `POST /exports` crean una operación durable con
+  expiración corta. El consumidor llama `authorizeWorker` antes de reclamarla;
+  la reclamación es condicional para impedir doble ejecución.
+- `POST /objects/{objectId}/access-url` crea un grant de un solo uso con cinco
+  minutos de vigencia. `GET /objects/{objectId}/content` vuelve a evaluar la
+  política y entrega la ruta únicamente mediante `X-Accel-Redirect`; ni la URL
+  pública ni la auditoría contienen el `storage_key`.
 
 ## Migración desde el modelo anterior
 

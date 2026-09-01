@@ -21,6 +21,10 @@ import type {
 } from './session.types';
 import { SessionCacheService } from '../redis/session-cache.service';
 import type { CachedSessionEntry } from '../redis/session-cache.service';
+import {
+  isPermissionKey,
+  permissionDefinition,
+} from '../../common/auth/permission-catalog';
 
 interface CookieConfig {
   httpOnly: boolean;
@@ -105,11 +109,17 @@ export class SessionsService {
       await this.persistActivityIfDue(entry);
       entry.lastActivityAt = new Date().toISOString();
       session.lastActivityAt = new Date(entry.lastActivityAt);
+      const freshContext = await this.authorization.resolve(session);
+      entry.tenantActive = freshContext.tenantActive;
+      entry.role = freshContext.role;
+      entry.permissions = freshContext.permissions;
+      entry.accountAccessMode = freshContext.accountAccessMode;
+      entry.mfaStatus = freshContext.mfaStatus;
       const touched = await this.cache.touch(tokenHash, entry);
       if (touched) {
         return {
           session,
-          context: this.contextFromCache(entry),
+          context: freshContext,
           tokenHash,
           cacheHit: true,
         };
@@ -388,6 +398,11 @@ export class SessionsService {
       mfaStatus: entry.mfaStatus,
       expiresAt: new Date(entry.expiresAt),
       tenantActive: entry.tenantActive,
+      reauthenticationRequiredActions: entry.permissions.filter(
+        (permission) =>
+          isPermissionKey(permission) &&
+          permissionDefinition(permission).requiresReauthentication,
+      ),
     };
   }
 

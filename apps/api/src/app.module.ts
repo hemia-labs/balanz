@@ -21,6 +21,8 @@ import { CsrfGuard } from './common/guards/csrf.guard';
 import { CorrelationIdMiddleware } from './common/middleware/correlation-id.middleware';
 import { ClientAccountsModule } from './modules/client-accounts/client-accounts.module';
 import { CorrelationModule } from './common/correlation/correlation.module';
+import { FiscalOperationsModule } from './modules/fiscal-operations/fiscal-operations.module';
+import { PermissionsModule } from './modules/permissions/permissions.module';
 
 @Module({
   imports: [
@@ -63,6 +65,8 @@ import { CorrelationModule } from './common/correlation/correlation.module';
     UsersModule,
     FeatureAuthModule,
     ClientAccountsModule,
+    FiscalOperationsModule,
+    PermissionsModule,
   ],
   controllers: [AppController],
   providers: [AppService, { provide: APP_GUARD, useClass: CsrfGuard }],

@@ -8,6 +8,19 @@ export enum AuthorizationDecision {
   OUT_OF_SCOPE = 'OUT_OF_SCOPE',
 }
 
+export const REAUTHENTICATION_WINDOW_MS = 15 * 60 * 1000;
+
+export function hasRecentReauthentication(
+  verifiedAt: Date | null | undefined,
+  now = Date.now(),
+): boolean {
+  return Boolean(
+    verifiedAt &&
+    verifiedAt.getTime() >= now - REAUTHENTICATION_WINDOW_MS &&
+    verifiedAt.getTime() <= now,
+  );
+}
+
 /** Resuelve únicamente precedencia. Las condiciones de seguridad se evalúan aparte. */
 export function resolveEffectivePermission(input: {
   roleDefault: boolean;

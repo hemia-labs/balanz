@@ -40,7 +40,20 @@ describe('AuthorizationService', () => {
         .fn()
         .mockResolvedValue([
           { permission: { key: 'sat.download', status: 'active' } },
+          { permission: { key: 'exports.generate', status: 'active' } },
         ]),
+    };
+    const membershipPermissions = {
+      find: jest.fn().mockResolvedValue([
+        {
+          effect: 'deny',
+          permission: { key: 'exports.generate', status: 'active' },
+        },
+        {
+          effect: 'grant',
+          permission: { key: 'periods.close', status: 'active' },
+        },
+      ]),
     };
     const service = new AuthorizationService(
       users as never,
@@ -49,6 +62,7 @@ describe('AuthorizationService', () => {
       rolePermissions as never,
       {} as never,
       {} as never,
+      membershipPermissions as never,
     );
     const session = {
       id: 'session-1',
@@ -65,8 +79,10 @@ describe('AuthorizationService', () => {
     expect(context.tenantActive).toBe(true);
     expect(context.role).toBe(MembershipRole.ADMIN);
     expect(context.permissions).toContain('sat.download');
+    expect(context.permissions).toContain('periods.close');
+    expect(context.permissions).not.toContain('exports.generate');
     expect(context.assignedAccountIds).toEqual([]);
-    expect(context.accountAccessMode).toBe('tenant');
+    expect(context.accountAccessMode).toBe('assigned');
     expect(memberships.findOne).toHaveBeenCalledWith({
       where: {
         id: 'membership-1',

@@ -9,6 +9,7 @@ import {
   AuditDecision,
 } from '../audit/entities/audit-event.entity';
 import type { SessionAuthorizationContext } from '../sessions/session.types';
+import type { AuthSession } from '../sessions/entities/auth-session.entity';
 import { ClientAccountScopeService } from './client-account-scope.service';
 import { constraintName, domainError } from './client-domain.errors';
 import { CreateFiscalYearDto } from './dtos/fiscal-year.dtos';
@@ -17,6 +18,7 @@ import { LegalEntity, LegalEntityStatus } from './entities/legal-entity.entity';
 import { Period, PeriodStatus } from './entities/period.entity';
 import { LegalEntitiesService } from './legal-entities.service';
 import { validateFiscalYear } from './client-domain.rules';
+import { FiscalAuthorizationService } from './fiscal-authorization.service';
 
 @Injectable()
 export class FiscalYearsService {
@@ -29,6 +31,7 @@ export class FiscalYearsService {
     private readonly scope: ClientAccountScopeService,
     private readonly legalEntities: LegalEntitiesService,
     private readonly audit: AuditService,
+    private readonly authorization: FiscalAuthorizationService,
   ) {}
 
   async list(legalEntityId: string, tenant: SessionAuthorizationContext) {
@@ -224,6 +227,122 @@ export class FiscalYearsService {
         lockVersion: period.lockVersion,
       })),
     };
+  }
+
+  async closePeriod(
+    periodId: string,
+    session: AuthSession,
+    tenant: SessionAuthorizationContext,
+    request: RequestContext,
+  ) {
+    return this.changePeriodStatus(
+      periodId,
+      PeriodStatus.READY_TO_CLOSE,
+      PeriodStatus.CLOSED,
+      'periods.close',
+      null,
+      session,
+      tenant,
+      request,
+    );
+  }
+
+  async reopenPeriod(
+    periodId: string,
+    reason: string,
+    session: AuthSession,
+    tenant: SessionAuthorizationContext,
+    request: RequestContext,
+  ) {
+    return this.changePeriodStatus(
+      periodId,
+      PeriodStatus.CLOSED,
+      PeriodStatus.REOPENED,
+      'periods.reopen',
+      reason.trim(),
+      session,
+      tenant,
+      request,
+    );
+  }
+
+  private async changePeriodStatus(
+    periodId: string,
+    requiredStatus: PeriodStatus,
+    nextStatus: PeriodStatus,
+    permission: 'periods.close' | 'periods.reopen',
+    reason: string | null,
+    session: AuthSession,
+    tenant: SessionAuthorizationContext,
+    request: RequestContext,
+  ) {
+    if (!tenant.organizationId) throw this.periodNotFound();
+    const visible = await this.periods.findOne({
+      where: { id: periodId, organizationId: tenant.organizationId },
+    });
+    if (!visible) throw this.periodNotFound();
+    await this.authorization.authorize(session, tenant, request, {
+      permission,
+      clientAccountId: visible.clientAccountId,
+      objectType: 'period',
+      objectId: visible.id,
+      requireReauthentication: true,
+    });
+    return this.dataSource.transaction(async (manager) => {
+      const repository = manager.getRepository(Period);
+      const period = await repository.findOne({
+        where: { id: periodId, organizationId: tenant.organizationId! },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!period) throw this.periodNotFound();
+      if (period.status !== requiredStatus) {
+        throw domainError(
+          HttpStatus.CONFLICT,
+          'PERIOD_STATE_CONFLICT',
+          'Period state does not allow this action',
+        );
+      }
+      period.status = nextStatus;
+      period.cutoffAt = nextStatus === PeriodStatus.CLOSED ? new Date() : null;
+      period.lockVersion += 1;
+      await repository.save(period);
+      await this.audit.record(manager, {
+        organizationId: period.organizationId,
+        actorType: AuditActorType.USER,
+        actorUserId: tenant.userId,
+        actorMembershipId: tenant.membershipId,
+        servicePrincipal: null,
+        supportGrantId: null,
+        clientAccountId: period.clientAccountId,
+        legalEntityId: period.legalEntityId,
+        action:
+          nextStatus === PeriodStatus.CLOSED
+            ? 'PERIOD_CLOSED'
+            : 'PERIOD_REOPENED',
+        permissionKey: permission,
+        decision: AuditDecision.ALLOW,
+        objectType: 'period',
+        objectId: period.id,
+        reason,
+        correlationId: request.correlationId,
+        ipAddress: request.ipAddress,
+        metadata: { previousStatus: requiredStatus, nextStatus },
+      });
+      return {
+        id: period.id,
+        status: period.status,
+        cutoffAt: period.cutoffAt ?? null,
+        lockVersion: period.lockVersion,
+      };
+    });
+  }
+
+  private periodNotFound() {
+    return domainError(
+      HttpStatus.NOT_FOUND,
+      'PERIOD_NOT_FOUND',
+      'Period not found',
+    );
   }
 
   private response(year: FiscalYear) {

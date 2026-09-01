@@ -47,11 +47,13 @@ describe('UsersService', () => {
       }),
     } as unknown as jest.Mocked<Repository<Role>>;
     const manager = {
-      getRepository: jest.fn((entity: typeof User | typeof Membership | typeof Role) => {
-        if (entity === User) return repository;
-        if (entity === Role) return roleRepository;
-        return membershipRepository;
-      }),
+      getRepository: jest.fn(
+        (entity: typeof User | typeof Membership | typeof Role) => {
+          if (entity === User) return repository;
+          if (entity === Role) return roleRepository;
+          return membershipRepository;
+        },
+      ),
     };
     const module = await Test.createTestingModule({
       providers: [

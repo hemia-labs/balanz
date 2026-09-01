@@ -644,7 +644,7 @@ export class AuthService {
     rawSessionToken: string;
     context: SessionAuthorizationContext;
   }> {
-    return this.completeMfa(session, code, ipAddress, true);
+    return this.completeMfa(session, code, ipAddress, true, false);
   }
 
   async completeLoginMfa(
@@ -655,7 +655,18 @@ export class AuthService {
     rawSessionToken: string;
     context: SessionAuthorizationContext;
   }> {
-    return this.completeMfa(session, code, ipAddress, false);
+    return this.completeMfa(session, code, ipAddress, false, false);
+  }
+
+  async reauthenticate(
+    session: AuthSession,
+    code: string,
+    ipAddress: string,
+  ): Promise<{
+    rawSessionToken: string;
+    context: SessionAuthorizationContext;
+  }> {
+    return this.completeMfa(session, code, ipAddress, false, true);
   }
 
   private async completeMfa(
@@ -663,6 +674,7 @@ export class AuthService {
     code: string,
     ipAddress: string,
     enrolling: boolean,
+    reauthenticating: boolean,
   ): Promise<{
     rawSessionToken: string;
     context: SessionAuthorizationContext;
@@ -707,10 +719,9 @@ export class AuthService {
       });
       if (!lockedSession || lockedSession.status !== AuthSessionStatus.ACTIVE)
         throw new UnauthorizedException('Invalid session');
-      if (
-        !enrolling &&
-        (!lockedSession.requiresMfa || lockedSession.mfaVerifiedAt)
-      )
+      if (!enrolling && !lockedSession.requiresMfa)
+        throw new UnauthorizedException('MFA is not active');
+      if (!enrolling && !reauthenticating && lockedSession.mfaVerifiedAt)
         throw new UnauthorizedException('MFA is not pending');
       const now = new Date();
       factor.status = enrolling ? AuthFactorStatus.ACTIVE : factor.status;
@@ -731,20 +742,24 @@ export class AuthService {
         actorType: AuditActorType.USER,
         actorUserId: lockedSession.userId,
         actorMembershipId: lockedSession.membershipId,
-        action: 'auth.mfa.verified',
+        action: reauthenticating
+          ? 'auth.session.reauthenticated'
+          : 'auth.mfa.verified',
         decision: AuditDecision.ALLOW,
         objectType: 'auth_session',
         objectId: lockedSession.id,
         correlationId: randomUUID(),
-        metadata: { schemaVersion: 2, enrolling },
+        metadata: { schemaVersion: 2, enrolling, reauthenticating },
       });
       return { rotation, session: lockedSession, activatedAt: now };
     });
-    await this.sessions.revokeOtherSessions(
-      session.userId,
-      session.id,
-      'mfa_verified_elsewhere',
-    );
+    if (!reauthenticating) {
+      await this.sessions.revokeOtherSessions(
+        session.userId,
+        session.id,
+        'mfa_verified_elsewhere',
+      );
+    }
     result.session.sessionTokenHash = this.sessions.hashToken(
       result.rotation.rawToken,
     );

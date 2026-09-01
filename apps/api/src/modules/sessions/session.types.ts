@@ -41,4 +41,5 @@ export interface SessionAuthorizationContext {
   mfaStatus: 'disabled' | 'pending' | 'active';
   expiresAt: Date;
   tenantActive: boolean;
+  reauthenticationRequiredActions: string[];
 }

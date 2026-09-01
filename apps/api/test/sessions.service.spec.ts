@@ -61,7 +61,24 @@ describe('SessionsService Redis resolution', () => {
       repository as never,
       config,
       {} as never,
-      {} as never,
+      {
+        resolve: jest.fn().mockResolvedValue({
+          userId: entry.userId,
+          sessionId: entry.sessionId,
+          organizationId: entry.organizationId,
+          membershipId: entry.membershipId,
+          role: 'admin',
+          permissions: ['organization.view'],
+          assignedAccountIds: [],
+          accountAccessMode: 'assigned',
+          mfaVerifiedAt: new Date(entry.mfaVerifiedAt!),
+          requiresMfa: false,
+          mfaStatus: 'active',
+          expiresAt: new Date(entry.expiresAt),
+          tenantActive: true,
+          reauthenticationRequiredActions: [],
+        }),
+      } as never,
       cache as never,
     );
     const request = {

@@ -22,11 +22,7 @@ import {
   MembershipStatus,
 } from '../memberships/entities/membership.entity';
 import { canTransitionMembership } from '../memberships/membership-state';
-import {
-  Role,
-  RoleKey,
-  RoleScope,
-} from '../permissions/entities/role.entity';
+import { Role, RoleKey, RoleScope } from '../permissions/entities/role.entity';
 
 export interface RegistrationUserInput {
   firstName: string;
