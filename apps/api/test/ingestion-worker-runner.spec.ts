@@ -1,0 +1,369 @@
+import { ConfigService } from '@nestjs/config';
+import { CorrelationIdService } from '../src/common/correlation/correlation-id.service';
+import type { FiscalEventLogger } from '../src/common/observability/fiscal-event-logger.service';
+import { FiscalMetricsService } from '../src/common/observability/fiscal-metrics.service';
+import type { FiscalPlatformConfig } from '../src/config/fiscal-platform.config';
+import { IngestionJobSourceType } from '../src/modules/ingestion/entities/ingestion-job.entity';
+import type {
+  ClaimResult,
+  FoundationReconciliationResult,
+  IngestionJobRepository,
+} from '../src/modules/ingestion/services/ingestion-job.repository';
+import {
+  IngestionJobRegistry,
+  type IngestionJobHandler,
+} from '../src/modules/ingestion/workers/ingestion-job.registry';
+import { IngestionWorkerRunner } from '../src/modules/ingestion/workers/ingestion-worker.runner';
+import { DurableWorkerError } from '../src/modules/ingestion/workers/worker-error';
+import type { RedisWakeupService } from '../src/modules/redis/redis-wakeup.service';
+
+const claim: ClaimResult = {
+  jobId: 'f9e1c10c-f45f-42e4-8f2d-d9a32a850a62',
+  organizationId: 'b0cbfba0-7f1f-4145-8cb4-d9cf70639f81',
+  clientAccountId: '13ff115d-13e5-4cc4-b4be-380666a04b9f',
+  legalEntityId: 'd9549965-f168-4076-9654-17cc18ad28c9',
+  sourceType: IngestionJobSourceType.MANUAL_XML,
+  uploadId: '5b733ad2-2725-4618-87bb-0a00490e5c6d',
+  rootObjectId: 'fbbfe537-f8eb-4e6d-a91d-0729e939aef0',
+  requestedByMembershipId: 'af698435-8908-45cb-aa98-0e734606cd6e',
+  correlationId: '67d6df7a-08f0-4df4-a488-40cba383c9dd',
+  attemptCount: 1,
+  queueAgeSeconds: 2,
+  version: 2,
+  recovered: false,
+  workerId: 'ignored-by-runner',
+  leaseToken: 'b465d36e-15dd-443f-89c6-f8c4c070243d',
+};
+
+const emptyReconciliation: FoundationReconciliationResult = {
+  leaseRetryableCount: 0,
+  leaseFinalCount: 0,
+  leaseCancelledCount: 0,
+  expiredUploadCount: 0,
+  rejectedOrphanObjectCount: 0,
+  confirmedObjectWithoutJobCount: 0,
+  orphanJobCount: 0,
+  repairedCounterCount: 0,
+  retentionEligibleObjectCount: 0,
+  redundantObjectCount: 0,
+};
+
+describe('IngestionWorkerRunner durable semantics', () => {
+  function createRunner(handler?: IngestionJobHandler, heartbeat = 'renewed') {
+    const jobs = {
+      claimNext: jest.fn().mockResolvedValueOnce(claim).mockResolvedValue(null),
+      queueAges: jest
+        .fn()
+        .mockResolvedValue([
+          { sourceType: claim.sourceType, queueAgeSeconds: 0 },
+        ]),
+      heartbeat: jest.fn().mockResolvedValue(heartbeat),
+      complete: jest.fn().mockResolvedValue(true),
+      failFinal: jest.fn().mockResolvedValue(true),
+      scheduleRetry: jest.fn().mockResolvedValue({
+        status: 'failed_retryable',
+        nextAttemptAt: new Date(),
+        version: 3,
+      }),
+      releaseForShutdown: jest.fn().mockResolvedValue(true),
+      reconcile: jest.fn().mockResolvedValue(emptyReconciliation),
+    };
+    const wakeups = {
+      subscribe: jest.fn().mockReturnValue(jest.fn()),
+    };
+    const events = { write: jest.fn() };
+    const metrics = new FiscalMetricsService();
+    const worker = {
+      concurrency: 1,
+      leaseSeconds: 90,
+      heartbeatSeconds: 0.01,
+      maxAttempts: 3,
+      backoffSeconds: [10, 30, 120],
+      backoffJitterPercent: 20,
+      pollIntervalMs: 60_000,
+      reconcileIntervalMs: 60_000,
+      shutdownGraceMs: 1_000,
+      healthHost: '127.0.0.1',
+      healthPort: 3002,
+    } satisfies FiscalPlatformConfig['worker'];
+    const config = {
+      getOrThrow: jest.fn().mockReturnValue({ worker }),
+    } as unknown as ConfigService;
+    const registry = new IngestionJobRegistry(handler ? [handler] : []);
+    if (!handler) {
+      jest
+        .spyOn(registry, 'supportedSources')
+        .mockReturnValue([IngestionJobSourceType.MANUAL_XML]);
+    }
+    const runner = new IngestionWorkerRunner(
+      config,
+      jobs as unknown as IngestionJobRepository,
+      registry,
+      wakeups as unknown as RedisWakeupService,
+      new CorrelationIdService(),
+      metrics,
+      events as unknown as FiscalEventLogger,
+    );
+    return { runner, jobs, wakeups, events, metrics };
+  }
+
+  it('claims through PostgreSQL polling even when no Redis event arrives', async () => {
+    const handler: IngestionJobHandler = {
+      source: IngestionJobSourceType.MANUAL_XML,
+      handle: jest.fn().mockResolvedValue('completed'),
+    };
+    const { runner, jobs, wakeups } = createRunner(handler);
+    runner.onApplicationBootstrap();
+    await eventually(() => jobs.complete.mock.calls.length === 1);
+
+    expect(wakeups.subscribe).toHaveBeenCalled();
+    expect(jobs.claimNext).toHaveBeenCalled();
+    expect(jobs.complete).toHaveBeenCalledWith(
+      expect.objectContaining({ jobId: claim.jobId }),
+      'completed',
+    );
+    await runner.onApplicationShutdown();
+  });
+
+  it('persists a typed non-retryable failure directly as failed_final', async () => {
+    const handler: IngestionJobHandler = {
+      source: IngestionJobSourceType.MANUAL_XML,
+      handle: jest
+        .fn()
+        .mockRejectedValue(
+          new DurableWorkerError('SYNTHETIC_TERMINAL', { retryable: false }),
+        ),
+    };
+    const { runner, jobs } = createRunner(handler);
+    runner.onApplicationBootstrap();
+    await eventually(() => jobs.failFinal.mock.calls.length === 1);
+
+    expect(jobs.scheduleRetry).not.toHaveBeenCalled();
+    expect(jobs.failFinal).toHaveBeenCalledWith(
+      expect.objectContaining({ jobId: claim.jobId }),
+      'SYNTHETIC_TERMINAL',
+      undefined,
+    );
+    await runner.onApplicationShutdown();
+  });
+
+  it('records complete telemetry when a claimed source has no registered handler', async () => {
+    const { runner, jobs, events, metrics } = createRunner();
+    runner.onApplicationBootstrap();
+    await eventually(() => jobs.failFinal.mock.calls.length === 1);
+
+    expect(jobs.failFinal).toHaveBeenCalledWith(
+      expect.objectContaining({ jobId: claim.jobId }),
+      'HANDLER_NOT_REGISTERED',
+      undefined,
+    );
+    expect(events.write).toHaveBeenCalledWith(
+      'info',
+      expect.objectContaining({ event: 'ingestion_job_started' }),
+    );
+    expect(events.write).toHaveBeenCalledWith(
+      'error',
+      expect.objectContaining({
+        event: 'ingestion_job_finished',
+        errorCode: 'HANDLER_NOT_REGISTERED',
+        result: 'failed_final',
+      }),
+    );
+    expect(metrics.render()).toContain(
+      'ingestion_jobs_failed_total{result="failed_final",source="manual_xml"} 1',
+    );
+    await runner.onApplicationShutdown();
+  });
+
+  it('aborts cooperatively and acknowledges a durable cancellation', async () => {
+    const handler: IngestionJobHandler = {
+      source: IngestionJobSourceType.MANUAL_XML,
+      handle: jest.fn().mockImplementation(
+        (_job, signal: AbortSignal) =>
+          new Promise((_resolve, reject) => {
+            signal.addEventListener(
+              'abort',
+              () =>
+                reject(
+                  signal.reason instanceof Error
+                    ? signal.reason
+                    : new Error('Worker aborted'),
+                ),
+              { once: true },
+            );
+          }),
+      ),
+    };
+    const { runner, jobs } = createRunner(handler, 'cancel_requested');
+    runner.onApplicationBootstrap();
+    await eventually(() =>
+      jobs.complete.mock.calls.some(([, status]) => status === 'cancelled'),
+    );
+
+    expect(handler.handle).toHaveBeenCalled();
+    expect(jobs.complete).toHaveBeenCalledWith(
+      expect.objectContaining({ jobId: claim.jobId }),
+      'cancelled',
+    );
+    expect(jobs.scheduleRetry).not.toHaveBeenCalled();
+    await runner.onApplicationShutdown();
+  });
+
+  it('releases ownership on shutdown after aborting active work', async () => {
+    const handler: IngestionJobHandler = {
+      source: IngestionJobSourceType.MANUAL_XML,
+      handle: jest.fn().mockImplementation(
+        (_job, signal: AbortSignal) =>
+          new Promise((_resolve, reject) => {
+            signal.addEventListener(
+              'abort',
+              () =>
+                reject(
+                  signal.reason instanceof Error
+                    ? signal.reason
+                    : new Error('Worker aborted'),
+                ),
+              { once: true },
+            );
+          }),
+      ),
+    };
+    const { runner, jobs } = createRunner(handler);
+    runner.onApplicationBootstrap();
+    await eventually(
+      () => (handler.handle as jest.Mock).mock.calls.length === 1,
+    );
+    await runner.onApplicationShutdown();
+
+    expect(jobs.releaseForShutdown).toHaveBeenCalledWith(
+      expect.objectContaining({ jobId: claim.jobId }),
+    );
+    expect(runner.status().activeJobs).toBe(0);
+  });
+
+  it('serializes slow heartbeats and waits for the in-flight heartbeat before shutdown release', async () => {
+    let resolveHeartbeat: (outcome: 'renewed') => void = () => undefined;
+    let heartbeatInFlight = 0;
+    let maxHeartbeatInFlight = 0;
+    const handler: IngestionJobHandler = {
+      source: IngestionJobSourceType.MANUAL_XML,
+      handle: jest.fn().mockImplementation(
+        (_job, signal: AbortSignal) =>
+          new Promise((_resolve, reject) => {
+            signal.addEventListener(
+              'abort',
+              () => reject(new Error('Worker aborted')),
+              { once: true },
+            );
+          }),
+      ),
+    };
+    const { runner, jobs } = createRunner(handler);
+    jobs.heartbeat.mockImplementation(
+      () =>
+        new Promise<'renewed'>((resolve) => {
+          heartbeatInFlight += 1;
+          maxHeartbeatInFlight = Math.max(
+            maxHeartbeatInFlight,
+            heartbeatInFlight,
+          );
+          resolveHeartbeat = (outcome) => {
+            heartbeatInFlight -= 1;
+            resolve(outcome);
+          };
+        }),
+    );
+
+    runner.onApplicationBootstrap();
+    await eventually(() => jobs.heartbeat.mock.calls.length === 1);
+    await delay(35);
+    expect(jobs.heartbeat).toHaveBeenCalledTimes(1);
+    expect(maxHeartbeatInFlight).toBe(1);
+
+    let shutdownSettled = false;
+    const shutdown = runner.onApplicationShutdown().then(() => {
+      shutdownSettled = true;
+    });
+    await delay(20);
+    expect(shutdownSettled).toBe(false);
+    expect(jobs.releaseForShutdown).not.toHaveBeenCalled();
+
+    resolveHeartbeat('renewed');
+    await shutdown;
+    expect(jobs.releaseForShutdown).toHaveBeenCalledWith(
+      expect.objectContaining({ leaseToken: claim.leaseToken }),
+    );
+    expect(maxHeartbeatInFlight).toBe(1);
+  });
+
+  it('releases a claim that resolves while shutdown is already in progress', async () => {
+    let resolveClaim: (value: ClaimResult | null) => void = () => undefined;
+    const deferredClaim = new Promise<ClaimResult | null>((resolve) => {
+      resolveClaim = resolve;
+    });
+    const handler: IngestionJobHandler = {
+      source: IngestionJobSourceType.MANUAL_XML,
+      handle: jest.fn().mockResolvedValue('completed'),
+    };
+    const { runner, jobs } = createRunner(handler);
+    jobs.claimNext.mockReset().mockReturnValueOnce(deferredClaim);
+
+    runner.onApplicationBootstrap();
+    await eventually(() => jobs.claimNext.mock.calls.length === 1);
+    const shutdown = runner.onApplicationShutdown();
+    const stoppingStatus = runner.status();
+    expect(stoppingStatus.acceptingClaims).toBe(false);
+    expect(stoppingStatus.supervisor.state).toBe('stopping');
+    expect(stoppingStatus.cycles.poll.state).toBe('running');
+    resolveClaim(claim);
+    await shutdown;
+
+    expect(handler.handle).not.toHaveBeenCalled();
+    expect(jobs.releaseForShutdown).toHaveBeenCalledWith(claim);
+    expect(runner.status().activeJobs).toBe(0);
+    expect(runner.status().supervisor.state).toBe('stopped');
+    expect(runner.status().cycles.poll.state).toBe('succeeded');
+  });
+
+  it('waits for an in-flight PostgreSQL reconciliation during shutdown', async () => {
+    let resolveReconciliation: (
+      result: FoundationReconciliationResult,
+    ) => void = () => undefined;
+    const deferredReconciliation = new Promise<FoundationReconciliationResult>(
+      (resolve) => {
+        resolveReconciliation = resolve;
+      },
+    );
+    const { runner, jobs } = createRunner();
+    jobs.claimNext.mockReset().mockResolvedValue(null);
+    jobs.reconcile.mockReset().mockReturnValueOnce(deferredReconciliation);
+
+    runner.onApplicationBootstrap();
+    await eventually(() => jobs.reconcile.mock.calls.length === 1);
+    expect(runner.status().cycles.reconciliation.state).toBe('running');
+
+    let shutdownSettled = false;
+    const shutdown = runner.onApplicationShutdown().then(() => {
+      shutdownSettled = true;
+    });
+    await delay(20);
+    expect(shutdownSettled).toBe(false);
+
+    resolveReconciliation(emptyReconciliation);
+    await shutdown;
+    expect(runner.status().cycles.reconciliation.state).toBe('succeeded');
+    expect(runner.status().supervisor.state).toBe('stopped');
+  });
+});
+
+async function eventually(predicate: () => boolean): Promise<void> {
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    if (predicate()) return;
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  throw new Error('Timed out waiting for worker transition');
+}
+
+async function delay(milliseconds: number): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, milliseconds));
+}

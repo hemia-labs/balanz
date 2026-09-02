@@ -17,7 +17,12 @@ describe('database configuration', () => {
     expect(resolved.entities).toEqual(options.entities);
     expect(resolved.migrations).toEqual(options.migrations);
     expect(resolved.logging).toBe(options.logging);
+    expect(
+      (resolved as typeof resolved & { installExtensions?: boolean })
+        .installExtensions,
+    ).toBe(false);
     expect(resolved.extra).toEqual(options.extra);
+    expect(resolved.extra).toMatchObject({ connectionTimeoutMillis: 2_000 });
   });
 
   it('resolves database options from the secret provider for CLI tasks', async () => {
@@ -46,6 +51,7 @@ describe('database configuration', () => {
       database: 'balanz',
       logging: true,
       synchronize: false,
+      installExtensions: false,
     });
   });
 });

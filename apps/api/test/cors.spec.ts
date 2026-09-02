@@ -10,9 +10,9 @@ import { envVarsSchema } from '../src/config/env.validation';
 const requiredEnv = {
   DB_HOST: 'localhost',
   DB_PORT: 5432,
-  DB_USERNAME: 'postgres',
-  DB_PASSWORD: 'postgres',
   DB_DATABASE: 'balanz_test',
+  DB_API_USERNAME: 'balanz_api_login',
+  DB_API_PASSWORD: 'api-runtime-password-for-tests',
   JWT_SECRET: 'a'.repeat(32),
   JWT_REFRESH_SECRET: 'b'.repeat(32),
   BCRYPT_SALT_ROUNDS: 10,
