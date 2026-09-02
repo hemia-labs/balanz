@@ -1,5 +1,5 @@
-@baseUrl = http://localhost:3001/api/v1
-@origin = http://localhost:3000
+@baseUrl = http://localhost:3021/api/v1
+@origin = http://localhost:5181
 @sessionCookieName = balanz_session
 @sessionCookie = replace-with-current-opaque-session-token
 @userId = 00000000-0000-0000-0000-000000000000

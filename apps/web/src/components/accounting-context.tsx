@@ -44,6 +44,7 @@ interface AccountingContextValue {
   isDemo: boolean;
   organizations: OrganizationSummary[];
   changeOrganization: (organizationId: string) => Promise<void>;
+  requiresReauthentication: (permission: Capability) => boolean;
   registerClientName: (clientId: string, name: string) => void;
 }
 
@@ -57,6 +58,7 @@ function routeIdentifier(pathname: string, segment: string) {
 }
 
 function mapRole(role: string | null | undefined): DemoMembership["role"] {
+  if (role === "admin" || role === "administrator") return "administrador";
   if (role === "owner" || role === "titular") return "titular";
   if (role === "accountant" || role === "responsable") return "responsable";
   return "colaborador";
@@ -74,15 +76,40 @@ export function AccountingContextProvider({
   const [liveClientIdentity, setLiveClientIdentity] = useState<{
     id: string;
     name: string;
+    organizationId: string | null;
   } | null>(null);
-  const registerClientName = useCallback((clientId: string, name: string) => {
-    setLiveClientIdentity((current) =>
-      current?.id === clientId && current.name === name
-        ? current
-        : { id: clientId, name },
-    );
-  }, []);
+  const registerClientName = useCallback(
+    (clientId: string, name: string) => {
+      setLiveClientIdentity((current) =>
+        current?.id === clientId &&
+        current.name === name &&
+        current.organizationId === session?.organizationId
+          ? current
+          : {
+              id: clientId,
+              name,
+              organizationId: session?.organizationId ?? null,
+            },
+      );
+    },
+    [session?.organizationId],
+  );
   const locale = pathname.split("/").filter(Boolean)[0] ?? "es";
+
+  const changeOrganization = useCallback(
+    async (organizationId: string) => {
+      setLiveClientIdentity(null);
+      await switchTenant(organizationId);
+      const target = organizations.find((item) => item.id === organizationId);
+      router.replace(
+        target
+          ? `/${locale}/organizations/${encodeURIComponent(target.slug)}/home`
+          : `/${locale}/select-organization`,
+      );
+      router.refresh();
+    },
+    [locale, organizations, router, switchTenant],
+  );
   const organizationSlug =
     routeIdentifier(pathname, "organizations") ??
     searchParams.get("organizacion") ??
@@ -150,17 +177,18 @@ export function AccountingContextProvider({
           (isDemo ? membershipFor(organization.id)?.role : undefined),
       ),
       capabilities: resolvedCapabilities,
-      assignedClientIds:
-        isDemo
-          ? (membershipFor(organization.id)?.assignedClientIds ?? [])
-          : [],
+      assignedClientIds: isDemo
+        ? (membershipFor(organization.id)?.assignedClientIds ?? [])
+        : (authorization?.assignedAccountIds ?? []),
     };
     const clientId = routeIdentifier(pathname, "clients");
     const client =
       isDemo && clientId ? clientById(organization.id, clientId) : undefined;
     const clientName =
       client?.name ??
-      (liveClientIdentity && liveClientIdentity.id === clientId
+      (liveClientIdentity &&
+      liveClientIdentity.organizationId === organization.id &&
+      liveClientIdentity.id === clientId
         ? liveClientIdentity.name
         : undefined);
     return {
@@ -176,11 +204,15 @@ export function AccountingContextProvider({
       context: clientId ? ("client" as const) : ("organization" as const),
       isDemo,
       organizations,
-      changeOrganization: switchTenant,
+      changeOrganization,
+      requiresReauthentication: (permission: Capability) =>
+        authorization?.reauthenticationRequiredActions.includes(permission) ??
+        false,
       registerClientName,
     };
   }, [
     authorization,
+    changeOrganization,
     locale,
     liveClientIdentity,
     organizationSlug,
@@ -189,12 +221,11 @@ export function AccountingContextProvider({
     routeOrganization,
     registerClientName,
     session,
-    switchTenant,
   ]);
 
   if (tenantMismatch) {
     return (
-      <div className="grid min-h-screen place-items-center bg-slate-50 px-6 text-sm text-slate-600">
+      <div className="grid min-h-screen place-items-center bg-background px-6 text-body-sm text-muted-foreground">
         Validando organización…
       </div>
     );

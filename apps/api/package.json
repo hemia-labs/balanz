@@ -42,8 +42,9 @@
     "db:test:prepare": "ts-node --transpile-only src/database/scripts/prepare-fiscal-test-database.ts",
     "db:runtime:provision": "ts-node --transpile-only src/database/scripts/provision-fiscal-runtime-logins.ts",
     "qa:cfdi:postgres": "npm run migration:show && npm run migration:preflight && npm run migration:run && npm run seed:run && npm run seed:run && npm run qa:migrations && npm run test:integration:fiscal && npm run test:integration:fiscal:runtime",
+    "maintenance:auth-cleanup": "ts-node --transpile-only src/database/maintenance/cleanup-auth-data.ts",
     "db:prepare": "npm run migration:preflight && npm run migration:run && npm run seed:run",
-    "release:prepare": "npm run migration:run && npm run seed:run"
+    "release:prepare": "npm run db:prepare"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "3.1116.0",

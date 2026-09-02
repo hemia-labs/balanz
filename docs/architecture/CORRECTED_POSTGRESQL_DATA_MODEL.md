@@ -578,7 +578,7 @@ CREATE INDEX ix_period_leases_expiry ON period_leases(status,expires_at);
 
 #### `stored_objects`
 
-La migración 060 crea exactamente estas columnas:
+`FiscalIngestionFoundation1787690600000` crea exactamente estas columnas:
 
 - identidad/scope: `id`, `organization_id`, `client_account_id`,
   `legal_entity_id`;
@@ -709,7 +709,9 @@ Funciones ejecutables, con `search_path` fijo y grants mínimos:
   `trg_ingestion_items_mark_counters_dirty`.
 
 `sat_download_jobs`, `sat_download_packages` y `export_jobs` son
-`FUTURE / NOT_STARTED` (Fases 4 y 6). No existen en las migraciones 060/061.
+`FUTURE / NOT_STARTED` (Fases 4 y 6). No existen en
+`FiscalIngestionFoundation1787690600000` ni
+`FiscalRlsWorkerClaims1787690610000`.
 
 ### 6.6 CFDI, conceptos, impuestos, relaciones y trabajo mensual — FUTURE / NOT_STARTED
 
@@ -1424,7 +1426,8 @@ Esta matriz completa propósito, ciclo de vida, índices, tenant, sensibilidad, 
 
 ### 6.11 Constraints diferidos y validaciones entre agregados — FUTURE / NOT_STARTED
 
-Esta sección no forma parte de 060/061. Cuando las fases propietarias creen sus
+Esta sección no forma parte de `FiscalIngestionFoundation1787690600000` ni
+`FiscalRlsWorkerClaims1787690610000`. Cuando las fases propietarias creen sus
 tablas, migraciones append-only futuras podrán agregar estas FKs sin relajar
 tenant. En particular, Fase 0 no agrega `ingestion_items.cfdi_id`.
 
@@ -1495,7 +1498,9 @@ Reglas comunes: toda transición valida `lock_version` cuando exista, registra a
 
 ## 8. Read models, vistas y agregados — FUTURE / NOT_STARTED
 
-Ninguna de estas vistas forma parte de las migraciones 060/061. Son contratos
+Ninguna de estas vistas forma parte de
+`FiscalIngestionFoundation1787690600000` ni
+`FiscalRlsWorkerClaims1787690610000`. Son contratos
 de lectura objetivo para las fases que creen primero sus tablas fuente.
 
 | Read model                        | Fuente                                                                     | Filtro de tenant/asignación                                          | Forma/actualización                                                                  | Índices                                                         |
@@ -1702,7 +1707,7 @@ implementadas. Fase 0 no agrega UI fiscal y Fase 1 permanece `NOT_STARTED`.
 | `/es`                                      | resolver entrada                         | sesión sólo cuando exista auth real         | organización activa/membresías                 | —                        | sesión                                |
 | `/es/login`                                | autenticar                               | `auth_sessions`, auditoría                  | `users`, factors                               | —                        | público + MFA                         |
 | `/es/register`                             | identidad/primer despacho                | user/org/membership/subscription pending    | alta transaccional                             | email verification       | público                               |
-| `/es/forgot-password`                      | recuperar                                | factor/session/audit según proveedor        | user por token opaco                           | email                    | público                               |
+| `/es/forgot-password`                      | recuperar                                | `password_reset_tokens`, `users.password_hash`, `auth_sessions`, `audit_events` | user por token opaco                           | email                    | público                               |
 | `/es/onboarding`                           | configurar despacho                      | org/settings, client/entity/year            | wizard read model                              | —                        | owner                                 |
 | `/es/seleccionar-despacho`                 | elegir tenant                            | `auth_sessions`                             | memberships/orgs                               | —                        | sesión                                |
 | `/es/perfil`                               | editar perfil                            | `users`                                     | `users`                                        | —                        | identidad propia                      |
@@ -1759,7 +1764,11 @@ implementadas. Fase 0 no agrega UI fiscal y Fase 1 permanece `NOT_STARTED`.
 | `…/ieps/:instanceId/archivos`              | batch/historial                          | generation/files                            | file history                                   | fiscal generation        | `ieps.generate`                       |
 | `…/obligaciones/archivos-generados`        | historial transversal                    | —                                           | generated file history                         | signed URL               | `obligations.view` + permiso descarga |
 
-Las rutas legacy sólo redirigen y no tienen persistencia propia. `/en/*` tampoco crea locale alterno: redirige a español.
+Las rutas legacy sólo redirigen y no tienen persistencia propia. `/en/*`
+tampoco crea locale alterno: redirige a español. La recuperación de contraseña
+y `SessionReauthentication1787690600000` son capacidades de autenticación ya
+integradas desde `develop`; no pertenecen a la Fase 1 CFDI ni anticipan la
+e.firma de la Fase 3.
 
 ## 13. Reconciliación con `control_mensual_cfdi.md`
 
@@ -1767,7 +1776,8 @@ Esta reconciliación conserva el diseño de destino del documento base. Sólo
 `stored_objects`, `ingestion_uploads`, `ingestion_jobs` e `ingestion_items`
 tienen estado **F0 ejecutable**; todas las demás filas son
 **FUTURE / NOT_STARTED** para este programa y no describen tablas creadas por
-060/061.
+`FiscalIngestionFoundation1787690600000` y
+`FiscalRlsWorkerClaims1787690610000`.
 
 | Entidad base                   | Decisión final | Objetivo                       | Cambio e impacto de migración                                                                                |
 | ------------------------------ | -------------- | ------------------------------ | ------------------------------------------------------------------------------------------------------------ |
@@ -1789,7 +1799,7 @@ tienen estado **F0 ejecutable**; todas las demás filas son
 | `sat_download_jobs`            | MODIFICAR      | `sat_download_jobs`            | DDL/state machine completa, credencial usada y parámetros snapshot                                           |
 | `sat_download_packages`        | MODIFICAR      | `sat_download_packages`        | objeto nullable y ciclo durable                                                                              |
 | —                              | AGREGAR        | `ingestion_uploads`            | **F0 ejecutable:** intención/confirmación, objeto privado, expiración e idempotencia en dos pasos según 060  |
-| `ingestion_jobs`               | MODIFICAR      | `ingestion_jobs`               | **F0 ejecutable:** origen técnico, idempotencia, contadores, lease, heartbeat y reintentos según 060/061     |
+| `ingestion_jobs`               | MODIFICAR      | `ingestion_jobs`               | **F0 ejecutable:** origen técnico, idempotencia, contadores, lease, heartbeat y reintentos según `FiscalIngestionFoundation1787690600000` / `FiscalRlsWorkerClaims1787690610000` |
 | `ingestion_items`              | MODIFICAR      | `ingestion_items`              | **F0 ejecutable:** ordinal, objeto observado, estado y detalle técnico; sin `cfdi_id` ni resultado de parser |
 | `cfdis`                        | MODIFICAR      | `cfdis`                        | account/entity, dirección, XML presence y estados separados                                                  |
 | `cfdi_concepts`                | MODIFICAR      | `cfdi_concepts`                | tipos/importes/constraints completos                                                                         |
@@ -1810,7 +1820,27 @@ tienen estado **F0 ejecutable**; todas las demás filas son
 
 Entidades agregadas porque no existen en el catálogo base: `user_preferences`, `auth_factors`, `organization_settings`, `membership_preferences`, cuatro tablas comerciales, `notifications`, `notification_preferences`, `support_access_grants` y las trece tablas del dominio de obligaciones/archivos fiscales. No se elimina ninguna capacidad vigente del documento base.
 
-## 14. Estado de implementación del programa CFDI
+## 14. Estrategia de implementación posterior
+
+| Etapa | Incluye | Dependencias | Riesgos/pruebas de salida |
+| --- | --- | --- | --- |
+| 1. Fundaciones multi-tenant e identidad | user/auth/org/membership/session/permission/audit | proveedor auth/MFA | alta atómica, owner único, revocación, dos tenants, no enumeración |
+| 2. Comercial y suscripción | plans/entitlements/subscription/events | proveedor/decisiones comerciales | webhooks duplicados, trial/grace/cancel, owner-only, sin tarjeta |
+| 3. Clientes y asignaciones | account/entity/assignment/settings | etapa 1 | RFC duplicado, asignación revocada, cuenta multi-RFC |
+| 4. Ejercicios y períodos | years/periods/lease/checklist base | etapa 3 | 12 meses, lock conflict, takeover auditado |
+| 5. CFDI e ingesta | objects/credentials/SAT/ingestion/CFDI | storage/KMS/workers | XXE/ZIP bomb, idempotencia, PPD múltiple, nómina aislada |
+| 6. Revisión, incidencias y cierre | participation/decisions/incidents/checklist/close | etapa 5 | append-only, manifest hash, novedades/reapertura |
+| 7. Procesos y exportaciones | export jobs + process view | etapas 5/6 | restart worker, expiry/revocation, scope exacto |
+| 8. Obligaciones fiscales | catálogo/config/instancia/papel/DIOT/IEPS/layout/generation | núcleo CFDI estable + layouts aprobados | reproducibilidad, stale, ajustes, no afirmación SAT |
+| 9. Notificaciones, búsqueda y soporte | inbox/preferences/search/JIT | autorización/read models | links cross-tenant, trigram scope, TTL soporte |
+| 10. RLS, seguridad y pruebas negativas | políticas, roles DB, signed URLs, retention | todas | matriz API/worker/object/cache; cero cruces/secretos |
+
+Cada etapa usa migraciones aditivas, backfill verificado y constraints después
+de limpiar datos. Nunca se activa una ruta de escritura antes de sus pruebas de
+tenant, asignación y permiso. La migración real de `users` debe corregir
+timestamps sin zona y unicidad case-insensitive preservando IDs.
+
+## 15. Estado de implementación del programa CFDI
 
 El roadmap maestro es la autoridad para dependencias, entrada, salida, pruebas,
 riesgos y entregables de cada fase. Esta tabla sólo evita confundir el modelo
@@ -1818,7 +1848,7 @@ objetivo con el schema actual.
 
 | Fase                            | Estado en esta ejecución                                                | Persistencia de esta fase                                                                                                    |
 | ------------------------------- | ----------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| 0. Plataforma fiscal compartida | `BLOCKED` — pendientes controles externos documentados en el reporte QA | 060/061: `stored_objects`, `ingestion_uploads`, `ingestion_jobs`, `ingestion_items`, RLS y funciones operativas restringidas |
+| 0. Plataforma fiscal compartida | `BLOCKED` — pendientes controles externos documentados en el reporte QA | `FiscalIngestionFoundation1787690600000` / `FiscalRlsWorkerClaims1787690610000`: `stored_objects`, `ingestion_uploads`, `ingestion_jobs`, `ingestion_items`, RLS y funciones operativas restringidas |
 | 1. XML individual end-to-end    | `NOT_STARTED`                                                           | CFDI, conceptos, impuestos, relaciones y resultados de parser futuros                                                        |
 | 2. ZIP y éxito parcial          | `NOT_STARTED`                                                           | extensiones de lotes/observaciones futuras                                                                                   |
 | 3. Reautenticación y e.firma    | `NOT_STARTED`                                                           | credenciales versionadas futuras                                                                                             |
@@ -1833,7 +1863,7 @@ constraints después de limpiar datos. Nunca se activa una ruta de escritura
 antes de sus pruebas de tenant, asignación y permiso. En particular, la Fase 1
 no puede iniciarse ni marcarse `IN_PROGRESS` durante esta ejecución.
 
-## 15. Preguntas pendientes
+## 16. Preguntas pendientes
 
 Estas decisiones pertenecen a capacidades futuras y no reducen la Definition
 of Done de Fase 0. Deben resolverse como criterio de entrada de su fase dueña.

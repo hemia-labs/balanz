@@ -257,7 +257,7 @@ Client route families:
 
 `apps/web/src/lib/api-client.ts` provides the single architecture to extend:
 
-- Base URL `NEXT_PUBLIC_API_URL`, default `http://localhost:3001/api/v1`.
+- Base URL `NEXT_PUBLIC_API_URL`, default `http://localhost:3021/api/v1`.
 - Native fetch, JSON content type when a body exists, `credentials: "include"`, 10-second timeout and external `AbortSignal` composition.
 - `ApiError(status, code, fieldErrors, details)` and classifications for 401/MFA, 403, 409, 422, 429, network/timeout.
 - `SessionProvider` redirects 401 to login, shows forbidden state for 403/MFA setup, reloads organizations/authorization after tenant switch and clears stale context during switching.

@@ -4,13 +4,14 @@ import type { CachedSessionEntry } from '../src/modules/redis/session-cache.serv
 
 function makeEntry(): CachedSessionEntry {
   return {
-    version: 4,
+    version: 5,
     sessionId: 'session-1',
     userId: 'user-1',
     organizationId: 'org-1',
     membershipId: 'membership-1',
     status: 'active',
     mfaVerifiedAt: new Date().toISOString(),
+    reauthenticatedAt: new Date().toISOString(),
     requiresMfa: false,
     mfaStatus: 'disabled',
     expiresAt: new Date(Date.now() + 60_000).toISOString(),

@@ -50,7 +50,7 @@ function createDatabaseSecretReader(
     scope: {
       environment,
       category,
-      owner: env.SECRETS_OWNER || 'hemia',
+      owner: env.SECRETS_OWNER || 'balanz',
       system: env.SECRETS_SYSTEM || 'api',
     },
     provider: {

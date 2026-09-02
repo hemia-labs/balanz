@@ -22,7 +22,7 @@
 ## Seguridad y plataforma
 
 - CSRF: `GET`, `HEAD` y `OPTIONS` son seguros; una mutación requiere un `Origin` exacto permitido o, si no hay `Origin`, un origen exacto obtenido de un `Referer` válido. Ausencia, URL malformada, host parecido o coincidencia por sufijo devuelve 403.
-- CORS: desarrollo usa por defecto `http://localhost:3000`; producción conserva configuración explícita por entorno. Cada entrada se canonicaliza como origin HTTP(S) y se rechazan credenciales, paths significativos, query y fragment.
+- CORS: desarrollo usa por defecto `http://localhost:5181`; producción conserva configuración explícita por entorno. Cada entrada se canonicaliza como origin HTTP(S) y se rechazan credenciales, paths significativos, query y fragment.
 - Sesión deslizante: cada request válido avanza `lastActivityAt` en cache. La persistencia a PostgreSQL se limita mediante `AUTH_SESSION_ACTIVITY_PERSIST_INTERVAL_SECONDS` (300 s por defecto), que debe ser menor que el idle. Al recuperar desde PostgreSQL se admite como máximo esa misma gracia para no expulsar actividad aún no persistida, sin extender `expiresAt`.
 - Correlation ID: middleware valida `x-correlation-id` como UUID o genera uno, lo expone en la respuesta, request, errores y logs, y lo propaga a auditoría mediante `AsyncLocalStorage`.
 - Trust proxy: `TRUST_PROXY_HOPS` está tipado y validado; Express sólo lo habilita cuando el valor es mayor que cero.

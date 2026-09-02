@@ -31,6 +31,7 @@ export interface RegisterResponse {
   nextStep: string;
   mfaRequired: boolean;
   tenantActive: boolean;
+  reauthenticationRequiredActions: string[];
 }
 
 export interface EmailVerificationResult {

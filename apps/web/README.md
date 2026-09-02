@@ -38,7 +38,7 @@ Aliases: `@/components`, `@/components/ui`, `@/lib`, `@/lib/utils`, `@/hooks`.
 
 ```bash
 bun install
-bun run --cwd apps/web dev      # http://localhost:3000
+bun run --cwd apps/web dev      # http://localhost:5181
 ```
 
 ## Scripts

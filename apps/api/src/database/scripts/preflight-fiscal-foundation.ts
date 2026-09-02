@@ -1,4 +1,9 @@
 import { DataSource } from 'typeorm';
+import {
+  ALLOWED_SHARED_MIGRATION_TIMESTAMPS,
+  EXPECTED_MIGRATION_IDENTITIES,
+  EXPECTED_MIGRATION_NAMES,
+} from './migration-manifest';
 import { resolveScriptDatabaseOptions } from './script-database-options';
 
 const REQUIRED_BASE_RELATIONS = [
@@ -14,9 +19,9 @@ const FOUNDATION_RELATIONS = [
   'ingestion_jobs',
   'ingestion_items',
 ] as const;
-const FISCAL_MIGRATION_IDENTITIES = new Map([
-  ['1787690600000', 'FiscalIngestionFoundation1787690600000'],
-  ['1787690610000', 'FiscalRlsWorkerClaims1787690610000'],
+const PHASE_ZERO_MIGRATION_NAMES = new Set([
+  'FiscalIngestionFoundation1787690600000',
+  'FiscalRlsWorkerClaims1787690610000',
 ]);
 
 interface DatabaseIdentityRow {
@@ -147,6 +152,11 @@ async function preflightFiscalFoundation(): Promise<void> {
       : [];
 
     const failures: string[] = [];
+    const configuredMigrationNames = dataSource.migrations
+      .map(({ name }) => name)
+      .filter((name): name is string => typeof name === 'string');
+    validateConfiguredMigrationManifest(configuredMigrationNames, failures);
+    validateAppliedMigrationLedger(appliedMigrations, failures);
     if (identity.readOnly) failures.push('database_is_read_only');
     if (identity.serverVersionNumber < 160000) {
       failures.push('postgres_16_required');
@@ -174,12 +184,7 @@ async function preflightFiscalFoundation(): Promise<void> {
     const phaseZeroLogged = new Set(
       appliedMigrations
         .map(({ name }) => name)
-        .filter((name) =>
-          [
-            'FiscalIngestionFoundation1787690600000',
-            'FiscalRlsWorkerClaims1787690610000',
-          ].includes(name),
-        ),
+        .filter((name) => PHASE_ZERO_MIGRATION_NAMES.has(name)),
     );
     const nonSuperMigratorReady =
       identity.createRole &&
@@ -188,21 +193,11 @@ async function preflightFiscalFoundation(): Promise<void> {
       identity.ownsRequiredRelations &&
       identity.existingFiscalOwnerRoles === 0;
     if (
-      phaseZeroLogged.size < FISCAL_MIGRATION_IDENTITIES.size &&
+      phaseZeroLogged.size < PHASE_ZERO_MIGRATION_NAMES.size &&
       !identity.superuser &&
       !nonSuperMigratorReady
     ) {
       failures.push('insufficient_fiscal_migrator_authority');
-    }
-    const fiscalTimestampCollisions = appliedMigrations.filter(
-      ({ timestamp, name }) =>
-        FISCAL_MIGRATION_IDENTITIES.has(timestamp) &&
-        FISCAL_MIGRATION_IDENTITIES.get(timestamp) !== name,
-    );
-    for (const collision of fiscalTimestampCollisions) {
-      failures.push(
-        `fiscal_migration_timestamp_collision:${collision.timestamp}:${collision.name}`,
-      );
     }
     if (
       foundationCount === FOUNDATION_RELATIONS.length &&
@@ -221,7 +216,19 @@ async function preflightFiscalFoundation(): Promise<void> {
       foundationRelations,
       legalEntityTenantAccountOrphans: legalEntityOrphans,
       appliedMigrations,
-      fiscalTimestampCollisions,
+      migrationManifest: {
+        configured: configuredMigrationNames,
+        expected: EXPECTED_MIGRATION_IDENTITIES,
+        allowedSharedTimestamps: Object.fromEntries(
+          [...ALLOWED_SHARED_MIGRATION_TIMESTAMPS].map(([timestamp, names]) => [
+            timestamp,
+            [...names],
+          ]),
+        ),
+        unknownExecuted: appliedMigrations
+          .filter(({ name }) => !EXPECTED_MIGRATION_NAMES.includes(name))
+          .map(({ timestamp, name }) => ({ timestamp, name })),
+      },
       migratorAuthority: {
         sufficient: identity.superuser || nonSuperMigratorReady,
         mode: identity.superuser
@@ -241,6 +248,92 @@ async function preflightFiscalFoundation(): Promise<void> {
   } finally {
     if (dataSource.isInitialized) await dataSource.destroy();
   }
+}
+
+function validateConfiguredMigrationManifest(
+  configured: string[],
+  failures: string[],
+): void {
+  const unique = new Set(configured);
+  if (unique.size !== configured.length) {
+    failures.push('duplicate_configured_migration_name');
+  }
+  const missing = EXPECTED_MIGRATION_NAMES.filter((name) => !unique.has(name));
+  const unexpected = configured.filter(
+    (name) => !EXPECTED_MIGRATION_NAMES.includes(name),
+  );
+  for (const name of missing) failures.push(`missing_migration_file:${name}`);
+  for (const name of unexpected) {
+    failures.push(`unexpected_migration_file:${name}`);
+  }
+
+  const namesByTimestamp = groupNamesByTimestamp(
+    EXPECTED_MIGRATION_IDENTITIES.map(({ name, timestamp }) => ({
+      name,
+      timestamp: String(timestamp),
+    })),
+  );
+  for (const [timestamp, names] of namesByTimestamp) {
+    if (names.size === 1) continue;
+    const allowed = ALLOWED_SHARED_MIGRATION_TIMESTAMPS.get(timestamp);
+    if (!allowed || !sameStringSet(names, allowed)) {
+      failures.push(`unapproved_manifest_timestamp_collision:${timestamp}`);
+    }
+  }
+}
+
+function validateAppliedMigrationLedger(
+  applied: Array<{ timestamp: string; name: string }>,
+  failures: string[],
+): void {
+  const expectedByName = new Map(
+    EXPECTED_MIGRATION_IDENTITIES.map(({ name, timestamp }) => [
+      name,
+      String(timestamp),
+    ]),
+  );
+  const seen = new Set<string>();
+  for (const row of applied) {
+    if (seen.has(row.name)) {
+      failures.push(`duplicate_executed_migration_name:${row.name}`);
+      continue;
+    }
+    seen.add(row.name);
+    const expectedTimestamp = expectedByName.get(row.name);
+    if (!expectedTimestamp) {
+      failures.push(`unknown_executed_migration:${row.name}`);
+    } else if (row.timestamp !== expectedTimestamp) {
+      failures.push(`migration_identity_mismatch:${row.name}`);
+    }
+  }
+
+  for (const [timestamp, names] of groupNamesByTimestamp(applied)) {
+    if (names.size === 1) continue;
+    const allowed = ALLOWED_SHARED_MIGRATION_TIMESTAMPS.get(timestamp);
+    if (!allowed || !sameStringSet(names, allowed)) {
+      failures.push(`unapproved_executed_timestamp_collision:${timestamp}`);
+    }
+  }
+}
+
+function groupNamesByTimestamp(
+  rows: Array<{ timestamp: string; name: string }>,
+): Map<number, Set<string>> {
+  const result = new Map<number, Set<string>>();
+  for (const row of rows) {
+    const timestamp = Number(row.timestamp);
+    const names = result.get(timestamp) ?? new Set<string>();
+    names.add(row.name);
+    result.set(timestamp, names);
+  }
+  return result;
+}
+
+function sameStringSet(
+  left: ReadonlySet<string>,
+  right: ReadonlySet<string>,
+): boolean {
+  return left.size === right.size && [...left].every((value) => right.has(value));
 }
 
 async function relationState(

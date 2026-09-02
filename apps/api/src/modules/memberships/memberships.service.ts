@@ -12,7 +12,7 @@ export class MembershipsService {
   ): Promise<Membership> {
     const repository = manager.getRepository(Membership);
     const role = await manager.getRepository(Role).findOneByOrFail({
-      key: RoleKey.OWNER,
+      key: RoleKey.ADMIN,
       scope: RoleScope.ORGANIZATION,
     });
     return repository.save(

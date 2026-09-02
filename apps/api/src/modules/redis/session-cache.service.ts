@@ -4,13 +4,14 @@ import type { RedisClient } from './redis.module';
 import { REDIS_CLIENT } from './redis.tokens';
 
 export interface CachedSessionEntry {
-  version: 4;
+  version: 5;
   sessionId: string;
   userId: string;
   organizationId: string | null;
   membershipId: string | null;
   status: 'active' | 'expired' | 'revoked';
   mfaVerifiedAt: string | null;
+  reauthenticatedAt: string | null;
   requiresMfa: boolean;
   mfaStatus: 'disabled' | 'pending' | 'active';
   expiresAt: string;
@@ -139,7 +140,7 @@ export class SessionCacheService {
     if (!value || typeof value !== 'object') return false;
     const entry = value as Partial<CachedSessionEntry>;
     return (
-      entry.version === 4 &&
+      entry.version === 5 &&
       typeof entry.sessionId === 'string' &&
       typeof entry.userId === 'string' &&
       (entry.organizationId === null ||
@@ -148,6 +149,8 @@ export class SessionCacheService {
       (entry.status === 'active' ||
         entry.status === 'expired' ||
         entry.status === 'revoked') &&
+      (entry.reauthenticatedAt === null ||
+        typeof entry.reauthenticatedAt === 'string') &&
       (entry.mfaVerifiedAt === null ||
         typeof entry.mfaVerifiedAt === 'string') &&
       typeof entry.requiresMfa === 'boolean' &&

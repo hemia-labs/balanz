@@ -1,4 +1,8 @@
 import { DataSource } from 'typeorm';
+import {
+  EXPECTED_MIGRATION_IDENTITIES,
+  EXPECTED_MIGRATION_NAMES,
+} from './migration-manifest';
 import { resolveScriptDatabaseOptions } from './script-database-options';
 
 async function showMigrations(): Promise<void> {
@@ -25,10 +29,44 @@ async function showMigrations(): Promise<void> {
       name,
       status: executedNames.has(name) ? 'executed' : 'pending',
     }));
+    const expectedNames = new Set<string>(EXPECTED_MIGRATION_NAMES);
+    const expectedTimestamps = new Map(
+      EXPECTED_MIGRATION_IDENTITIES.map(({ name, timestamp }) => [
+        name,
+        String(timestamp),
+      ]),
+    );
     const unknownExecuted = executed
-      .filter(({ name }) => !availableNames.includes(name))
+      .filter(({ name }) => !expectedNames.has(name))
       .map(({ name, timestamp }) => ({ name, timestamp }));
-    console.log(JSON.stringify({ available, unknownExecuted }, null, 2));
+    const identityMismatches = executed
+      .filter(
+        ({ name, timestamp }) =>
+          expectedTimestamps.has(name) &&
+          expectedTimestamps.get(name) !== timestamp,
+      )
+      .map(({ name, timestamp }) => ({ name, timestamp }));
+    const missingFiles = EXPECTED_MIGRATION_NAMES.filter(
+      (name) => !availableNames.includes(name),
+    );
+    const unexpectedFiles = availableNames.filter(
+      (name) => !expectedNames.has(name),
+    );
+    console.log(
+      JSON.stringify(
+        {
+          available,
+          manifest: {
+            missingFiles,
+            unexpectedFiles,
+            unknownExecuted,
+            identityMismatches,
+          },
+        },
+        null,
+        2,
+      ),
+    );
   } finally {
     if (dataSource.isInitialized) await dataSource.destroy();
   }

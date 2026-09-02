@@ -29,7 +29,7 @@ export class MeController {
       permissions: context.permissions,
       assignedAccountIds: context.assignedAccountIds,
       accountAccessMode: context.accountAccessMode,
-      reauthenticationRequiredActions: [],
+      reauthenticationRequiredActions: context.reauthenticationRequiredActions,
     };
   }
 }

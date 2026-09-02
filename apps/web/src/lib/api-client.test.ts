@@ -16,6 +16,24 @@ test("clasifica errores API y evita mensajes sensibles de rate limit", () => {
   );
   assert.equal(classifyApiError(new ApiError(403, "forbidden")), "forbidden");
   assert.equal(
+    classifyApiError(new ApiError(401, "MFA_REQUIRED", "MFA_REQUIRED")),
+    "mfa_required",
+  );
+  assert.equal(
+    classifyApiError(
+      new ApiError(
+        401,
+        "REAUTHENTICATION_REQUIRED",
+        "REAUTHENTICATION_REQUIRED",
+      ),
+    ),
+    "reauthentication_required",
+  );
+  assert.equal(
+    classifyApiError(new ApiError(404, "OUT_OF_SCOPE", "OUT_OF_SCOPE")),
+    "out_of_scope",
+  );
+  assert.equal(
     classifyApiError(new ApiError(429, "Too many requests")),
     "rate_limited",
   );

@@ -16,6 +16,8 @@ import { ClientAccountsModule } from './modules/client-accounts/client-accounts.
 import { CorrelationModule } from './common/correlation/correlation.module';
 import { ObservabilityModule } from './common/observability/observability.module';
 import { FiscalHealthModule } from './modules/health/fiscal-health.module';
+import { FiscalOperationsModule } from './modules/fiscal-operations/fiscal-operations.module';
+import { PermissionsModule } from './modules/permissions/permissions.module';
 
 @Module({
   imports: [
@@ -46,6 +48,8 @@ import { FiscalHealthModule } from './modules/health/fiscal-health.module';
     UsersModule,
     FeatureAuthModule,
     ClientAccountsModule,
+    FiscalOperationsModule,
+    PermissionsModule,
   ],
   controllers: [AppController],
   providers: [AppService, { provide: APP_GUARD, useClass: CsrfGuard }],

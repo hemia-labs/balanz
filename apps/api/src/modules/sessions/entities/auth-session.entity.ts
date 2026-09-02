@@ -65,6 +65,9 @@ export class AuthSession {
   @Column({ name: 'mfa_verified_at', type: 'timestamptz', nullable: true })
   mfaVerifiedAt?: Date | null;
 
+  @Column({ name: 'reauthenticated_at', type: 'timestamptz', nullable: true })
+  reauthenticatedAt?: Date | null;
+
   @Column({ name: 'requires_mfa', default: false })
   requiresMfa: boolean;
 

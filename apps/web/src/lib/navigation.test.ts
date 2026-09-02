@@ -17,7 +17,7 @@ import {
 const membership: DemoMembership = {
   organizationId: "despacho-demo",
   role: "colaborador",
-  capabilities: ["organization.view", "clients.view", "obligations.view"],
+  capabilities: ["organization.view", "clients.view", "fiscal_years.view"],
   assignedClientIds: ["cliente-asignado"],
 };
 
@@ -81,8 +81,7 @@ test("identifica la ruta activa sin confundir prefijos parciales", () => {
 });
 
 test("mantiene Ejercicios activo dentro de un RFC, ejercicio y período", () => {
-  const href =
-    "/es/organizations/demo/clients/cliente/fiscal-years";
+  const href = "/es/organizations/demo/clients/cliente/fiscal-years";
   assert.equal(
     isClientNavigationItemActive(
       "fiscal-years",
@@ -141,7 +140,7 @@ test("resuelve rutas canónicas, pestañas y capacidades", () => {
   assert.equal(cfdi?.capability, "fiscal_years.view");
   assert.equal(period?.screen, "period");
   assert.equal(period?.capability, "payroll.view");
-  const diot = resolveProductRoute("demo", [
+  const unsupportedObligation = resolveProductRoute("demo", [
     "clients",
     "cliente",
     "obligations",
@@ -150,8 +149,7 @@ test("resuelve rutas canónicas, pestañas y capacidades", () => {
     "08",
     "validations",
   ]);
-  assert.equal(diot?.screen, "diot-period");
-  assert.equal(diot?.tab, "validations");
+  assert.equal(unsupportedObligation, null);
   assert.equal(
     resolveProductRoute("demo", [
       "clients",
@@ -243,13 +241,11 @@ test("protege rutas live y no interpreta pestañas fuera de alcance como resumen
     canOpenResolvedProductRoute(access, ["clients.view", "clients.assign"]),
     true,
   );
-  assert.equal(canOpenResolvedProductRoute(access, ["clients.*"]), true);
-  assert.equal(canOpenResolvedProductRoute(access, ["*.*"]), true);
+  assert.equal(canOpenResolvedProductRoute(access, ["clients.*"]), false);
+  assert.equal(canOpenResolvedProductRoute(access, ["*.*"]), false);
   assert.equal(canOpenResolvedProductRoute(access, ["client.*"]), false);
   const audit = resolveProductRoute("demo", ["audit"]);
-  assert.ok(audit);
-  assert.equal(canOpenResolvedProductRoute(audit, ["*.*"]), true);
-  assert.equal(canOpenResolvedProductRoute(audit, ["clients.*"]), false);
+  assert.equal(audit, null);
   assert.equal(isLivePeriodTabSupported("overview"), true);
   assert.equal(isLivePeriodTabSupported("payroll"), false);
   assert.equal(isLivePeriodTabSupported("cfdi"), false);
@@ -287,12 +283,18 @@ test("separa el resumen de las secciones de configuración del cliente", () => {
 
 test("aplica capacidades y asignación explícita de cliente", () => {
   assert.equal(
-    hasCapability(membership.capabilities, "obligations.view"),
+    hasCapability(membership.capabilities, "fiscal_years.view"),
     true,
   );
-  assert.equal(hasCapability(membership.capabilities, "team.manage"), false);
+  assert.equal(hasCapability(membership.capabilities, "members.manage"), false);
   assert.equal(canAccessClient(membership, "cliente-asignado"), true);
   assert.equal(canAccessClient(membership, "cliente-ajeno"), false);
+});
+
+test("no acepta comodines ni infiere permisos en frontend", () => {
+  assert.equal(hasCapability(["*.*"], "clients.view"), false);
+  assert.equal(hasCapability(["clients.*"], "clients.view"), false);
+  assert.equal(hasCapability(["clients.view"], "clients.view"), true);
 });
 
 test("resuelve el tenant de una ruta por slug o identificador", () => {

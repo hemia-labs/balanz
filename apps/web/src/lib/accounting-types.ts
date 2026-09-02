@@ -4,7 +4,6 @@ export const capabilities = [
   "ownership.manage",
   "billing.manage",
   "team.view",
-  "team.manage",
   "clients.view",
   "clients.manage",
   "clients.assign",
@@ -15,21 +14,30 @@ export const capabilities = [
   "credentials.manage",
   "sat.download",
   "payroll.view",
-  "cfdi.review",
+  "ingestion.view",
+  "ingestion.create",
+  "ingestion.retry",
+  "ingestion.cancel",
+  "processes.view",
+  "processes.retry",
+  "processes.cancel",
+  "cfdi.view",
+  "cfdi.download",
+  "incidents.view",
+  "incidents.manage",
   "cfdi.exclude",
-  "period.close",
-  "period.reopen",
-  "exports.create",
-  "obligations.view",
-  "obligations.configure",
-  "diot.generate",
-  "ieps.generate",
-  "audit.view",
+  "exceptions.accept",
+  "periods.close",
+  "periods.reopen",
+  "exports.generate",
   "support.authorize",
+  "members.manage",
+  "permissions.manage",
 ] as const;
 
 export type Capability = (typeof capabilities)[number];
-export type MembershipRole = "titular" | "responsable" | "colaborador";
+export type MembershipRole =
+  "administrador" | "titular" | "responsable" | "colaborador";
 export type PeriodStatus =
   | "Sin iniciar"
   | "En preparación"

@@ -17,7 +17,7 @@ import {
 import { AuditService } from '../src/modules/audit/audit.service';
 import { MembershipStatus } from '../src/modules/memberships/entities/membership.entity';
 import { OrganizationStatus } from '../src/modules/organizations/entities/organization.entity';
-import { Role, RoleKey } from '../src/modules/permissions/entities/role.entity';
+import { RoleKey } from '../src/modules/permissions/entities/role.entity';
 import { SessionsService } from '../src/modules/sessions/sessions.service';
 import { UserStatus } from '../src/modules/users/entities/user.entity';
 
@@ -876,7 +876,7 @@ describe('Client accounts domain (e2e)', () => {
     const actor = await createMembershipActor(
       String(organization.id),
       user.id,
-      RoleKey.OWNER,
+      RoleKey.ADMIN,
     );
     return { organizationId: String(organization.id), owner: actor };
   }
@@ -914,13 +914,10 @@ describe('Client accounts domain (e2e)', () => {
     userId: string,
     roleKey: RoleKey,
   ): Promise<Actor> {
-    const role = await dataSource.getRepository(Role).findOneByOrFail({
-      key: roleKey,
-    });
     const membership = await dataSource.getRepository('memberships').save({
       organizationId,
       userId,
-      roleId: role.id,
+      role: roleKey,
       status: MembershipStatus.ACTIVE,
       invitedAt: null,
       joinedAt: new Date(),

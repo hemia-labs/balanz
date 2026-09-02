@@ -82,9 +82,7 @@ export class AccountAssignmentsService {
         'roles',
         'role',
         'role.id = membership.role_id AND role.scope = :scope',
-        {
-          scope: RoleScope.ORGANIZATION,
-        },
+        { scope: RoleScope.ORGANIZATION },
       )
       .leftJoin(
         AccountAssignment,
@@ -150,7 +148,7 @@ export class AccountAssignmentsService {
       })
       .andWhere('role.scope = :scope', { scope: RoleScope.ORGANIZATION })
       .andWhere('role.key IN (:...roles)', {
-        roles: [RoleKey.OWNER, RoleKey.ACCOUNTANT],
+        roles: [RoleKey.ADMIN, RoleKey.ACCOUNTANT],
       });
     if (query.search) {
       builder.andWhere(
@@ -201,9 +199,8 @@ export class AccountAssignmentsService {
         });
         if (
           !membership ||
-          membership.role.scope !== RoleScope.ORGANIZATION ||
           (dto.responsibility === AssignmentResponsibility.PRIMARY &&
-            !isEligiblePrimaryRole(membership.role.key, membership.role.scope))
+            !isEligiblePrimaryRole(membership.role.key))
         ) {
           throw domainError(
             HttpStatus.CONFLICT,

@@ -181,11 +181,11 @@ describe('runtime configuration profiles', () => {
   it('preserves the existing Vault taxonomy while recording the internal profile', () => {
     expect(getSecretsConfig({}, 'api')).toMatchObject({
       runtimeProfile: 'api',
-      scope: { system: 'api' },
+      scope: { owner: 'balanz', system: 'api' },
     });
     expect(getSecretsConfig({}, 'worker')).toMatchObject({
       runtimeProfile: 'worker',
-      scope: { system: 'api' },
+      scope: { owner: 'balanz', system: 'api' },
     });
   });
 

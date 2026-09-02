@@ -11,6 +11,9 @@ Actualmente el proyecto contiene:
 - Configuración de JWT, guards de autenticación y servicio de contraseñas.
 - Migraciones TypeORM y un runner preparado para seeds.
 
+El contrato normativo de roles, permisos, alcance y decisiones de autorización
+del MVP está en [`docs/AUTHORIZATION_MODEL.md`](docs/AUTHORIZATION_MODEL.md).
+
 ## Requisitos
 
 - [Bun](https://bun.sh)
@@ -87,7 +90,7 @@ Con Bun:
 bun run dev:web
 ```
 
-Inicia únicamente el frontend en `http://localhost:3000`.
+Inicia únicamente el frontend en `http://localhost:5181`.
 
 ```bash
 npm run dev:api
@@ -99,7 +102,7 @@ Con Bun:
 bun run dev:api
 ```
 
-Inicia únicamente la API en modo watch, normalmente en `http://localhost:3001`.
+Inicia únicamente la API en modo watch, normalmente en `http://localhost:3021`.
 
 También puedes ejecutar los comandos directamente dentro de una app:
 

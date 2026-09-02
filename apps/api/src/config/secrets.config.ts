@@ -12,7 +12,7 @@ export function getSecretsConfig(
     scope: {
       environment: env.SECRETS_ENVIRONMENT || 'dev',
       category: env.SECRETS_CATEGORY || 'internal',
-      owner: env.SECRETS_OWNER || 'hemia',
+      owner: env.SECRETS_OWNER || 'balanz',
       // `api` is the existing development Vault taxonomy. Runtime separation
       // is enforced by the profile and AppRole policy, not by inventing a new
       // external namespace. Production validation requires this to be explicit.

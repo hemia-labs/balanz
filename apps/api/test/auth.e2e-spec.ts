@@ -32,8 +32,13 @@ describe('Auth registration and MFA (e2e)', () => {
   let allowedOrigin: string;
   const apiPrefix = '/api/v1';
   const startedAt = new Date();
+  const runIpParts = randomUUID()
+    .slice(0, 8)
+    .match(/.{2}/g)!
+    .map((part) => (parseInt(part, 16) % 254) + 1);
   const registrations: Registration[] = [];
   const verificationTokens = new Map<string, string>();
+  const passwordResetTokens = new Map<string, string>();
 
   beforeAll(async () => {
     moduleFixture = await Test.createTestingModule({
@@ -87,6 +92,10 @@ describe('Auth registration and MFA (e2e)', () => {
     const email = app.get(EmailService);
     jest.spyOn(email, 'sendVerification').mockImplementation((input) => {
       verificationTokens.set(input.email, input.token);
+      return Promise.resolve();
+    });
+    jest.spyOn(email, 'sendPasswordReset').mockImplementation((input) => {
+      passwordResetTokens.set(input.email, input.token);
       return Promise.resolve();
     });
     jest.spyOn(email, 'sendWelcome').mockResolvedValue(undefined);
@@ -143,12 +152,13 @@ describe('Auth registration and MFA (e2e)', () => {
       )
       .expect(429);
 
-    const invalidToken = 'a'.repeat(64);
+    const invalidToken = randomUUID().replaceAll('-', '').repeat(2);
+    const invalidConfirmationIp = runIp(20);
     for (let attempt = 0; attempt < 5; attempt += 1) {
       await request(app.getHttpServer())
         .post(`${apiPrefix}/auth/email/verification/confirm`)
         .set('Origin', allowedOrigin)
-        .set('X-Forwarded-For', '198.51.100.200')
+        .set('X-Forwarded-For', invalidConfirmationIp)
         .send({ token: invalidToken })
         .expect(400);
     }
@@ -156,7 +166,7 @@ describe('Auth registration and MFA (e2e)', () => {
     await request(app.getHttpServer())
       .post(`${apiPrefix}/auth/email/verification/confirm`)
       .set('Origin', allowedOrigin)
-      .set('X-Forwarded-For', '198.51.100.200')
+      .set('X-Forwarded-For', invalidConfirmationIp)
       .send({ token: invalidToken })
       .expect(429);
   });
@@ -271,10 +281,86 @@ describe('Auth registration and MFA (e2e)', () => {
       .expect(401);
   });
 
+  it('requests and confirms a password reset atomically', async () => {
+    const registration = await register('password-reset');
+    const confirmation = await confirm(
+      registration.token,
+      registration.ipAddress,
+    );
+    expect(confirmation.status).toBe(201);
+    const oldCookie = sessionCookie(confirmation);
+    const unknownEmail = `unknown-${randomUUID()}@example.test`;
+
+    const unknown = await request(app.getHttpServer())
+      .post(`${apiPrefix}/auth/password-reset/request`)
+      .set('Origin', allowedOrigin)
+      .set('X-Forwarded-For', runIp(30))
+      .send({ email: unknownEmail })
+      .expect(202);
+    const known = await request(app.getHttpServer())
+      .post(`${apiPrefix}/auth/password-reset/request`)
+      .set('Origin', allowedOrigin)
+      .set('X-Forwarded-For', runIp(31))
+      .send({ email: registration.email })
+      .expect(202);
+    expect(known.body).toEqual(unknown.body);
+
+    const rawToken = passwordResetTokens.get(registration.email);
+    if (!rawToken) throw new Error('Password reset token was not captured');
+    const stored = await dataSource.query<{ token_hash: string }[]>(
+      'SELECT token_hash FROM password_reset_tokens WHERE user_id = $1',
+      [registration.userId],
+    );
+    expect(stored).toHaveLength(1);
+    expect(stored[0]?.token_hash).not.toBe(rawToken);
+
+    await request(app.getHttpServer())
+      .post(`${apiPrefix}/auth/password-reset/validate`)
+      .set('Origin', allowedOrigin)
+      .set('X-Forwarded-For', runIp(32))
+      .send({ token: rawToken })
+      .expect(204);
+
+    await request(app.getHttpServer())
+      .post(`${apiPrefix}/auth/password-reset/confirm`)
+      .set('Origin', allowedOrigin)
+      .set('X-Forwarded-For', runIp(33))
+      .send({ token: rawToken, newPassword: 'new-secret-123' })
+      .expect(204);
+
+    await request(app.getHttpServer())
+      .get(`${apiPrefix}/auth/session`)
+      .set('Cookie', oldCookie)
+      .expect(401);
+    await request(app.getHttpServer())
+      .post(`${apiPrefix}/auth/login`)
+      .set('Origin', allowedOrigin)
+      .send({ email: registration.email, password: 'secret123' })
+      .expect(401);
+    await request(app.getHttpServer())
+      .post(`${apiPrefix}/auth/login`)
+      .set('Origin', allowedOrigin)
+      .send({ email: registration.email, password: 'new-secret-123' })
+      .expect(201);
+    await request(app.getHttpServer())
+      .post(`${apiPrefix}/auth/password-reset/confirm`)
+      .set('Origin', allowedOrigin)
+      .set('X-Forwarded-For', runIp(34))
+      .send({ token: rawToken, newPassword: 'another-secret-123' })
+      .expect(400);
+
+    await request(app.getHttpServer())
+      .post(`${apiPrefix}/auth/password-reset/validate`)
+      .set('Origin', allowedOrigin)
+      .set('X-Forwarded-For', runIp(35))
+      .send({ token: rawToken })
+      .expect(400);
+  });
+
   async function register(label: string): Promise<Registration> {
     const suffix = `${label}-${randomUUID()}`;
     const email = `${suffix}@example.test`;
-    const ipAddress = `198.51.100.${10 + registrations.length}`;
+    const ipAddress = runIp(10 + registrations.length);
     const response = await request(app.getHttpServer())
       .post(`${apiPrefix}/auth/register`)
       .set('Origin', allowedOrigin)
@@ -307,6 +393,12 @@ describe('Auth registration and MFA (e2e)', () => {
       slug,
       subscriptionType: 'trial',
     };
+  }
+
+  function runIp(offset: number): string {
+    const octets = [...runIpParts];
+    octets[3] = ((octets[3] + offset - 1) % 254) + 1;
+    return octets.join('.');
   }
 
   function confirm(token: string, ipAddress: string) {
@@ -378,11 +470,19 @@ describe('Auth registration and MFA (e2e)', () => {
         [userIds],
       );
       await manager.query(
+        'DELETE FROM "password_reset_tokens" WHERE "user_id" = ANY($1::uuid[])',
+        [userIds],
+      );
+      await manager.query(
         'DELETE FROM "audit_events" WHERE "actor_user_id" = ANY($1::uuid[]) OR "organization_id" = ANY($2::uuid[])',
         [userIds, organizationIds],
       );
       await manager.query(
         'DELETE FROM "auth_rate_limits" WHERE "created_at" >= $1 AND "scope" LIKE \'verification-%\'',
+        [startedAt],
+      );
+      await manager.query(
+        'DELETE FROM "auth_rate_limits" WHERE "created_at" >= $1 AND "scope" LIKE \'password-reset-%\'',
         [startedAt],
       );
       await manager.query(

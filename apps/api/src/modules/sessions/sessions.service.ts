@@ -21,6 +21,10 @@ import type {
 } from './session.types';
 import { SessionCacheService } from '../redis/session-cache.service';
 import type { CachedSessionEntry } from '../redis/session-cache.service';
+import {
+  isPermissionKey,
+  permissionDefinition,
+} from '../../common/auth/permission-catalog';
 
 interface CookieConfig {
   httpOnly: boolean;
@@ -65,6 +69,7 @@ export class SessionsService {
         membershipId: input.membershipId ?? null,
         status: AuthSessionStatus.ACTIVE,
         mfaVerifiedAt: input.mfaVerifiedAt ?? null,
+        reauthenticatedAt: input.reauthenticatedAt ?? null,
         requiresMfa: input.requiresMfa ?? false,
         expiresAt: new Date(now.getTime() + this.sessionTtlMs()),
         lastActivityAt: now,
@@ -105,11 +110,17 @@ export class SessionsService {
       await this.persistActivityIfDue(entry);
       entry.lastActivityAt = new Date().toISOString();
       session.lastActivityAt = new Date(entry.lastActivityAt);
+      const freshContext = await this.authorization.resolve(session);
+      entry.tenantActive = freshContext.tenantActive;
+      entry.role = freshContext.role;
+      entry.permissions = freshContext.permissions;
+      entry.accountAccessMode = freshContext.accountAccessMode;
+      entry.mfaStatus = freshContext.mfaStatus;
       const touched = await this.cache.touch(tokenHash, entry);
       if (touched) {
         return {
           session,
-          context: this.contextFromCache(entry),
+          context: freshContext,
           tokenHash,
           cacheHit: true,
         };
@@ -209,6 +220,21 @@ export class SessionsService {
 
   async revokeUserSessions(userId: string, reason: string): Promise<void> {
     await this.revokeSessionsByUser(userId, reason);
+  }
+
+  async revokeUserSessionsForManager(
+    manager: EntityManager,
+    userId: string,
+    reason: string,
+  ): Promise<void> {
+    await manager.getRepository(AuthSession).update(
+      { userId, status: AuthSessionStatus.ACTIVE },
+      {
+        status: AuthSessionStatus.REVOKED,
+        revokedReason: reason.slice(0, 100),
+        revokedAt: new Date(),
+      },
+    );
   }
 
   async revokeMembershipSessions(
@@ -337,13 +363,14 @@ export class SessionsService {
     persistedLastActivityAt = session.lastActivityAt,
   ): CachedSessionEntry {
     return {
-      version: 4,
+      version: 5,
       sessionId: session.id,
       userId: session.userId,
       organizationId: session.organizationId ?? null,
       membershipId: session.membershipId ?? null,
       status: session.status,
       mfaVerifiedAt: session.mfaVerifiedAt?.toISOString() ?? null,
+      reauthenticatedAt: session.reauthenticatedAt?.toISOString() ?? null,
       requiresMfa: session.requiresMfa,
       mfaStatus: context.mfaStatus,
       expiresAt: session.expiresAt.toISOString(),
@@ -365,6 +392,9 @@ export class SessionsService {
       membershipId: entry.membershipId,
       status: entry.status,
       mfaVerifiedAt: entry.mfaVerifiedAt ? new Date(entry.mfaVerifiedAt) : null,
+      reauthenticatedAt: entry.reauthenticatedAt
+        ? new Date(entry.reauthenticatedAt)
+        : null,
       requiresMfa: entry.requiresMfa,
       expiresAt: new Date(entry.expiresAt),
       lastActivityAt: new Date(entry.lastActivityAt),
@@ -384,10 +414,18 @@ export class SessionsService {
       assignedAccountIds: [],
       accountAccessMode: entry.accountAccessMode,
       mfaVerifiedAt: entry.mfaVerifiedAt ? new Date(entry.mfaVerifiedAt) : null,
+      reauthenticatedAt: entry.reauthenticatedAt
+        ? new Date(entry.reauthenticatedAt)
+        : null,
       requiresMfa: entry.requiresMfa,
       mfaStatus: entry.mfaStatus,
       expiresAt: new Date(entry.expiresAt),
       tenantActive: entry.tenantActive,
+      reauthenticationRequiredActions: entry.permissions.filter(
+        (permission) =>
+          isPermissionKey(permission) &&
+          permissionDefinition(permission).requiresReauthentication,
+      ),
     };
   }
 

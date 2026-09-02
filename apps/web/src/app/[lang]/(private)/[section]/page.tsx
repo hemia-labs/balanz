@@ -5,10 +5,12 @@ const personalSections: Record<string, string> = {
   profile: "profile",
   security: "security",
   preferences: "preferences",
+  authorization: "authorization",
   help: "help",
   perfil: "profile",
   seguridad: "security",
   preferencias: "preferences",
+  acceso: "authorization",
   ayuda: "help",
 };
 

@@ -79,7 +79,7 @@ REDIS_CONNECT_TIMEOUT_MS=1000
 AUTH_SESSION_IDLE_TTL_SECONDS=1800
 AUTH_SESSION_ACTIVITY_PERSIST_INTERVAL_SECONDS=300
 TRUST_PROXY_HOPS=0
-APP_CORS_ORIGINS=http://localhost:3000
+APP_CORS_ORIGINS=http://localhost:5181
 ```
 
 Cuando `SECRETS_ENABLED=true`, la conexión Redis se obtiene desde Vault en
@@ -199,6 +199,17 @@ bun run --cwd apps/api qa:migrations
 El rol PostgreSQL necesita permiso `CREATEDB`. El runner sólo acepta
 `development/test`, scope Vault `dev` y nombres temporales generados con el
 prefijo `balanz_migration_qa_`.
+
+La limpieza periódica de tokens de recuperación y límites anónimos se ejecuta
+fuera del proceso HTTP, mediante una tarea programada del entorno:
+
+```bash
+bun run --cwd apps/api maintenance:auth-cleanup
+```
+
+La tarea elimina por lotes tokens usados o expirados con más de 24 horas y
+límites con más de una hora. Imprime métricas JSON y termina con código distinto
+de cero si falla, para que el scheduler active una alerta.
 
 ## Tests y build
 

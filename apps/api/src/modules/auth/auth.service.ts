@@ -16,6 +16,7 @@ import { DisableMfaDto } from './dtos/disable-mfa.dto';
 import { RegisterResponseDto } from './dtos/register-response.dto';
 import { EmailService } from '../email/email.service';
 import { EmailVerificationToken } from './entities/email-verification-token.entity';
+import { PasswordResetToken } from './entities/password-reset-token.entity';
 import { AuthFactor, AuthFactorStatus } from './entities/auth-factor.entity';
 import {
   Membership,
@@ -70,6 +71,8 @@ const invalidMfaCode = () =>
     code: 'MFA_INVALID_CODE',
     message: 'El código MFA no es válido o ha expirado.',
   });
+
+const PASSWORD_RESET_MIN_RESPONSE_MS = 500;
 
 @Injectable()
 export class AuthService {
@@ -178,7 +181,7 @@ export class AuthService {
           userId: user.id,
           organizationId: organization.id,
           membershipId: membership.id,
-          role: RoleKey.OWNER,
+          role: RoleKey.ADMIN,
           organizationStatus: 'active',
           membershipStatus: MembershipStatus.PENDING,
           subscriptionType: normalized.subscriptionType,
@@ -280,6 +283,232 @@ export class AuthService {
       email: user.email,
       firstName: user.firstName,
       token: rawToken,
+    });
+  }
+
+  async requestPasswordReset(input: {
+    email: string;
+    ipAddress: string;
+  }): Promise<void> {
+    const startedAt = Date.now();
+    try {
+      const email = input.email.trim().toLowerCase();
+      const [emailAllowed, ipAllowed] = await Promise.all([
+        this.rateLimits.consume(
+          'password-reset-request-email',
+          email,
+          this.rateLimits.passwordResetRequestLimit(),
+          this.rateLimits.passwordResetRequestWindowSeconds(),
+        ),
+        this.rateLimits.consume(
+          'password-reset-request-ip',
+          input.ipAddress,
+          this.rateLimits.passwordResetRequestLimit(),
+          this.rateLimits.passwordResetRequestWindowSeconds(),
+        ),
+      ]);
+      if (!emailAllowed || !ipAllowed) {
+        throw new HttpException(
+          'Too many password reset requests',
+          HttpStatus.TOO_MANY_REQUESTS,
+        );
+      }
+
+      const user = await this.dataSource.getRepository(User).findOne({
+        where: { email },
+      });
+      if (!user) return;
+
+      const rawToken = randomBytes(32).toString('hex');
+      const tokenHash = this.hashToken(rawToken);
+      const correlationId = randomUUID();
+      const now = new Date();
+      const expiresAt = new Date(
+        now.getTime() + this.passwordResetTtlMinutes() * 60_000,
+      );
+
+      const shouldSend = await this.dataSource.transaction(async (manager) => {
+        const userRepository = manager.getRepository(User);
+        const lockedUser = await userRepository.findOne({
+          where: { id: user.id },
+          lock: { mode: 'pessimistic_write' },
+        });
+        if (
+          !lockedUser ||
+          lockedUser.status !== UserStatus.ACTIVE ||
+          !lockedUser.emailVerifiedAt
+        ) {
+          return false;
+        }
+
+        const tokenRepository = manager.getRepository(PasswordResetToken);
+        await tokenRepository.update(
+          { userId: lockedUser.id, usedAt: IsNull() },
+          { usedAt: now },
+        );
+        await tokenRepository.save(
+          tokenRepository.create({
+            userId: lockedUser.id,
+            tokenHash,
+            expiresAt,
+            usedAt: null,
+          }),
+        );
+        await this.audit.record(manager, {
+          organizationId: null,
+          actorType: AuditActorType.SYSTEM,
+          actorUserId: lockedUser.id,
+          actorMembershipId: null,
+          action: 'auth.password.reset.requested',
+          decision: AuditDecision.ALLOW,
+          objectType: 'user',
+          objectId: lockedUser.id,
+          correlationId,
+          ipAddress: input.ipAddress,
+          metadata: { schemaVersion: 1 },
+        });
+        return true;
+      });
+
+      if (!shouldSend) return;
+      setImmediate(() => {
+        void this.email.sendPasswordReset({
+          email: user.email,
+          firstName: user.firstName,
+          token: rawToken,
+          locale: user.locale,
+        });
+      });
+    } finally {
+      await this.waitForPasswordResetResponse(startedAt);
+    }
+  }
+
+  async validatePasswordReset(token: string, ipAddress: string): Promise<void> {
+    const normalizedToken = token.trim();
+    if (!normalizedToken) {
+      throw new BadRequestException('Invalid password reset token');
+    }
+
+    const tokenHash = this.hashToken(normalizedToken);
+    const [tokenAllowed, ipAllowed] = await Promise.all([
+      this.rateLimits.consume(
+        'password-reset-validate-token',
+        tokenHash,
+        this.rateLimits.passwordResetConfirmLimit(),
+        this.rateLimits.passwordResetConfirmWindowSeconds(),
+      ),
+      this.rateLimits.consume(
+        'password-reset-validate-ip',
+        ipAddress,
+        this.rateLimits.passwordResetConfirmLimit(),
+        this.rateLimits.passwordResetConfirmWindowSeconds(),
+      ),
+    ]);
+    if (!tokenAllowed || !ipAllowed) {
+      throw new HttpException(
+        'Too many password reset attempts',
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
+    }
+
+    const resetToken = await this.dataSource
+      .getRepository(PasswordResetToken)
+      .findOne({ where: { tokenHash } });
+    if (
+      !resetToken ||
+      resetToken.usedAt ||
+      resetToken.expiresAt.getTime() <= Date.now()
+    ) {
+      throw new BadRequestException('Invalid password reset token');
+    }
+
+    const user = await this.dataSource.getRepository(User).findOne({
+      where: { id: resetToken.userId },
+    });
+    if (!user || user.status !== UserStatus.ACTIVE || !user.emailVerifiedAt) {
+      throw new BadRequestException('Invalid password reset token');
+    }
+  }
+
+  async confirmPasswordReset(input: {
+    token: string;
+    newPassword: string;
+    ipAddress: string;
+  }): Promise<void> {
+    const token = input.token.trim();
+    if (!token) throw new BadRequestException('Invalid password reset token');
+    const tokenHash = this.hashToken(token);
+    const [tokenAllowed, ipAllowed] = await Promise.all([
+      this.rateLimits.consume(
+        'password-reset-confirm-token',
+        tokenHash,
+        this.rateLimits.passwordResetConfirmLimit(),
+        this.rateLimits.passwordResetConfirmWindowSeconds(),
+      ),
+      this.rateLimits.consume(
+        'password-reset-confirm-ip',
+        input.ipAddress,
+        this.rateLimits.passwordResetConfirmLimit(),
+        this.rateLimits.passwordResetConfirmWindowSeconds(),
+      ),
+    ]);
+    if (!tokenAllowed || !ipAllowed) {
+      throw new HttpException(
+        'Too many password reset attempts',
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
+    }
+
+    const passwordHash = await this.passwords.hash(input.newPassword);
+    const correlationId = randomUUID();
+
+    await this.dataSource.transaction(async (manager) => {
+      const tokenRepository = manager.getRepository(PasswordResetToken);
+      const resetToken = await tokenRepository.findOne({
+        where: { tokenHash },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (
+        !resetToken ||
+        resetToken.usedAt ||
+        resetToken.expiresAt.getTime() <= Date.now()
+      ) {
+        throw new BadRequestException('Invalid password reset token');
+      }
+
+      const userRepository = manager.getRepository(User);
+      const user = await userRepository.findOne({
+        where: { id: resetToken.userId },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!user || user.status !== UserStatus.ACTIVE || !user.emailVerifiedAt) {
+        throw new BadRequestException('Invalid password reset token');
+      }
+
+      const now = new Date();
+      user.passwordHash = passwordHash;
+      await userRepository.save(user);
+      resetToken.usedAt = now;
+      await tokenRepository.save(resetToken);
+      await this.sessions.revokeUserSessionsForManager(
+        manager,
+        user.id,
+        'password_reset',
+      );
+      await this.audit.record(manager, {
+        organizationId: null,
+        actorType: AuditActorType.SYSTEM,
+        actorUserId: user.id,
+        actorMembershipId: null,
+        action: 'auth.password.reset.completed',
+        decision: AuditDecision.ALLOW,
+        objectType: 'user',
+        objectId: user.id,
+        correlationId,
+        ipAddress: input.ipAddress,
+        metadata: { schemaVersion: 1 },
+      });
     });
   }
 
@@ -648,7 +877,7 @@ export class AuthService {
     rawSessionToken: string;
     context: SessionAuthorizationContext;
   }> {
-    return this.completeMfa(session, code, ipAddress, true);
+    return this.completeMfa(session, code, ipAddress, true, false);
   }
 
   async completeLoginMfa(
@@ -659,7 +888,18 @@ export class AuthService {
     rawSessionToken: string;
     context: SessionAuthorizationContext;
   }> {
-    return this.completeMfa(session, code, ipAddress, false);
+    return this.completeMfa(session, code, ipAddress, false, false);
+  }
+
+  async reauthenticate(
+    session: AuthSession,
+    code: string,
+    ipAddress: string,
+  ): Promise<{
+    rawSessionToken: string;
+    context: SessionAuthorizationContext;
+  }> {
+    return this.completeMfa(session, code, ipAddress, false, true);
   }
 
   private async completeMfa(
@@ -667,6 +907,7 @@ export class AuthService {
     code: string,
     ipAddress: string,
     enrolling: boolean,
+    reauthenticating: boolean,
   ): Promise<{
     rawSessionToken: string;
     context: SessionAuthorizationContext;
@@ -711,10 +952,9 @@ export class AuthService {
       });
       if (!lockedSession || lockedSession.status !== AuthSessionStatus.ACTIVE)
         throw new UnauthorizedException('Invalid session');
-      if (
-        !enrolling &&
-        (!lockedSession.requiresMfa || lockedSession.mfaVerifiedAt)
-      )
+      if (!enrolling && !lockedSession.requiresMfa)
+        throw new UnauthorizedException('MFA is not active');
+      if (!enrolling && !reauthenticating && lockedSession.mfaVerifiedAt)
         throw new UnauthorizedException('MFA is not pending');
       const now = new Date();
       factor.status = enrolling ? AuthFactorStatus.ACTIVE : factor.status;
@@ -724,6 +964,7 @@ export class AuthService {
       await factorRepository.save(factor);
       lockedSession.requiresMfa = true;
       lockedSession.mfaVerifiedAt = now;
+      lockedSession.reauthenticatedAt = reauthenticating ? now : null;
       lockedSession.lastActivityAt = now;
       await sessionRepository.save(lockedSession);
       const rotation = await this.sessions.rotateForManager(
@@ -735,20 +976,24 @@ export class AuthService {
         actorType: AuditActorType.USER,
         actorUserId: lockedSession.userId,
         actorMembershipId: lockedSession.membershipId,
-        action: 'auth.mfa.verified',
+        action: reauthenticating
+          ? 'auth.session.reauthenticated'
+          : 'auth.mfa.verified',
         decision: AuditDecision.ALLOW,
         objectType: 'auth_session',
         objectId: lockedSession.id,
         correlationId: randomUUID(),
-        metadata: { schemaVersion: 2, enrolling },
+        metadata: { schemaVersion: 2, enrolling, reauthenticating },
       });
       return { rotation, session: lockedSession, activatedAt: now };
     });
-    await this.sessions.revokeOtherSessions(
-      session.userId,
-      session.id,
-      'mfa_verified_elsewhere',
-    );
+    if (!reauthenticating) {
+      await this.sessions.revokeOtherSessions(
+        session.userId,
+        session.id,
+        'mfa_verified_elsewhere',
+      );
+    }
     result.session.sessionTokenHash = this.sessions.hashToken(
       result.rotation.rawToken,
     );
@@ -837,6 +1082,7 @@ export class AuthService {
       if (!lockedSession) throw new UnauthorizedException('Invalid session');
       lockedSession.requiresMfa = false;
       lockedSession.mfaVerifiedAt = null;
+      lockedSession.reauthenticatedAt = null;
       lockedSession.lastActivityAt = now;
       await sessionRepository.save(lockedSession);
       const rotation = await this.sessions.rotateForManager(
@@ -1014,6 +1260,18 @@ export class AuthService {
 
   private verificationTtlMinutes(): number {
     return this.config.get<number>('auth.emailVerificationTtlMinutes') ?? 30;
+  }
+
+  private passwordResetTtlMinutes(): number {
+    return this.config.get<number>('auth.passwordResetTtlMinutes') ?? 60;
+  }
+
+  private async waitForPasswordResetResponse(startedAt: number): Promise<void> {
+    const remainingMs =
+      PASSWORD_RESET_MIN_RESPONSE_MS - (Date.now() - startedAt);
+    if (remainingMs > 0) {
+      await new Promise<void>((resolve) => setTimeout(resolve, remainingMs));
+    }
   }
 
   private trialDurationDays(): number {

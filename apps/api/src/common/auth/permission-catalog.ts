@@ -1,12 +1,23 @@
 import { RoleKey } from '../../modules/permissions/entities/role.entity';
 
+export const PERMISSION_KEY_PATTERN = /^[a-z][a-z0-9_]*\.[a-z][a-z0-9_]*$/;
+
+export enum PermissionStatus {
+  ACTIVE = 'active',
+  DEPRECATED = 'deprecated',
+  DISABLED = 'disabled',
+}
+
+/**
+ * Catálogo atómico acumulado del MVP. Los permisos de navegación/clientes ya
+ * existían en develop; HU-P0-003 agrega el bloque sensible sin ligar claves a IDs.
+ */
 export const PERMISSION_CATALOG = [
   'organization.view',
   'organization.manage',
   'ownership.manage',
   'billing.manage',
   'team.view',
-  'team.manage',
   'clients.view',
   'clients.manage',
   'clients.assign',
@@ -17,7 +28,6 @@ export const PERMISSION_CATALOG = [
   'credentials.manage',
   'sat.download',
   'payroll.view',
-  'cfdi.review',
   'cfdi.exclude',
   'ingestion.view',
   'ingestion.create',
@@ -30,40 +40,29 @@ export const PERMISSION_CATALOG = [
   'cfdi.download',
   'incidents.view',
   'incidents.manage',
-  'period.close',
-  'period.reopen',
-  'exports.create',
-  'obligations.view',
-  'obligations.configure',
-  'diot.generate',
-  'ieps.generate',
-  'audit.view',
+  'exceptions.accept',
+  'periods.close',
+  'periods.reopen',
+  'exports.generate',
   'support.authorize',
+  'members.manage',
+  'permissions.manage',
 ] as const;
 
 export type PermissionKey = (typeof PERMISSION_CATALOG)[number];
 
-export const MFA_SENSITIVE_PERMISSION_KEYS = [
-  'organization.manage',
-  'ownership.manage',
-  'billing.manage',
-  'team.manage',
-  'clients.assign',
-  'fiscal_entities.manage',
-  'credentials.manage',
-  'sat.download',
-  'cfdi.download',
-  'period.close',
-  'period.reopen',
-  'exports.create',
-  'support.authorize',
-] as const satisfies readonly PermissionKey[];
+export interface PermissionDefinition {
+  name: string;
+  description: string;
+  sensitive: boolean;
+  requiresMfa: boolean;
+  requiresReauthentication: boolean;
+}
 
 export const PERMISSION_METADATA = {
   'organization.view': {
     name: 'Ver organización',
-    description:
-      'Consultar la información y configuración visible de la organización.',
+    description: 'Consultar información visible de la organización.',
   },
   'organization.manage': {
     name: 'Administrar organización',
@@ -71,24 +70,19 @@ export const PERMISSION_METADATA = {
   },
   'ownership.manage': {
     name: 'Administrar titularidad',
-    description: 'Transferir o administrar la titularidad de la organización.',
+    description: 'Transferir o administrar la titularidad.',
   },
   'billing.manage': {
     name: 'Administrar facturación',
-    description: 'Consultar y administrar el plan y la facturación.',
+    description: 'Consultar y administrar plan y facturación.',
   },
   'team.view': {
     name: 'Ver equipo',
-    description:
-      'Consultar los miembros y sus estados dentro de la organización.',
-  },
-  'team.manage': {
-    name: 'Administrar equipo',
-    description: 'Crear, actualizar, suspender o revocar miembros.',
+    description: 'Consultar miembros de la organización.',
   },
   'clients.view': {
     name: 'Ver clientes',
-    description: 'Consultar las cuentas cliente asignadas a la organización.',
+    description: 'Consultar cuentas cliente asignadas.',
   },
   'clients.manage': {
     name: 'Administrar clientes',
@@ -96,11 +90,11 @@ export const PERMISSION_METADATA = {
   },
   'clients.assign': {
     name: 'Asignar clientes',
-    description: 'Asignar cuentas cliente a miembros de la organización.',
+    description: 'Asignar cuentas cliente a membresías.',
   },
   'fiscal_entities.view': {
     name: 'Ver entidades fiscales',
-    description: 'Consultar RFC y razones sociales de las cuentas asignadas.',
+    description: 'Consultar entidades fiscales de cuentas asignadas.',
   },
   'fiscal_entities.manage': {
     name: 'Administrar entidades fiscales',
@@ -108,31 +102,27 @@ export const PERMISSION_METADATA = {
   },
   'fiscal_years.view': {
     name: 'Ver ejercicios fiscales',
-    description: 'Consultar ejercicios y períodos de entidades autorizadas.',
+    description: 'Consultar ejercicios y períodos autorizados.',
   },
   'fiscal_years.manage': {
     name: 'Administrar ejercicios fiscales',
-    description: 'Crear ejercicios fiscales y sus períodos mensuales.',
+    description: 'Crear ejercicios y períodos mensuales.',
   },
   'credentials.manage': {
     name: 'Administrar credenciales',
-    description: 'Configurar y administrar credenciales de servicios fiscales.',
+    description: 'Cargar, sustituir o revocar e.firma.',
   },
   'sat.download': {
-    name: 'Descargar del SAT',
-    description: 'Solicitar y descargar información fiscal del SAT.',
+    name: 'Solicitar descarga SAT',
+    description: 'Solicitar una descarga de información fiscal del SAT.',
   },
   'payroll.view': {
-    name: 'Ver nómina',
-    description: 'Consultar información de comprobantes de nómina.',
-  },
-  'cfdi.review': {
-    name: 'Revisar CFDI',
-    description: 'Consultar y revisar comprobantes fiscales digitales.',
+    name: 'Consultar nómina',
+    description: 'Consultar o exportar CFDI de nómina.',
   },
   'cfdi.exclude': {
     name: 'Excluir CFDI',
-    description: 'Excluir comprobantes del control mensual.',
+    description: 'Excluir o reincorporar un CFDI con motivo.',
   },
   'ingestion.view': {
     name: 'Ver ingestas',
@@ -179,49 +169,78 @@ export const PERMISSION_METADATA = {
     name: 'Gestionar incidencias fiscales',
     description: 'Resolver y administrar incidencias fiscales autorizadas.',
   },
-  'period.close': {
+  'exceptions.accept': {
+    name: 'Aceptar excepciones',
+    description: 'Aceptar una excepción que permite continuar.',
+  },
+  'periods.close': {
     name: 'Cerrar períodos',
-    description: 'Cerrar un período contable o fiscal.',
+    description: 'Crear una versión cerrada de un período.',
   },
-  'period.reopen': {
+  'periods.reopen': {
     name: 'Reabrir períodos',
-    description: 'Reabrir un período previamente cerrado.',
+    description: 'Reabrir un período con motivo.',
   },
-  'exports.create': {
-    name: 'Crear exportaciones',
-    description: 'Generar exportaciones de información autorizada.',
-  },
-  'obligations.view': {
-    name: 'Ver obligaciones',
-    description: 'Consultar obligaciones y su estado.',
-  },
-  'obligations.configure': {
-    name: 'Configurar obligaciones',
-    description: 'Configurar obligaciones y reglas operativas.',
-  },
-  'diot.generate': {
-    name: 'Generar DIOT',
-    description: 'Generar información para la declaración DIOT.',
-  },
-  'ieps.generate': {
-    name: 'Generar IEPS',
-    description: 'Generar información para procesos IEPS.',
-  },
-  'audit.view': {
-    name: 'Ver auditoría',
-    description: 'Consultar eventos de auditoría de la organización.',
+  'exports.generate': {
+    name: 'Generar exportaciones',
+    description: 'Generar archivos Excel, CSV o ZIP.',
   },
   'support.authorize': {
     name: 'Autorizar soporte',
-    description: 'Autorizar acciones operativas de soporte.',
+    description: 'Conceder acceso temporal JIT a soporte.',
+  },
+  'members.manage': {
+    name: 'Administrar miembros',
+    description: 'Invitar, suspender, reactivar o revocar miembros.',
+  },
+  'permissions.manage': {
+    name: 'Administrar permisos',
+    description: 'Conceder o denegar permisos de otras membresías.',
   },
 } satisfies Record<PermissionKey, { name: string; description: string }>;
 
-export const ROLE_PERMISSION_KEYS: Record<
-  Exclude<RoleKey, 'admin'>,
-  readonly (typeof PERMISSION_CATALOG)[number][]
-> = {
-  [RoleKey.OWNER]: PERMISSION_CATALOG,
+const HU_P0_003_PERMISSION_KEYS = new Set<PermissionKey>([
+  'credentials.manage',
+  'sat.download',
+  'payroll.view',
+  'cfdi.exclude',
+  'exceptions.accept',
+  'periods.close',
+  'periods.reopen',
+  'exports.generate',
+  'support.authorize',
+  'members.manage',
+  'permissions.manage',
+]);
+
+const LEGACY_MFA_PERMISSION_KEYS = new Set<PermissionKey>([
+  'organization.manage',
+  'ownership.manage',
+  'billing.manage',
+  'clients.assign',
+  'fiscal_entities.manage',
+  'cfdi.download',
+]);
+
+export const permissionDefinition = (
+  key: PermissionKey,
+): PermissionDefinition => {
+  const huPermission = HU_P0_003_PERMISSION_KEYS.has(key);
+  const requiresMfa = huPermission || LEGACY_MFA_PERMISSION_KEYS.has(key);
+  return {
+    ...PERMISSION_METADATA[key],
+    sensitive: requiresMfa,
+    requiresMfa,
+    requiresReauthentication: huPermission,
+  };
+};
+
+export const MFA_SENSITIVE_PERMISSION_KEYS = PERMISSION_CATALOG.filter(
+  (key) => permissionDefinition(key).requiresMfa,
+);
+
+export const ROLE_PERMISSION_KEYS: Record<RoleKey, readonly PermissionKey[]> = {
+  [RoleKey.ADMIN]: PERMISSION_CATALOG,
   [RoleKey.ACCOUNTANT]: [
     'organization.view',
     'team.view',
@@ -235,7 +254,6 @@ export const ROLE_PERMISSION_KEYS: Record<
     'credentials.manage',
     'sat.download',
     'payroll.view',
-    'cfdi.review',
     'cfdi.exclude',
     'ingestion.view',
     'ingestion.create',
@@ -248,21 +266,16 @@ export const ROLE_PERMISSION_KEYS: Record<
     'cfdi.download',
     'incidents.view',
     'incidents.manage',
-    'period.close',
-    'period.reopen',
-    'exports.create',
-    'obligations.view',
-    'obligations.configure',
-    'diot.generate',
-    'ieps.generate',
-    'audit.view',
+    'exceptions.accept',
+    'periods.close',
+    'periods.reopen',
+    'exports.generate',
   ],
   [RoleKey.COLLABORATOR]: [
     'organization.view',
     'clients.view',
     'fiscal_entities.view',
     'fiscal_years.view',
-    'cfdi.review',
     'ingestion.view',
     'ingestion.create',
     'ingestion.retry',
@@ -272,6 +285,12 @@ export const ROLE_PERMISSION_KEYS: Record<
     'cfdi.download',
     'incidents.view',
     'incidents.manage',
-    'obligations.view',
   ],
 };
+
+export function isPermissionKey(value: string): value is PermissionKey {
+  return (
+    PERMISSION_KEY_PATTERN.test(value) &&
+    (PERMISSION_CATALOG as readonly string[]).includes(value)
+  );
+}

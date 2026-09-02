@@ -11,6 +11,10 @@ import {
   ROLE_PERMISSION_KEYS,
 } from '../src/common/auth/permission-catalog';
 import { resolveScriptDatabaseOptions } from '../src/database/scripts/script-database-options';
+import {
+  ALLOWED_SHARED_MIGRATION_TIMESTAMPS,
+  EXPECTED_MIGRATION_NAMES,
+} from '../src/database/scripts/migration-manifest';
 import { FiscalIngestionFoundation1787690600000 } from '../src/database/migrations/1787690600000-FiscalIngestionFoundation';
 import { FiscalRlsWorkerClaims1787690610000 } from '../src/database/migrations/1787690610000-FiscalRlsWorkerClaims';
 import { seedDatabase } from '../src/database/seeds/seed-database';
@@ -19,14 +23,7 @@ import { ROLE_DEFINITIONS } from '../src/modules/permissions/entities/role.entit
 dotenv.config({ path: '.env' });
 dotenv.config({ path: '.env.local' });
 
-const EXPECTED_MIGRATIONS = [
-  'Migration1787601284711',
-  'IdentityIntegrity1787690000000',
-  'ClientAccountsDomain1787690100000',
-  'ClientAccountSearchTrigram1787690200000',
-  'FiscalIngestionFoundation1787690600000',
-  'FiscalRlsWorkerClaims1787690610000',
-] as const;
+const EXPECTED_MIGRATIONS = EXPECTED_MIGRATION_NAMES;
 const FISCAL_ROLES = [
   'balanz_fiscal_owner',
   'balanz_fiscal_cancel_owner',
@@ -104,37 +101,25 @@ async function validateMigrationLifecycle(): Promise<void> {
       if (!migration.name) throw new Error('Configured migration has no name');
       return migration.name;
     });
-    assertDeepEqual(
-      configuredNames,
-      [...EXPECTED_MIGRATIONS],
-      'configured migration order',
-    );
+    validateMigrationManifest(configuredNames);
     report.configuredMigrationOrder = configuredNames;
 
     baseline = await captureBaseline(queryRunner.manager);
-    const fiscalIdentityByTimestamp = new Map(
-      EXPECTED_MIGRATIONS.slice(-2).map((name) => [
-        String(migrationTimestamp(name)),
-        name,
+    validateAppliedMigrationLedger(baseline.appliedMigrations);
+    const appliedNames = new Set(
+      baseline.appliedMigrations.map((migration) => migration.name),
+    );
+    const pendingNames = EXPECTED_MIGRATIONS.filter(
+      (name) => !appliedNames.has(name),
+    );
+    report.appliedMigrationsBefore = baseline.appliedMigrations;
+    report.unknownExecutedMigrations = [];
+    report.allowedSharedTimestamps = Object.fromEntries(
+      [...ALLOWED_SHARED_MIGRATION_TIMESTAMPS].map(([timestamp, names]) => [
+        timestamp,
+        [...names],
       ]),
     );
-    const fiscalTimestampCollisions = baseline.appliedMigrations.filter(
-      ({ timestamp, name }) =>
-        fiscalIdentityByTimestamp.has(String(timestamp)) &&
-        fiscalIdentityByTimestamp.get(String(timestamp)) !== name,
-    );
-    if (fiscalTimestampCollisions.length > 0) {
-      throw new Error(
-        `Fiscal migration timestamp collision: ${JSON.stringify(fiscalTimestampCollisions)}`,
-      );
-    }
-    report.fiscalTimestampCollisions = fiscalTimestampCollisions;
-    const appliedExpected = baseline.appliedMigrations
-      .map((migration) => migration.name)
-      .filter((name) => EXPECTED_MIGRATIONS.includes(name as never));
-    assertAppliedPrefix(appliedExpected);
-    const pendingNames = EXPECTED_MIGRATIONS.slice(appliedExpected.length);
-    report.appliedMigrationsBefore = baseline.appliedMigrations;
     report.pendingExpectedMigrations = pendingNames;
 
     await queryRunner.startTransaction();
@@ -151,9 +136,7 @@ async function validateMigrationLifecycle(): Promise<void> {
       `);
     }
 
-    const pending = configuredNames
-      .slice(appliedExpected.length)
-      .map((name) => findMigration(dataSource, name));
+    const pending = pendingNames.map((name) => findMigration(dataSource, name));
     for (const migration of pending) {
       await migration.up(queryRunner);
       await queryRunner.query(
@@ -162,18 +145,10 @@ async function validateMigrationLifecycle(): Promise<void> {
       );
     }
     report.transactionallyApplied = pending.map((migration) => migration.name);
-    const transactionalMigrationLog = (
-      (await queryRunner.query(
-        `SELECT name FROM migrations ORDER BY id`,
-      )) as Array<{ name: string }>
-    )
-      .map((migration) => migration.name)
-      .filter((name) => EXPECTED_MIGRATIONS.includes(name as never));
-    assertDeepEqual(
-      transactionalMigrationLog,
-      [...EXPECTED_MIGRATIONS],
-      'transactional migration log',
-    );
+    const transactionalMigrationLog = (await queryRunner.query(
+      `SELECT id, timestamp, name FROM migrations ORDER BY id`,
+    )) as AppliedMigrationRow[];
+    validateAppliedMigrationLedger(transactionalMigrationLog, true);
     report.transactionalMigrationLog = transactionalMigrationLog;
 
     await validatePhaseZeroSchema(queryRunner.manager, report);
@@ -910,12 +885,84 @@ function findMigration(
   return migration as MigrationInterface & { name: string };
 }
 
-function assertAppliedPrefix(appliedExpected: string[]): void {
+function validateMigrationManifest(configuredNames: string[]): void {
+  const configuredUnique = new Set(configuredNames);
+  if (configuredUnique.size !== configuredNames.length) {
+    throw new Error('Configured migration names must be unique');
+  }
   assertDeepEqual(
-    appliedExpected,
-    EXPECTED_MIGRATIONS.slice(0, appliedExpected.length),
-    'applied expected migrations must be an ordered prefix',
+    configuredNames,
+    [...EXPECTED_MIGRATIONS],
+    'configured migration manifest and tie-break order',
   );
+
+  const namesByTimestamp = new Map<number, Set<string>>();
+  for (const name of EXPECTED_MIGRATIONS) {
+    const timestamp = migrationTimestamp(name);
+    const names = namesByTimestamp.get(timestamp) ?? new Set<string>();
+    names.add(name);
+    namesByTimestamp.set(timestamp, names);
+  }
+  for (const [timestamp, names] of namesByTimestamp) {
+    if (names.size === 1) continue;
+    const allowed = ALLOWED_SHARED_MIGRATION_TIMESTAMPS.get(timestamp);
+    if (!allowed || !sameStringSet(names, allowed)) {
+      throw new Error(
+        `Unapproved migration timestamp collision at ${timestamp}: ${JSON.stringify([...names])}`,
+      );
+    }
+  }
+  for (const [timestamp, allowed] of ALLOWED_SHARED_MIGRATION_TIMESTAMPS) {
+    const actual = namesByTimestamp.get(timestamp);
+    if (!actual || !sameStringSet(actual, allowed)) {
+      throw new Error(
+        `Stale shared migration timestamp allowlist at ${timestamp}`,
+      );
+    }
+  }
+}
+
+function validateAppliedMigrationLedger(
+  rows: AppliedMigrationRow[],
+  requireComplete = false,
+): void {
+  const expected = new Set<string>(EXPECTED_MIGRATIONS);
+  const seen = new Set<string>();
+  const unknown: AppliedMigrationRow[] = [];
+
+  for (const row of rows) {
+    if (seen.has(row.name)) {
+      throw new Error(`Duplicate migration ledger name: ${row.name}`);
+    }
+    seen.add(row.name);
+    if (!expected.has(row.name)) {
+      unknown.push(row);
+      continue;
+    }
+    const expectedTimestamp = migrationTimestamp(row.name);
+    if (String(row.timestamp) !== String(expectedTimestamp)) {
+      throw new Error(
+        `Migration ledger identity mismatch for ${row.name}: expected ${expectedTimestamp}, received ${String(row.timestamp)}`,
+      );
+    }
+  }
+
+  if (unknown.length > 0) {
+    throw new Error(`Unknown executed migrations: ${JSON.stringify(unknown)}`);
+  }
+  if (requireComplete) {
+    const missing = EXPECTED_MIGRATIONS.filter((name) => !seen.has(name));
+    if (missing.length > 0) {
+      throw new Error(`Missing expected migrations: ${JSON.stringify(missing)}`);
+    }
+  }
+}
+
+function sameStringSet(
+  left: ReadonlySet<string>,
+  right: ReadonlySet<string>,
+): boolean {
+  return left.size === right.size && [...left].every((value) => right.has(value));
 }
 
 function migrationTimestamp(name: string): number {

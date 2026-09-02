@@ -15,6 +15,7 @@ import { LegalEntity } from './entities/legal-entity.entity';
 import { Period } from './entities/period.entity';
 import { FiscalYearsController } from './fiscal-years.controller';
 import { FiscalYearsService } from './fiscal-years.service';
+import { FiscalAuthorizationService } from './fiscal-authorization.service';
 import { LegalEntitiesController } from './legal-entities.controller';
 import { LegalEntitiesService } from './legal-entities.service';
 
@@ -43,7 +44,8 @@ import { LegalEntitiesService } from './legal-entities.service';
     LegalEntitiesService,
     AccountAssignmentsService,
     FiscalYearsService,
+    FiscalAuthorizationService,
   ],
-  exports: [ClientAccountScopeService],
+  exports: [ClientAccountScopeService, FiscalAuthorizationService],
 })
 export class ClientAccountsModule {}
