@@ -6,6 +6,12 @@
     "dev": "bun run --filter '*' dev",
     "build": "bun run --filter '*' build",
     "dev:web": "bun run --cwd apps/web dev",
-    "dev:api": "bun run --cwd apps/api start:dev"
+    "dev:api": "bun run --cwd apps/api start:api:dev",
+    "dev:worker": "bun run --cwd apps/api start:worker:dev",
+    "qa:cfdi:postgres": "npm --prefix apps/api run qa:cfdi:postgres",
+    "qa:cfdi:external": "npm --prefix apps/api run test:external:fiscal",
+    "infra:cfdi:config": "docker compose --env-file infra/cfdi-phase0/.env -f infra/cfdi-phase0/compose.yaml config",
+    "infra:cfdi:up": "docker compose --env-file infra/cfdi-phase0/.env -f infra/cfdi-phase0/compose.yaml up -d --wait",
+    "infra:cfdi:down": "docker compose --env-file infra/cfdi-phase0/.env -f infra/cfdi-phase0/compose.yaml down"
   }
 }

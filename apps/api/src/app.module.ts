@@ -4,15 +4,7 @@ import { APP_GUARD } from '@nestjs/core';
 import { ThrottlerModule } from '@nestjs/throttler';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
-import appConfig from './config/app.config';
-import authConfig from './config/auth.config';
-import cookiesConfig from './config/cookies.config';
-import databaseConfig from './config/database.config';
-import emailConfig from './config/email.config';
-import redisConfig from './config/redis.config';
-import secretsConfig from './config/secrets.config';
-import horusConfig from './config/horus.config';
-import { envVarsSchema } from './config/env.validation';
+import { PlatformConfigModule } from './config/platform-config.module';
 import { AuthModule as CommonAuthModule } from './common/auth/auth.module';
 import { DatabaseModule } from './database/database.module';
 import { UsersModule } from './modules/users/users.module';
@@ -22,25 +14,12 @@ import { CsrfGuard } from './common/guards/csrf.guard';
 import { CorrelationIdMiddleware } from './common/middleware/correlation-id.middleware';
 import { ClientAccountsModule } from './modules/client-accounts/client-accounts.module';
 import { CorrelationModule } from './common/correlation/correlation.module';
+import { ObservabilityModule } from './common/observability/observability.module';
+import { FiscalHealthModule } from './modules/health/fiscal-health.module';
 
 @Module({
   imports: [
-    ConfigModule.forRoot({
-      isGlobal: true,
-      envFilePath: ['.env', '.env.local'],
-      load: [
-        appConfig,
-        databaseConfig,
-        authConfig,
-        cookiesConfig,
-        emailConfig,
-        redisConfig,
-        secretsConfig,
-        horusConfig,
-      ],
-      validationSchema: envVarsSchema,
-      validationOptions: { allowUnknown: true, abortEarly: true },
-    }),
+    PlatformConfigModule.forRuntime('api'),
     ThrottlerModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
@@ -60,8 +39,10 @@ import { CorrelationModule } from './common/correlation/correlation.module';
     }),
     CommonAuthModule,
     CorrelationModule,
+    ObservabilityModule,
+    FiscalHealthModule.register('api'),
     SecretsModule,
-    DatabaseModule,
+    DatabaseModule.forRuntime('api'),
     UsersModule,
     FeatureAuthModule,
     ClientAccountsModule,

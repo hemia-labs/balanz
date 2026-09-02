@@ -1,5 +1,5 @@
 import { Module } from '@nestjs/common';
-import { ConfigModule, ConfigService } from '@nestjs/config';
+import { ConfigService } from '@nestjs/config';
 import {
   DefaultSecretsClient,
   createSecretsClient,
@@ -9,12 +9,8 @@ import {
   type SecretsScope,
 } from '@hemia/secrets';
 import { HEMIA_SECRETS, SecretsService } from '@hemia/secrets/nestjs';
-import secretsConfig from '../../config/secrets.config';
-
-const secretsConfigModule = ConfigModule.forFeature(secretsConfig);
 
 @Module({
-  imports: [secretsConfigModule],
   providers: [
     {
       provide: HEMIA_SECRETS,

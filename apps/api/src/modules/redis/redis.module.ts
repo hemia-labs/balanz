@@ -13,22 +13,40 @@ import { SecretsModule } from '../secrets/secrets.module';
 import { isRedisSecret, type RedisSecret } from './redis.types';
 import { REDIS_CLIENT } from './redis.tokens';
 import { SessionCacheService } from './session-cache.service';
+import { RedisWakeupService } from './redis-wakeup.service';
+import { ObservabilityModule } from '../../common/observability/observability.module';
+import type { FiscalPlatformConfig } from '../../config/fiscal-platform.config';
+import { shutdownRedisClient } from './redis-client-shutdown';
 
 export type RedisClient = RedisClientType;
 
 @Injectable()
-class RedisLifecycle implements OnApplicationShutdown {
+export class RedisLifecycle implements OnApplicationShutdown {
+  private readonly shutdownTimeoutMs: number;
+
   constructor(
     @Inject(REDIS_CLIENT) private readonly client: RedisClient | null,
-  ) {}
+    config: ConfigService,
+  ) {
+    this.shutdownTimeoutMs =
+      config.getOrThrow<FiscalPlatformConfig>(
+        'fiscalPlatform',
+      ).redisWakeup.timeoutMs;
+  }
 
   async onApplicationShutdown(): Promise<void> {
-    if (this.client?.isOpen) await this.client.quit();
+    if (this.client) {
+      await shutdownRedisClient(this.client, this.shutdownTimeoutMs);
+    }
   }
 }
 
 @Module({
-  imports: [ConfigModule.forFeature(redisConfig), SecretsModule],
+  imports: [
+    ConfigModule.forFeature(redisConfig),
+    SecretsModule,
+    ObservabilityModule,
+  ],
   providers: [
     {
       provide: REDIS_CLIENT,
@@ -76,7 +94,7 @@ class RedisLifecycle implements OnApplicationShutdown {
 
         if (!connection) {
           logger.warn(
-            'Redis configuration not found; session requests will use PostgreSQL',
+            'Redis configuration not found; PostgreSQL remains authoritative',
           );
           return null;
         }
@@ -91,13 +109,11 @@ class RedisLifecycle implements OnApplicationShutdown {
           database: connection.database,
         });
         client.on('error', () => {
-          logger.warn(
-            'Redis unavailable; session requests will use PostgreSQL',
-          );
+          logger.warn('Redis unavailable; PostgreSQL remains authoritative');
         });
         void client.connect().catch(() => {
           logger.warn(
-            'Redis connection failed; session requests will use PostgreSQL',
+            'Redis connection failed; PostgreSQL remains authoritative',
           );
         });
         return client;
@@ -105,7 +121,8 @@ class RedisLifecycle implements OnApplicationShutdown {
     },
     RedisLifecycle,
     SessionCacheService,
+    RedisWakeupService,
   ],
-  exports: [REDIS_CLIENT, SessionCacheService],
+  exports: [REDIS_CLIENT, SessionCacheService, RedisWakeupService],
 })
 export class RedisModule {}

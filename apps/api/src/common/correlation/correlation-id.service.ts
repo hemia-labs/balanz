@@ -5,8 +5,8 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 export class CorrelationIdService {
   private readonly storage = new AsyncLocalStorage<string>();
 
-  run(correlationId: string, work: () => void): void {
-    this.storage.run(correlationId, work);
+  run<T>(correlationId: string, work: () => T): T {
+    return this.storage.run(correlationId, work);
   }
 
   current(): string | undefined {
