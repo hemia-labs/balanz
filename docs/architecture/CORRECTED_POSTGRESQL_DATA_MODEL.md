@@ -2,18 +2,25 @@
 
 ## 1. Metadatos
 
-| Campo | Valor |
-|---|---|
-| Sistema | Balanz por Hemia |
-| Versión del modelo | 4.0 |
-| Fecha | 18 de agosto de 2026 |
-| Estado | Propuesta corregida lista para estimación técnica |
-| Alcance | SaaS B2B multi-tenant, control mensual CFDI, colaboración, suscripción y preparación DIOT/IEPS |
-| PostgreSQL objetivo | PostgreSQL 16 o superior |
-| Persistencia binaria | Object storage privado; PostgreSQL conserva referencias, hashes, metadata y dominio |
-| Exclusiones | Migraciones ejecutables, endpoints, motor fiscal definitivo, presentación SAT y datos completos de tarjeta |
+| Campo                | Valor                                                                                                     |
+| -------------------- | --------------------------------------------------------------------------------------------------------- |
+| Sistema              | Balanz por Hemia                                                                                          |
+| Versión del modelo   | 4.1                                                                                                       |
+| Fecha                | 28 de agosto de 2026                                                                                      |
+| Estado               | Fase 0 ejecutable; dominio CFDI y fases posteriores `FUTURE / NOT_STARTED`                                |
+| Alcance              | SaaS B2B multi-tenant, control mensual CFDI, colaboración, suscripción y preparación DIOT/IEPS            |
+| PostgreSQL objetivo  | PostgreSQL 16 o superior                                                                                  |
+| Persistencia binaria | Object storage privado; PostgreSQL conserva referencias, hashes, metadata y dominio                       |
+| Migraciones F0       | `1787690600000-FiscalIngestionFoundation.ts` y `1787690610000-FiscalRlsWorkerClaims.ts`                   |
+| Exclusiones actuales | Endpoint/parser/dominio CFDI, ZIP funcional, e.firma, SAT, mesa mensual, exportaciones y presentación SAT |
 
 Supuestos: español de México es el único locale operativo; una cuenta cliente agrupa uno o varios RFC; la asignación del MVP es por cuenta; el cierre es interno; DIOT/IEPS producen archivos preparados, no declaraciones presentadas. Los layouts fiscales y reglas normativas requieren aprobación y vigencia explícitas.
+
+Regla de lectura: sólo las cuatro tablas descritas como **F0 ejecutable** en
+6.4–6.5 están implementadas por este programa. La migración TypeORM es la
+autoridad exacta ante cualquier diferencia de formato. Todo DDL posterior
+marcado `FUTURE / NOT_STARTED` es arquitectura objetivo, no schema existente ni
+autorización para iniciar Fase 1.
 
 ## 2. Principios del modelo
 
@@ -32,6 +39,11 @@ Supuestos: español de México es el único locale operativo; una cuenta cliente
 13. **`jsonb` acotado:** sólo snapshots inmutables, parámetros normalizados, payloads externos redactados y definiciones de layout versionadas.
 
 ## 3. Jerarquía de dominio
+
+La jerarquía completa expresa el destino del producto. En el alcance fiscal de
+esta ejecución sólo están materializados `StoredObject`, `IngestionUpload`,
+`IngestionJob` e `IngestionItem`; las ramas de credenciales, SAT, CFDI, período,
+exportación y obligaciones permanecen `FUTURE / NOT_STARTED`.
 
 ```text
 User (identidad global)
@@ -91,7 +103,26 @@ erDiagram
   PERIODS ||--o{ PERIOD_LEASES : bloquea
 ```
 
-### 4.2 Archivos, CFDI y cierre
+### 4.2 Fundación fiscal ejecutable — Fase 0
+
+```mermaid
+erDiagram
+  LEGAL_ENTITIES ||--o{ STORED_OBJECTS : delimita
+  LEGAL_ENTITIES ||--o{ INGESTION_UPLOADS : delimita
+  STORED_OBJECTS ||--o| INGESTION_UPLOADS : materializa
+  LEGAL_ENTITIES ||--o{ INGESTION_JOBS : delimita
+  INGESTION_UPLOADS ||--o| INGESTION_JOBS : origina
+  STORED_OBJECTS ||--o{ INGESTION_JOBS : raiz
+  INGESTION_JOBS ||--o{ INGESTION_ITEMS : contiene
+  STORED_OBJECTS ||--o{ INGESTION_ITEMS : observa
+  INGESTION_JOBS ||--o{ INGESTION_JOBS : reintenta
+```
+
+Cada relación fiscal usa el scope compuesto
+`organization_id + client_account_id + legal_entity_id`; no existe FK a
+`cfdis` en Fase 0.
+
+### 4.3 Arquitectura objetivo de archivos, CFDI y cierre — FUTURE / NOT_STARTED
 
 ```mermaid
 erDiagram
@@ -120,7 +151,7 @@ erDiagram
   PERIODS ||--o{ EXPORT_JOBS : exporta
 ```
 
-### 4.3 Obligaciones, colaboración y soporte
+### 4.4 Obligaciones, colaboración y soporte — FUTURE / NOT_STARTED
 
 ```mermaid
 erDiagram
@@ -543,181 +574,147 @@ CREATE UNIQUE INDEX uq_period_leases_active ON period_leases(organization_id,per
 CREATE INDEX ix_period_leases_expiry ON period_leases(status,expires_at);
 ```
 
-### 6.4 Archivos y credenciales
+### 6.4 Archivos fundacionales — F0 ejecutable
 
 #### `stored_objects`
 
-```sql
-CREATE TABLE stored_objects (
-  id uuid CONSTRAINT pk_stored_objects PRIMARY KEY, organization_id uuid NOT NULL,
-  client_account_id uuid, legal_entity_id uuid, kind varchar(32) NOT NULL,
-  object_key varchar(600) NOT NULL, sha256 char(64) NOT NULL, size_bytes bigint NOT NULL,
-  mime_type varchar(160) NOT NULL, encryption_class varchar(24) NOT NULL,
-  status varchar(16) NOT NULL DEFAULT 'active', retention_until timestamptz,
-  quarantined_reason varchar(300), deleted_at timestamptz, created_at timestamptz NOT NULL DEFAULT now(),
-  CONSTRAINT uq_stored_objects_org_id UNIQUE (organization_id,id),
-  CONSTRAINT uq_stored_objects_key UNIQUE (object_key),
-  CONSTRAINT fk_stored_objects_entity FOREIGN KEY (organization_id,client_account_id,legal_entity_id)
-    REFERENCES legal_entities(organization_id,client_account_id,id),
-  CONSTRAINT ck_stored_objects_scope CHECK ((client_account_id IS NULL)=(legal_entity_id IS NULL)),
-  CONSTRAINT ck_stored_objects_size CHECK (size_bytes >= 0),
-  CONSTRAINT ck_stored_objects_status CHECK (status IN ('active','quarantined','expired','deleted')),
-  CONSTRAINT ck_stored_objects_encryption CHECK (encryption_class IN ('standard','fiscal','credential','export'))
-);
-CREATE INDEX ix_stored_objects_hash ON stored_objects(organization_id,legal_entity_id,kind,sha256);
-CREATE INDEX ix_stored_objects_retention ON stored_objects(status,retention_until);
-CREATE UNIQUE INDEX uq_stored_objects_entity_kind_hash ON stored_objects(organization_id,legal_entity_id,kind,sha256)
-  WHERE legal_entity_id IS NOT NULL AND deleted_at IS NULL;
-```
+La migración 060 crea exactamente estas columnas:
 
-#### `credential_records`
+- identidad/scope: `id`, `organization_id`, `client_account_id`,
+  `legal_entity_id`;
+- ubicación e integridad: `kind`, `storage_provider`, `storage_container`,
+  `object_key`, `original_filename`, `declared_mime_type`,
+  `detected_mime_type`, `size_bytes`, `sha256`, `storage_etag`,
+  `storage_version_id`, `encryption_class`;
+- lifecycle/scanner: `lifecycle_state`, `malware_scan_status`,
+  `malware_scanner_version`, `malware_scanned_at`,
+  `quarantine_reason_code`, `retention_until`, `hold_until`,
+  `redundant_reported_at`, `retention_eligible_reported_at`, `uploaded_at`,
+  `available_at`, `deleted_at`;
+- control: `version`, `created_at`, `updated_at`.
 
-```sql
-CREATE TABLE credential_records (
-  id uuid CONSTRAINT pk_credential_records PRIMARY KEY, organization_id uuid NOT NULL,
-  client_account_id uuid NOT NULL, legal_entity_id uuid NOT NULL,
-  cer_object_id uuid NOT NULL, key_object_id uuid NOT NULL,
-  serial_number varchar(80), certificate_rfc varchar(13), certificate_sha256 char(64),
-  valid_from timestamptz, valid_to timestamptz, status varchar(24) NOT NULL DEFAULT 'pending_validation',
-  validated_at timestamptz, validation_error_code varchar(80),
-  replaced_by_credential_id uuid, revoked_at timestamptz,
-  created_by_membership_id uuid NOT NULL, created_at timestamptz NOT NULL DEFAULT now(), updated_at timestamptz NOT NULL DEFAULT now(),
-  CONSTRAINT uq_credential_records_org_id UNIQUE (organization_id,id),
-  CONSTRAINT fk_credential_records_entity FOREIGN KEY (organization_id,client_account_id,legal_entity_id) REFERENCES legal_entities(organization_id,client_account_id,id),
-  CONSTRAINT fk_credential_records_cer FOREIGN KEY (organization_id,cer_object_id) REFERENCES stored_objects(organization_id,id),
-  CONSTRAINT fk_credential_records_key FOREIGN KEY (organization_id,key_object_id) REFERENCES stored_objects(organization_id,id),
-  CONSTRAINT fk_credential_records_actor FOREIGN KEY (organization_id,created_by_membership_id) REFERENCES memberships(organization_id,id),
-  CONSTRAINT fk_credential_records_replacement FOREIGN KEY (organization_id,replaced_by_credential_id) REFERENCES credential_records(organization_id,id),
-  CONSTRAINT ck_credential_records_status CHECK (status IN ('pending_validation','active','expired','revoked','invalid','replaced')),
-  CONSTRAINT ck_credential_records_validity CHECK (valid_to IS NULL OR valid_from IS NOT NULL AND valid_to>valid_from)
-);
-CREATE UNIQUE INDEX uq_credential_records_active ON credential_records(organization_id,legal_entity_id) WHERE status='active';
-CREATE INDEX ix_credential_records_expiry ON credential_records(organization_id,status,valid_to);
-```
+El scope completo es obligatorio. Las candidate keys son
+`uq_stored_objects_org_id`, `uq_stored_objects_scope_id` y
+`uq_stored_objects_storage_location`; la FK
+`fk_stored_objects_legal_entity` usa las tres columnas de scope. Los checks
+ejecutables son `ck_stored_objects_kind`, `provider`, `container`,
+`encryption_class`, `lifecycle_state`, `scan_status`, `size`, `sha256`,
+`object_key`, `filename`, `payload_state`, `deleted_state`, `available_scan`,
+`scan_timestamp`, `quarantine_reason` y `version` (todos con el prefijo
+`ck_stored_objects_`).
 
-Cada fila de credencial es una versión histórica. La contraseña de `.key` nunca entra a esta tabla; el secreto temporal del worker vive fuera de PostgreSQL con TTL y referencia efímera no recuperable.
+Los índices son `ix_stored_objects_scope_hash`,
+`ix_stored_objects_lifecycle_updated` e `ix_stored_objects_retention`. El
+trigger `trg_stored_objects_immutability` llama a
+`enforce_stored_object_immutability()` y bloquea cambios de identidad/ubicación
+y de hash/tamaño/versiones físicas después de confirmar los bytes.
 
-### 6.5 Procesamiento durable
+`credential_records` es `FUTURE / PHASE_3 / NOT_STARTED`. No existe tabla de
+credenciales, password, llave privada ni grant de reauth en Fase 0.
 
-#### `sat_download_jobs`
+### 6.5 Plataforma de ingesta durable — F0 ejecutable
 
-```sql
-CREATE TABLE sat_download_jobs (
-  id uuid CONSTRAINT pk_sat_download_jobs PRIMARY KEY, organization_id uuid NOT NULL,
-  client_account_id uuid NOT NULL, legal_entity_id uuid NOT NULL, credential_record_id uuid NOT NULL,
-  requested_by_membership_id uuid NOT NULL, request_scope varchar(16) NOT NULL,
-  date_from date NOT NULL, date_to date NOT NULL, parameters_snapshot jsonb NOT NULL DEFAULT '{}'::jsonb,
-  internal_state varchar(32) NOT NULL DEFAULT 'queued', sat_status_code varchar(8),
-  sat_status_message varchar(500), sat_request_id varchar(160), idempotency_key char(64) NOT NULL,
-  cutoff_at timestamptz, attempt_count integer NOT NULL DEFAULT 0, next_attempt_at timestamptz,
-  last_error_code varchar(80), last_error_message varchar(500),
-  created_at timestamptz NOT NULL DEFAULT now(), started_at timestamptz, completed_at timestamptz,
-  cancelled_at timestamptz, updated_at timestamptz NOT NULL DEFAULT now(),
-  CONSTRAINT uq_sat_download_jobs_org_id UNIQUE (organization_id,id),
-  CONSTRAINT uq_sat_download_jobs_key UNIQUE (organization_id,legal_entity_id,idempotency_key),
-  CONSTRAINT fk_sat_download_jobs_entity FOREIGN KEY (organization_id,client_account_id,legal_entity_id) REFERENCES legal_entities(organization_id,client_account_id,id),
-  CONSTRAINT fk_sat_download_jobs_credential FOREIGN KEY (organization_id,credential_record_id) REFERENCES credential_records(organization_id,id),
-  CONSTRAINT fk_sat_download_jobs_actor FOREIGN KEY (organization_id,requested_by_membership_id) REFERENCES memberships(organization_id,id),
-  CONSTRAINT ck_sat_download_jobs_scope CHECK (request_scope IN ('issued','received','both','metadata')),
-  CONSTRAINT ck_sat_download_jobs_range CHECK (date_to>=date_from),
-  CONSTRAINT ck_sat_download_jobs_attempt CHECK (attempt_count>=0),
-  CONSTRAINT ck_sat_download_jobs_state CHECK (internal_state IN ('credential_required','queued','authenticating','requested','polling','packages_ready','downloading','importing','completed','completed_with_issues','failed_retryable','failed_final','expired','cancelled'))
-);
-CREATE INDEX ix_sat_download_jobs_worker ON sat_download_jobs(internal_state,next_attempt_at,updated_at);
-```
+#### `ingestion_uploads`
 
-#### `sat_download_packages`
+Columnas exactas: `id`, scope completo, `workflow`, `upload_type`,
+`init_idempotency_key`, `init_request_fingerprint`, `init_response_status`,
+`init_response_reference`, `init_idempotency_expires_at`,
+`confirm_idempotency_key`, `confirm_request_fingerprint`,
+`confirm_response_status`, `confirm_response_reference`,
+`confirm_idempotency_created_at`, `confirm_idempotency_expires_at`,
+`object_id`, `state`, `expected_size_bytes`, `expected_sha256`,
+`actual_size_bytes`, `actual_sha256`, `upload_expires_at`, `confirmed_at`,
+`confirmed_without_job_reported_at`, `created_by_membership_id`,
+`correlation_id`, `last_error_code`, `version`, `created_at`, `updated_at`.
 
-```sql
-CREATE TABLE sat_download_packages (
-  id uuid CONSTRAINT pk_sat_download_packages PRIMARY KEY, organization_id uuid NOT NULL,
-  sat_download_job_id uuid NOT NULL, sat_package_id varchar(180) NOT NULL,
-  object_id uuid, status varchar(16) NOT NULL DEFAULT 'pending', expires_at timestamptz NOT NULL,
-  expected_sha256 char(64), downloaded_at timestamptz, imported_at timestamptz,
-  error_code varchar(80), error_message varchar(500),
-  created_at timestamptz NOT NULL DEFAULT now(), updated_at timestamptz NOT NULL DEFAULT now(),
-  CONSTRAINT uq_sat_download_packages_org_id UNIQUE (organization_id,id),
-  CONSTRAINT uq_sat_download_packages_official UNIQUE (sat_download_job_id,sat_package_id),
-  CONSTRAINT fk_sat_download_packages_job FOREIGN KEY (organization_id,sat_download_job_id) REFERENCES sat_download_jobs(organization_id,id),
-  CONSTRAINT fk_sat_download_packages_object FOREIGN KEY (organization_id,object_id) REFERENCES stored_objects(organization_id,id),
-  CONSTRAINT ck_sat_download_packages_status CHECK (status IN ('pending','downloading','downloaded','imported','expired','failed'))
-);
-CREATE INDEX ix_sat_download_packages_priority ON sat_download_packages(status,expires_at);
-```
+Constraints: PK; candidate keys `uq_ingestion_uploads_org_id`,
+`uq_ingestion_uploads_scope_id`, `uq_ingestion_uploads_object` y
+`uq_ingestion_uploads_init_idempotency`; FKs compuestas a entidad, objeto y
+membresía; checks de workflow, tipo, estado, ambas idempotencias, hashes,
+tamaños, expiración, confirmación/payload, status de respuesta y versión. Los
+índices son `ix_ingestion_uploads_expiration`,
+`ix_ingestion_uploads_scope_state` y el unique parcial
+`uq_ingestion_uploads_confirm_idempotency`.
 
 #### `ingestion_jobs`
 
-```sql
-CREATE TABLE ingestion_jobs (
-  id uuid CONSTRAINT pk_ingestion_jobs PRIMARY KEY, organization_id uuid NOT NULL,
-  client_account_id uuid NOT NULL, legal_entity_id uuid NOT NULL,
-  source varchar(20) NOT NULL, sat_download_job_id uuid, sat_download_package_id uuid, upload_object_id uuid,
-  requested_by_membership_id uuid, idempotency_key char(64) NOT NULL,
-  status varchar(24) NOT NULL DEFAULT 'queued', total_items integer NOT NULL DEFAULT 0,
-  valid_items integer NOT NULL DEFAULT 0, invalid_items integer NOT NULL DEFAULT 0,
-  duplicate_items integer NOT NULL DEFAULT 0, rejected_items integer NOT NULL DEFAULT 0,
-  created_at timestamptz NOT NULL DEFAULT now(), started_at timestamptz, completed_at timestamptz,
-  failed_at timestamptz, error_code varchar(80), error_message varchar(500),
-  CONSTRAINT uq_ingestion_jobs_org_id UNIQUE (organization_id,id),
-  CONSTRAINT uq_ingestion_jobs_key UNIQUE (organization_id,legal_entity_id,idempotency_key),
-  CONSTRAINT fk_ingestion_jobs_entity FOREIGN KEY (organization_id,client_account_id,legal_entity_id) REFERENCES legal_entities(organization_id,client_account_id,id),
-  CONSTRAINT fk_ingestion_jobs_sat FOREIGN KEY (organization_id,sat_download_job_id) REFERENCES sat_download_jobs(organization_id,id),
-  CONSTRAINT fk_ingestion_jobs_package FOREIGN KEY (organization_id,sat_download_package_id) REFERENCES sat_download_packages(organization_id,id),
-  CONSTRAINT fk_ingestion_jobs_upload FOREIGN KEY (organization_id,upload_object_id) REFERENCES stored_objects(organization_id,id),
-  CONSTRAINT ck_ingestion_jobs_source CHECK (source IN ('sat_package','manual_xml','manual_zip','metadata')),
-  CONSTRAINT ck_ingestion_jobs_status CHECK (status IN ('queued','processing','completed','completed_with_errors','failed','cancelled')),
-  CONSTRAINT ck_ingestion_jobs_counts CHECK (least(total_items,valid_items,invalid_items,duplicate_items,rejected_items)>=0
-    AND valid_items+invalid_items+duplicate_items+rejected_items<=total_items)
-);
-CREATE INDEX ix_ingestion_jobs_worker ON ingestion_jobs(status,created_at);
-```
+Columnas exactas: `id`, scope completo, `source_type`, `upload_id`,
+`root_object_id`, `requested_by_membership_id`, `retry_of_job_id`,
+`idempotency_key`, `request_fingerprint`, `response_status`,
+`response_reference`, `idempotency_expires_at`, `status`, `current_stage`, los
+nueve contadores (`total`, `pending`, `processing`, `incorporated`, `duplicate`,
+`foreign`, `invalid`, `unsupported`, `internal_error`),
+`counters_reconciled_at`, `attempt_count`, `next_attempt_at`, `worker_id`,
+`locked_by`, `lease_expires_at`, `heartbeat_at`, `last_claimed_at`,
+`cancel_requested_at`, `started_at`, `completed_at`, `last_error_code`,
+`last_error_detail`, `correlation_id`, `version`, `created_at`, `updated_at`.
+
+Constraints: PK; candidate keys `uq_ingestion_jobs_org_id`,
+`uq_ingestion_jobs_scope_id`, `uq_ingestion_jobs_idempotency`; FKs compuestas a
+entidad, objeto raíz, upload, membresía solicitante y job reintentado; checks de
+source/shape, estados, etapa, idempotencia/fingerprint, status de respuesta,
+máximo tres ejecuciones, IDs de worker, contadores, lease/unlock, cancelación,
+terminalidad, retry schedule, self-retry, expiración y versión. Los índices son
+`ix_ingestion_jobs_claim`, `active_tenant`, `counter_reconcile`,
+`tenant_fairness`, `scope_status`, `requested_by_status`, `root_object` y
+`retry_of` (todos con prefijo `ix_ingestion_jobs_`).
+
+Estados ejecutables: `awaiting_upload`, `queued`, `processing`, `completed`,
+`completed_with_issues`, `failed_retryable`, `failed_final`,
+`cancel_requested`, `cancelled`. Las etapas reservadas son `scanning`,
+`extracting`, `parsing` y `persisting`; reservarlas no registra un handler
+productivo ni inicia XML/ZIP/SAT.
 
 #### `ingestion_items`
 
-```sql
-CREATE TABLE ingestion_items (
-  id uuid CONSTRAINT pk_ingestion_items PRIMARY KEY, organization_id uuid NOT NULL,
-  ingestion_job_id uuid NOT NULL, ordinal integer NOT NULL, safe_filename varchar(255), object_id uuid,
-  sha256 char(64), status varchar(16) NOT NULL DEFAULT 'pending', cfdi_id uuid,
-  error_code varchar(80), error_message varchar(500), created_at timestamptz NOT NULL DEFAULT now(), updated_at timestamptz NOT NULL DEFAULT now(),
-  CONSTRAINT uq_ingestion_items_org_id UNIQUE (organization_id,id),
-  CONSTRAINT uq_ingestion_items_ordinal UNIQUE (ingestion_job_id,ordinal),
-  CONSTRAINT fk_ingestion_items_job FOREIGN KEY (organization_id,ingestion_job_id) REFERENCES ingestion_jobs(organization_id,id),
-  CONSTRAINT fk_ingestion_items_object FOREIGN KEY (organization_id,object_id) REFERENCES stored_objects(organization_id,id),
-  CONSTRAINT ck_ingestion_items_ordinal CHECK (ordinal>0),
-  CONSTRAINT ck_ingestion_items_status CHECK (status IN ('pending','processed','duplicate','invalid','rejected','failed'))
-);
-CREATE INDEX ix_ingestion_items_job_status ON ingestion_items(organization_id,ingestion_job_id,status);
-```
+Columnas exactas: `id`, scope completo, `ingestion_job_id`, `object_id`,
+`ordinal`, `safe_filename`, `technical_status`, `product_result`, `sha256`,
+`error_code`, `safe_error_detail`, `attempt_count`, `observed_at`,
+`processed_at`, `version`, `created_at`, `updated_at`. No existen `cfdi_id`,
+UUID/RFC candidatos, versión CFDI ni versión de parser en Fase 0.
 
-La FK a `cfdis` se añade después de crear esa tabla. Un trigger confirma que el CFDI, objeto, ingesta y entidad fiscal coinciden.
+Constraints: PK; candidate keys `uq_ingestion_items_org_id`,
+`uq_ingestion_items_scope_id`, `uq_ingestion_items_job_ordinal`; FKs compuestas
+a job y objeto; checks de ordinal, estado técnico, resultado reservado, hash,
+intentos, coherencia terminal/error, filename seguro y versión. Los índices son
+`ix_ingestion_items_job_status`, `ix_ingestion_items_job_updated` e
+`ix_ingestion_items_object`.
 
-#### `export_jobs`
+#### RLS, roles y funciones de la migración 061
 
-```sql
-CREATE TABLE export_jobs (
-  id uuid CONSTRAINT pk_export_jobs PRIMARY KEY, organization_id uuid NOT NULL,
-  client_account_id uuid, legal_entity_id uuid, period_id uuid, period_close_id uuid,
-  format varchar(16) NOT NULL, scope varchar(24) NOT NULL,
-  parameters_snapshot jsonb NOT NULL, idempotency_key char(64) NOT NULL,
-  status varchar(16) NOT NULL DEFAULT 'queued', requested_by_membership_id uuid NOT NULL,
-  object_id uuid, expires_at timestamptz, started_at timestamptz, completed_at timestamptz,
-  failed_at timestamptz, cancelled_at timestamptz, error_code varchar(80), error_message varchar(500),
-  created_at timestamptz NOT NULL DEFAULT now(), updated_at timestamptz NOT NULL DEFAULT now(),
-  CONSTRAINT uq_export_jobs_org_id UNIQUE (organization_id,id),
-  CONSTRAINT uq_export_jobs_key UNIQUE (organization_id,idempotency_key),
-  CONSTRAINT fk_export_jobs_actor FOREIGN KEY (organization_id,requested_by_membership_id) REFERENCES memberships(organization_id,id),
-  CONSTRAINT fk_export_jobs_object FOREIGN KEY (organization_id,object_id) REFERENCES stored_objects(organization_id,id),
-  CONSTRAINT ck_export_jobs_format CHECK (format IN ('xlsx','csv','zip_xml')),
-  CONSTRAINT ck_export_jobs_scope CHECK (scope IN ('filtered','selected','period','period_close','client_account')),
-  CONSTRAINT ck_export_jobs_status CHECK (status IN ('queued','processing','completed','failed','expired','cancelled'))
-);
-CREATE INDEX ix_export_jobs_center ON export_jobs(organization_id,status,created_at DESC);
-```
+Las cuatro tablas tienen `ENABLE ROW LEVEL SECURITY`,
+`FORCE ROW LEVEL SECURITY`, revocación a `PUBLIC` y políticas
+`<tabla>_api_tenant_isolation` / `<tabla>_worker_tenant_isolation`. El contexto
+usa `app.organization_id` y `app.membership_id`; ausente, vacío o UUID inválido
+falla cerrado. `ingestion_jobs_cancel_tenant_isolation` delimita la cancelación
+del usuario.
 
-Las FKs opcionales de `export_jobs` se agregan al final; un constraint trigger exige que todo scope fiscal pertenezca al mismo tenant y que `period_close_id` corresponda a `period_id`.
+Los grupos runtime `balanz_api` y `balanz_worker` son `NOLOGIN` y
+`NOBYPASSRLS`. Los owners técnicos son `NOLOGIN`: el owner de tablas y el owner
+de cancelación son `NOBYPASSRLS`; sólo los owners aislados de claim y
+reconciliación tienen `BYPASSRLS`, no son heredables ni se conceden a LOGINs y
+carecen de `CREATE` en el schema al terminar la migración.
 
-### 6.6 CFDI, conceptos, impuestos, relaciones y trabajo mensual
+Funciones ejecutables, con `search_path` fijo y grants mínimos:
+
+- `claim_ingestion_job(text,text,text[],integer,integer,integer)` — claim
+  atómico con fairness, advisory lock por tenant, `FOR UPDATE SKIP LOCKED`,
+  lease exacto de 90 s, máximo tres ejecuciones y retorno de scope mínimo;
+- `ingestion_queue_ages(text[],integer)` — sólo edades agregadas por source;
+- `request_ingestion_job_cancellation(uuid)` — cancelación tenant-scoped y
+  auditada;
+- `reconcile_fiscal_ingestion_foundation(integer,integer,integer,integer,integer[],integer,integer)`
+  — leases, uploads/objetos/jobs huérfanos, contadores y lifecycle en batches;
+- `mark_ingestion_job_counters_dirty()` mediante
+  `trg_ingestion_items_mark_counters_dirty`.
+
+`sat_download_jobs`, `sat_download_packages` y `export_jobs` son
+`FUTURE / NOT_STARTED` (Fases 4 y 6). No existen en las migraciones 060/061.
+
+### 6.6 CFDI, conceptos, impuestos, relaciones y trabajo mensual — FUTURE / NOT_STARTED
+
+Todo el DDL de esta sección es objetivo de Fases 1 y 5. Ninguna de estas tablas
+existe ni debe migrarse durante Fase 0.
 
 #### `cfdis`
 
@@ -885,7 +882,7 @@ CREATE INDEX ix_work_decisions_latest ON work_decisions(organization_id,period_c
 
 La aplicación inserta una decisión y actualiza `period_cfdis.current_decision_id` en la misma transacción. Un trigger diferible verifica que el puntero pertenece a la participación y es su mayor versión.
 
-### 6.7 Revisión, incidencias, checklist y cierre
+### 6.7 Revisión, incidencias, checklist y cierre — FUTURE / NOT_STARTED
 
 #### `incidents`
 
@@ -1000,7 +997,7 @@ CREATE TABLE period_reopenings (
 CREATE INDEX ix_period_reopenings_close ON period_reopenings(organization_id,period_close_id,created_at DESC);
 ```
 
-### 6.8 Obligaciones fiscales, DIOT e IEPS
+### 6.8 Obligaciones fiscales, DIOT e IEPS — FUTURE / NOT_STARTED
 
 #### `obligation_types`
 
@@ -1288,7 +1285,10 @@ CREATE INDEX ix_fiscal_generated_files_availability ON fiscal_generated_files(or
 
 `external_tool_result` sólo representa un archivo que el usuario incorporó desde una herramienta externa; no prueba presentación, aceptación ni acuse SAT.
 
-### 6.9 Colaboración, notificaciones, soporte y auditoría
+### 6.9 Colaboración, notificaciones, soporte y auditoría — modelo mixto
+
+`audit_events` ya pertenece al baseline previo y es reutilizada por Fase 0. Las
+notificaciones y grants de soporte descritos aquí son `FUTURE / NOT_STARTED`.
 
 #### `notifications`
 
@@ -1386,44 +1386,47 @@ CREATE INDEX ix_audit_events_correlation ON audit_events(correlation_id);
 
 Esta matriz completa propósito, ciclo de vida, índices, tenant, sensibilidad, retención y consumidores de cada DDL anterior. “Append-only” implica que correcciones crean una versión/evento nuevo.
 
-| Tabla(s) | Propósito y ciclo de vida | Multi-tenant / índices | Sensibilidad y borrado | Pantallas/flujos |
-|---|---|---|---|---|
-| `users`, `user_preferences`, `auth_factors` | identidad global, preferencia y MFA; activar/suspender/revocar factor | global; email/provider únicos | PII/auth; soft delete, factor revocado | login, registro, perfil, seguridad, preferencias |
-| `organizations`, `organization_settings` | tenant, owner único y configuración | owner/index; frontera de tenant | PII contractual; cancelar y retener | selector, inicio, configuración |
-| `memberships`, `membership_preferences` | vínculo, rol, estado y preferencias de contexto | compuestas por org; user/status | PII/autorización; revocar, no borrar | equipo, selector, topbar |
-| `invitations`, `auth_sessions` | invitación de un uso y sesión revocable | token hash/idempotencia/expiración | seguridad; expirar/revocar | alta, equipo, cambio tenant |
-| `permissions`, `role_permissions`, `membership_permissions` | catálogo, defaults y overrides | global + override por org | autorización; historial append/revocado | gates y endpoints |
-| `plans`, `plan_entitlements` | oferta comercial versionada | global; code/version | comercial; retirar, no reescribir | plan/facturación |
-| `subscriptions`, `subscription_events` | contrato del tenant y eventos proveedor | una vigente/org; provider idempotente | referencias de cobro, sin tarjeta; eventos append | plan/facturación, entitlements |
-| `client_accounts`, `account_assignments` | cartera y scope heredado | org/account/member; principal único | contacto/autorización; archivar/revocar | clientes, responsables, accesos |
-| `legal_entities`, `fiscal_years`, `periods` | RFC y eje temporal | RFC activo/org; year/month | fiscal; archivar, no borrar cierres | cliente, ejercicios, período |
-| `period_leases` | exclusión de edición e historial de takeover | un active/period; expiry | actor/actividad; conservar auditoría | header mensual/autosalvado |
-| `stored_objects` | referencia binaria privada | tenant + hash/kind | muy sensible; política y purga auditable | XML, e.firma, exports, fiscales |
-| `credential_records` | versiones de e.firma | una active/RFC; expiración | crítico; revocar/reemplazar | e.firma/SAT, alertas |
-| `sat_download_jobs`, `sat_download_packages` | solicitud/paquetes SAT | idempotencia y worker indexes | estados externos redactados; retención operativa | procesos, descarga SAT |
-| `ingestion_jobs`, `ingestion_items` | carga parcial durable | key y job/status | nombres seguros/errores; retención | carga XML/ZIP, procesos |
-| `export_jobs` | generación async de XLSX/CSV/ZIP | key/org/status | archivo exportable; expirar/revocar | exportaciones/procesos |
-| `cfdis`, `cfdi_concepts`, `cfdi_taxes` | original fiscal normalizado | UUID/RFC/fecha/códigos | fiscal/nómina; inmutable/retención | CFDI, detalle, DIOT/IEPS |
-| `cfdi_relations`, `cfdi_payments`, `cfdi_payment_documents` | relaciones y complemento | claves lógicas/UUID | fiscal; inmutable | pagos, detalle |
-| `period_cfdis`, `work_decisions` | participación y criterio versionado | period/type/latest | fiscal+actor; decisión append | mesa mensual, exportación/cierre |
-| `incidents` | problema persistente y excepción | period/status/assignee | fiscal/actor; cancelar/resolver | alertas, incidencias, cierre |
-| `organization_checklist_items`, `period_checklist_items` | plantilla vigente e instancia snapshot | code/version/status | operación; deshabilitar/versionar | checklist/cierre |
-| `period_closes`, `period_close_items`, `period_reopenings` | snapshot inmutable y reapertura | period/version | evidencia; append-only | cierre, historial, exportación |
-| `obligation_types`, `obligation_variants` | catálogo fiscal controlado | global/code/vigencia | normativo; retirar/versionar | configuración DIOT/IEPS |
-| `legal_entity_obligation_configs`, `obligation_instances` | aplicabilidad por RFC e instancia temporal | entidad/variante/cobertura | fiscal; terminar/cancelar | obligaciones resumen/listas |
-| `obligation_workpapers`, `obligation_workpaper_sources` | versión reproducible y fuentes | instancia/version; cfdi lookup | fiscal; superseder, no borrar | tabs DIOT/IEPS |
-| `obligation_adjustments`, `obligation_validations` | intervención/validación auditable | target/status | fiscal+actor; revocar/resolver | ajustes/validaciones |
-| `fiscal_layout_versions` | serialización por vigencia | variante/code/version | normativo; append/retirar | selector/preview |
-| `diot_operations` | renglones normalizados DIOT | workpaper/provider | fiscal; versiona con papel | operaciones DIOT |
-| `ieps_workpaper_items` | conceptos/impuesto/clasificación IEPS | workpaper/status/class | fiscal; versiona con papel | nueve tabs IEPS |
-| `fiscal_file_generations`, `fiscal_generated_files` | job, historial, hash y artefactos | idempotencia/generation/status | archivo fiscal; expirar/revocar | generar, archivos, procesos |
-| `notifications`, `notification_preferences` | inbox/lectura y opt-in por canal | recipient/org/status | PII; archivar/purgar por política | campana/notificaciones |
-| `support_access_grants` | acceso JIT acotado | org/scope/TTL | seguridad crítica; revocar, conservar evidencia | ayuda/soporte |
-| `audit_events` | evidencia de seguridad/operación | org/time/object/correlation | sensible redactado; append-only/retención legal | auditoría |
+| Tabla(s)                                                    | Propósito y ciclo de vida                                             | Multi-tenant / índices                             | Sensibilidad y borrado                            | Pantallas/flujos                                 |
+| ----------------------------------------------------------- | --------------------------------------------------------------------- | -------------------------------------------------- | ------------------------------------------------- | ------------------------------------------------ |
+| `users`, `user_preferences`, `auth_factors`                 | identidad global, preferencia y MFA; activar/suspender/revocar factor | global; email/provider únicos                      | PII/auth; soft delete, factor revocado            | login, registro, perfil, seguridad, preferencias |
+| `organizations`, `organization_settings`                    | tenant, owner único y configuración                                   | owner/index; frontera de tenant                    | PII contractual; cancelar y retener               | selector, inicio, configuración                  |
+| `memberships`, `membership_preferences`                     | vínculo, rol, estado y preferencias de contexto                       | compuestas por org; user/status                    | PII/autorización; revocar, no borrar              | equipo, selector, topbar                         |
+| `invitations`, `auth_sessions`                              | invitación de un uso y sesión revocable                               | token hash/idempotencia/expiración                 | seguridad; expirar/revocar                        | alta, equipo, cambio tenant                      |
+| `permissions`, `role_permissions`, `membership_permissions` | catálogo, defaults y overrides                                        | global + override por org                          | autorización; historial append/revocado           | gates y endpoints                                |
+| `plans`, `plan_entitlements`                                | oferta comercial versionada                                           | global; code/version                               | comercial; retirar, no reescribir                 | plan/facturación                                 |
+| `subscriptions`, `subscription_events`                      | contrato del tenant y eventos proveedor                               | una vigente/org; provider idempotente              | referencias de cobro, sin tarjeta; eventos append | plan/facturación, entitlements                   |
+| `client_accounts`, `account_assignments`                    | cartera y scope heredado                                              | org/account/member; principal único                | contacto/autorización; archivar/revocar           | clientes, responsables, accesos                  |
+| `legal_entities`, `fiscal_years`, `periods`                 | RFC y eje temporal                                                    | RFC activo/org; year/month                         | fiscal; archivar, no borrar cierres               | cliente, ejercicios, período                     |
+| `period_leases`                                             | exclusión de edición e historial de takeover                          | un active/period; expiry                           | actor/actividad; conservar auditoría              | header mensual/autosalvado                       |
+| `stored_objects`                                            | F0: referencia binaria privada y lifecycle                            | scope + ubicación opaca; índices de hash/lifecycle | muy sensible; inmutable tras confirmación         | plataforma de ingesta; consumidores futuros      |
+| `credential_records`                                        | versiones de e.firma                                                  | una active/RFC; expiración                         | crítico; revocar/reemplazar                       | e.firma/SAT, alertas                             |
+| `sat_download_jobs`, `sat_download_packages`                | solicitud/paquetes SAT                                                | idempotencia y worker indexes                      | estados externos redactados; retención operativa  | procesos, descarga SAT                           |
+| `ingestion_uploads`                                         | F0: intención/confirmación e idempotencia                             | init/confirm key + fingerprint + expiración        | metadata técnica; sin endpoint en F0              | plataforma; carga XML/ZIP futura                 |
+| `ingestion_jobs`, `ingestion_items`                         | F0: cola/lease y observaciones técnicas                               | idempotencia, claim, scope y job/ordinal           | códigos/detalle seguro; sin dominio CFDI          | worker durable; handlers futuros                 |
+| `export_jobs`                                               | generación async de XLSX/CSV/ZIP                                      | key/org/status                                     | archivo exportable; expirar/revocar               | exportaciones/procesos                           |
+| `cfdis`, `cfdi_concepts`, `cfdi_taxes`                      | original fiscal normalizado                                           | UUID/RFC/fecha/códigos                             | fiscal/nómina; inmutable/retención                | CFDI, detalle, DIOT/IEPS                         |
+| `cfdi_relations`, `cfdi_payments`, `cfdi_payment_documents` | relaciones y complemento                                              | claves lógicas/UUID                                | fiscal; inmutable                                 | pagos, detalle                                   |
+| `period_cfdis`, `work_decisions`                            | participación y criterio versionado                                   | period/type/latest                                 | fiscal+actor; decisión append                     | mesa mensual, exportación/cierre                 |
+| `incidents`                                                 | problema persistente y excepción                                      | period/status/assignee                             | fiscal/actor; cancelar/resolver                   | alertas, incidencias, cierre                     |
+| `organization_checklist_items`, `period_checklist_items`    | plantilla vigente e instancia snapshot                                | code/version/status                                | operación; deshabilitar/versionar                 | checklist/cierre                                 |
+| `period_closes`, `period_close_items`, `period_reopenings`  | snapshot inmutable y reapertura                                       | period/version                                     | evidencia; append-only                            | cierre, historial, exportación                   |
+| `obligation_types`, `obligation_variants`                   | catálogo fiscal controlado                                            | global/code/vigencia                               | normativo; retirar/versionar                      | configuración DIOT/IEPS                          |
+| `legal_entity_obligation_configs`, `obligation_instances`   | aplicabilidad por RFC e instancia temporal                            | entidad/variante/cobertura                         | fiscal; terminar/cancelar                         | obligaciones resumen/listas                      |
+| `obligation_workpapers`, `obligation_workpaper_sources`     | versión reproducible y fuentes                                        | instancia/version; cfdi lookup                     | fiscal; superseder, no borrar                     | tabs DIOT/IEPS                                   |
+| `obligation_adjustments`, `obligation_validations`          | intervención/validación auditable                                     | target/status                                      | fiscal+actor; revocar/resolver                    | ajustes/validaciones                             |
+| `fiscal_layout_versions`                                    | serialización por vigencia                                            | variante/code/version                              | normativo; append/retirar                         | selector/preview                                 |
+| `diot_operations`                                           | renglones normalizados DIOT                                           | workpaper/provider                                 | fiscal; versiona con papel                        | operaciones DIOT                                 |
+| `ieps_workpaper_items`                                      | conceptos/impuesto/clasificación IEPS                                 | workpaper/status/class                             | fiscal; versiona con papel                        | nueve tabs IEPS                                  |
+| `fiscal_file_generations`, `fiscal_generated_files`         | job, historial, hash y artefactos                                     | idempotencia/generation/status                     | archivo fiscal; expirar/revocar                   | generar, archivos, procesos                      |
+| `notifications`, `notification_preferences`                 | inbox/lectura y opt-in por canal                                      | recipient/org/status                               | PII; archivar/purgar por política                 | campana/notificaciones                           |
+| `support_access_grants`                                     | acceso JIT acotado                                                    | org/scope/TTL                                      | seguridad crítica; revocar, conservar evidencia   | ayuda/soporte                                    |
+| `audit_events`                                              | evidencia de seguridad/operación                                      | org/time/object/correlation                        | sensible redactado; append-only/retención legal   | auditoría                                        |
 
-### 6.11 Constraints diferidos y validaciones entre agregados
+### 6.11 Constraints diferidos y validaciones entre agregados — FUTURE / NOT_STARTED
 
-Después de crear todas las tablas, las migraciones agregan estas FKs sin relajar tenant:
+Esta sección no forma parte de 060/061. Cuando las fases propietarias creen sus
+tablas, migraciones append-only futuras podrán agregar estas FKs sin relajar
+tenant. En particular, Fase 0 no agrega `ingestion_items.cfdi_id`.
 
 ```sql
 ALTER TABLE membership_preferences ADD CONSTRAINT fk_membership_preferences_default_account
@@ -1468,55 +1471,58 @@ También se crean constraint triggers diferibles para:
 
 ## 7. Estados y transiciones
 
-| Agregado | Estados | Transiciones permitidas y origen |
-|---|---|---|
-| User | `active`, `suspended` | alta → active; seguridad/admin interno active → suspended; recuperación autorizada suspended → active. Suspended revoca sesiones. |
-| Organization | `active`, `suspended`, `cancelled` | alta → active; política/comercial → suspended; owner reanuda → active; owner + reauth → cancelled. Cancelled no vuelve a active sin proceso excepcional auditado. |
-| Membership | `pending`, `active`, `suspended`, `revoked` | invitación/alta → pending; aceptación + requisitos → active; admin suspende/reactiva; revocación es terminal. |
-| Invitation | `pending`, `accepted`, `expired`, `revoked` | aceptar token vigente → accepted; reloj → expired; actor autorizado → revoked. Los tres finales son terminales. |
-| AuthSession | `active`, `expired`, `revoked` | login crea active, posiblemente sin tenant; TTL → expired; logout/cambio sensible/revocación → revoked. Cambiar tenant actualiza contexto y rota token/versión. |
-| Subscription | `pending`, `trialing`, `active`, `grace`, `suspended`, `cancelled` | owner activa trial; webhook pago → active; fallo → grace; vence gracia → suspended; pago recuperado → active; cancelación → cancelled. Sólo eventos idempotentes del backend/proveedor cambian estado. |
-| CredentialRecord | `pending_validation`, `active`, `expired`, `revoked`, `invalid`, `replaced` | carga → pending; validación → active/invalid; reloj → expired; usuario → revoked; sustitución atómica → replaced + nueva active. |
-| SATDownloadJob | `credential_required`, `queued`, `authenticating`, `requested`, `polling`, `packages_ready`, `downloading`, `importing`, `completed`, `completed_with_issues`, `failed_retryable`, `failed_final`, `expired`, `cancelled` | worker avanza sólo al estado siguiente; error transitorio → failed_retryable → cola; credencial TTL → credential_required; estados finales no reabren, se crea/reutiliza otro job. |
-| IngestionJob | `queued`, `processing`, `completed`, `completed_with_errors`, `failed`, `cancelled` | worker claim queued → processing; resultados → completed/with_errors; fallo no recuperable → failed; cancelación antes de completar. Reintento usa el mismo job si es seguro o nueva key. |
-| Period | `not_started`, `preparing`, `in_review`, `ready_to_close`, `closed`, `has_updates`, `reopened`, `blocked` | primera fuente/decisión → preparing; colaborador → in_review; checklist → ready; permiso close → closed; nueva fuente → has_updates; reapertura con motivo → reopened; integridad → blocked; resolver bloqueo vuelve al estado previo calculado. |
-| Incident | `open`, `in_progress`, `resolved`, `accepted_exception`, `cancelled` | creación → open; asignación → in_progress; resolución → resolved; permiso sensible + motivo → accepted_exception; falso positivo/duplicado → cancelled. |
-| ExportJob | `queued`, `processing`, `completed`, `failed`, `expired`, `cancelled` | solicitud → queued; worker → processing/completed/failed; objeto vence → expired; actor/seguridad → cancelled. |
-| ObligationInstance | `not_started`, `preparing`, `in_review`, `has_observations`, `validated`, `generated`, `stale`, `cancelled` | configuración crea instancia; papel → preparing; envío → review; validaciones → observations/validated; generación vigente → generated; cambia revisión fuente → stale; configuración termina → cancelled. |
-| ObligationWorkpaper | `draft`, `in_review`, `has_observations`, `validated`, `superseded` | versión nueva → draft; usuario → review; validaciones abiertas → observations; sin bloqueos → validated; nueva versión → superseded. |
-| FiscalFileGeneration | `queued`, `validating`, `generating`, `completed`, `completed_with_warnings`, `failed`, `cancelled`, `stale` | solicitud autorizada → queued; worker valida/genera; resultado → completed/warnings/failed; revocación → cancelled; `source_revision` mayor → stale. |
-| Notification | `unread`, `read`, `archived` | entrega → unread; usuario abre → read; usuario/política → archived. Una condición resuelta no borra una notificación histórica. |
-| SupportAccessGrant | `active`, `expired`, `revoked` | autorización con reauth → active; TTL → expired; titular/admin autorizado → revoked. Finales no reactivan; se crea nuevo grant. |
+| Agregado             | Estados                                                                                                                                                                                                                   | Transiciones permitidas y origen                                                                                                                                                                                                                 |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| User                 | `active`, `suspended`                                                                                                                                                                                                     | alta → active; seguridad/admin interno active → suspended; recuperación autorizada suspended → active. Suspended revoca sesiones.                                                                                                                |
+| Organization         | `active`, `suspended`, `cancelled`                                                                                                                                                                                        | alta → active; política/comercial → suspended; owner reanuda → active; owner + reauth → cancelled. Cancelled no vuelve a active sin proceso excepcional auditado.                                                                                |
+| Membership           | `pending`, `active`, `suspended`, `revoked`                                                                                                                                                                               | invitación/alta → pending; aceptación + requisitos → active; admin suspende/reactiva; revocación es terminal.                                                                                                                                    |
+| Invitation           | `pending`, `accepted`, `expired`, `revoked`                                                                                                                                                                               | aceptar token vigente → accepted; reloj → expired; actor autorizado → revoked. Los tres finales son terminales.                                                                                                                                  |
+| AuthSession          | `active`, `expired`, `revoked`                                                                                                                                                                                            | login crea active, posiblemente sin tenant; TTL → expired; logout/cambio sensible/revocación → revoked. Cambiar tenant actualiza contexto y rota token/versión.                                                                                  |
+| Subscription         | `pending`, `trialing`, `active`, `grace`, `suspended`, `cancelled`                                                                                                                                                        | owner activa trial; webhook pago → active; fallo → grace; vence gracia → suspended; pago recuperado → active; cancelación → cancelled. Sólo eventos idempotentes del backend/proveedor cambian estado.                                           |
+| CredentialRecord     | `pending_validation`, `active`, `expired`, `revoked`, `invalid`, `replaced`                                                                                                                                               | carga → pending; validación → active/invalid; reloj → expired; usuario → revoked; sustitución atómica → replaced + nueva active.                                                                                                                 |
+| SATDownloadJob       | `credential_required`, `queued`, `authenticating`, `requested`, `polling`, `packages_ready`, `downloading`, `importing`, `completed`, `completed_with_issues`, `failed_retryable`, `failed_final`, `expired`, `cancelled` | worker avanza sólo al estado siguiente; error transitorio → failed_retryable → cola; credencial TTL → credential_required; estados finales no reabren, se crea/reutiliza otro job.                                                               |
+| IngestionJob (F0)    | `awaiting_upload`, `queued`, `processing`, `completed`, `completed_with_issues`, `failed_retryable`, `failed_final`, `cancel_requested`, `cancelled`                                                                      | claim atómico incrementa intento y crea lease; heartbeat lo renueva; fallo transitorio agenda 10/30 s + jitter hasta tres ejecuciones totales; lease vencido se recupera; cancelación y terminalidad quedan durables.                            |
+| Period               | `not_started`, `preparing`, `in_review`, `ready_to_close`, `closed`, `has_updates`, `reopened`, `blocked`                                                                                                                 | primera fuente/decisión → preparing; colaborador → in_review; checklist → ready; permiso close → closed; nueva fuente → has_updates; reapertura con motivo → reopened; integridad → blocked; resolver bloqueo vuelve al estado previo calculado. |
+| Incident             | `open`, `in_progress`, `resolved`, `accepted_exception`, `cancelled`                                                                                                                                                      | creación → open; asignación → in_progress; resolución → resolved; permiso sensible + motivo → accepted_exception; falso positivo/duplicado → cancelled.                                                                                          |
+| ExportJob            | `queued`, `processing`, `completed`, `failed`, `expired`, `cancelled`                                                                                                                                                     | solicitud → queued; worker → processing/completed/failed; objeto vence → expired; actor/seguridad → cancelled.                                                                                                                                   |
+| ObligationInstance   | `not_started`, `preparing`, `in_review`, `has_observations`, `validated`, `generated`, `stale`, `cancelled`                                                                                                               | configuración crea instancia; papel → preparing; envío → review; validaciones → observations/validated; generación vigente → generated; cambia revisión fuente → stale; configuración termina → cancelled.                                       |
+| ObligationWorkpaper  | `draft`, `in_review`, `has_observations`, `validated`, `superseded`                                                                                                                                                       | versión nueva → draft; usuario → review; validaciones abiertas → observations; sin bloqueos → validated; nueva versión → superseded.                                                                                                             |
+| FiscalFileGeneration | `queued`, `validating`, `generating`, `completed`, `completed_with_warnings`, `failed`, `cancelled`, `stale`                                                                                                              | solicitud autorizada → queued; worker valida/genera; resultado → completed/warnings/failed; revocación → cancelled; `source_revision` mayor → stale.                                                                                             |
+| Notification         | `unread`, `read`, `archived`                                                                                                                                                                                              | entrega → unread; usuario abre → read; usuario/política → archived. Una condición resuelta no borra una notificación histórica.                                                                                                                  |
+| SupportAccessGrant   | `active`, `expired`, `revoked`                                                                                                                                                                                            | autorización con reauth → active; TTL → expired; titular/admin autorizado → revoked. Finales no reactivan; se crea nuevo grant.                                                                                                                  |
 
 Reglas comunes: toda transición valida `lock_version` cuando exista, registra auditoría si es sensible y no infiere presentación fiscal. Cron jobs de expiración son idempotentes y comparan estado/fecha antes de actualizar.
 
-## 8. Read models, vistas y agregados
+## 8. Read models, vistas y agregados — FUTURE / NOT_STARTED
 
-| Read model | Fuente | Filtro de tenant/asignación | Forma/actualización | Índices |
-|---|---|---|---|---|
-| `v_organization_dashboard` | períodos, cartera, incidencias, credenciales, jobs | organización activa; admin ve tenant, otros sólo cuentas asignadas | vista SQL al inicio; materializar sólo con medición, refresh incremental por eventos | period status, assignment member, job status, credential expiry |
-| `v_portfolio_monthly` | cuenta, RFC, período, decisión vigente, checklist, incidencias, último job | org + `can_access_account` | vista SQL con fila cuenta/RFC/mes; no guardar progreso en cuenta | `(org,year,month,status)`, account/entity |
-| `v_client_account_summary` | legal entities, responsables, períodos, conditions | org + assignment | consulta/vista; agrega RFC pero conserva `legal_entity_id` por resultado | account + active RFC |
-| `v_legal_entity_summary` | entidad, credencial, año/período, SAT | org + account assignment | vista SQL; estado e.firma y conexión son derivados | entity, credential active/expiry, SAT latest |
-| `v_fiscal_year_summary` | `fiscal_years`, 12 períodos, cierres/incidencias | org + assignment | vista SQL; avance por reglas publicadas | year/entity/month |
-| `v_period_workspace_summary` | period_cfdis, decisiones, incidentes, checklist, cierre | org + assignment + payroll permission para conteos sensibles | vista SQL o consulta app; corte incluido | period/type/current decision/status |
-| `v_process_center` | SAT jobs, ingestion jobs, export jobs, fiscal generations | org + acceso al account/RFC de cada job | `UNION ALL` view normaliza tipo/estado/progreso/error; fuente sigue específica | job center indexes existentes |
-| `v_notification_center` | notifications | `recipient_user_id`, tenant activo y membresía vigente | vista/consulta; actualiza por write/read | inbox index |
-| `v_obligation_status` | config, instancia, papel, validación, generación | org + assignment + `obligations.view` | vista SQL; stale compara revisiones | entity/coverage/status/version |
-| `v_generated_fiscal_file_history` | generation, layout, files, instance | org + assignment; permiso de descarga revalidado | vista SQL; jamás expone `object_key` | generation history/status |
-| `v_alert_conditions` | credencial expiry, job failure, period updates, validaciones e incidencias | org + assignment/permiso | vista de condiciones; no persiste entrega | expiry/status/validation open |
-| `v_global_search` | cuentas, RFC, CFDI, jobs | tenant y asignación dentro de cada rama; nómina excluida sin permiso | `UNION ALL` segura o servicio; límite/paginación; no tabla copia | B-tree RFC/UUID/ID; trigram name/folio |
+Ninguna de estas vistas forma parte de las migraciones 060/061. Son contratos
+de lectura objetivo para las fases que creen primero sus tablas fuente.
+
+| Read model                        | Fuente                                                                     | Filtro de tenant/asignación                                          | Forma/actualización                                                                  | Índices                                                         |
+| --------------------------------- | -------------------------------------------------------------------------- | -------------------------------------------------------------------- | ------------------------------------------------------------------------------------ | --------------------------------------------------------------- |
+| `v_organization_dashboard`        | períodos, cartera, incidencias, credenciales, jobs                         | organización activa; admin ve tenant, otros sólo cuentas asignadas   | vista SQL al inicio; materializar sólo con medición, refresh incremental por eventos | period status, assignment member, job status, credential expiry |
+| `v_portfolio_monthly`             | cuenta, RFC, período, decisión vigente, checklist, incidencias, último job | org + `can_access_account`                                           | vista SQL con fila cuenta/RFC/mes; no guardar progreso en cuenta                     | `(org,year,month,status)`, account/entity                       |
+| `v_client_account_summary`        | legal entities, responsables, períodos, conditions                         | org + assignment                                                     | consulta/vista; agrega RFC pero conserva `legal_entity_id` por resultado             | account + active RFC                                            |
+| `v_legal_entity_summary`          | entidad, credencial, año/período, SAT                                      | org + account assignment                                             | vista SQL; estado e.firma y conexión son derivados                                   | entity, credential active/expiry, SAT latest                    |
+| `v_fiscal_year_summary`           | `fiscal_years`, 12 períodos, cierres/incidencias                           | org + assignment                                                     | vista SQL; avance por reglas publicadas                                              | year/entity/month                                               |
+| `v_period_workspace_summary`      | period_cfdis, decisiones, incidentes, checklist, cierre                    | org + assignment + payroll permission para conteos sensibles         | vista SQL o consulta app; corte incluido                                             | period/type/current decision/status                             |
+| `v_process_center`                | SAT jobs, ingestion jobs, export jobs, fiscal generations                  | org + acceso al account/RFC de cada job                              | `UNION ALL` view normaliza tipo/estado/progreso/error; fuente sigue específica       | job center indexes existentes                                   |
+| `v_notification_center`           | notifications                                                              | `recipient_user_id`, tenant activo y membresía vigente               | vista/consulta; actualiza por write/read                                             | inbox index                                                     |
+| `v_obligation_status`             | config, instancia, papel, validación, generación                           | org + assignment + `obligations.view`                                | vista SQL; stale compara revisiones                                                  | entity/coverage/status/version                                  |
+| `v_generated_fiscal_file_history` | generation, layout, files, instance                                        | org + assignment; permiso de descarga revalidado                     | vista SQL; jamás expone `object_key`                                                 | generation history/status                                       |
+| `v_alert_conditions`              | credencial expiry, job failure, period updates, validaciones e incidencias | org + assignment/permiso                                             | vista de condiciones; no persiste entrega                                            | expiry/status/validation open                                   |
+| `v_global_search`                 | cuentas, RFC, CFDI, jobs                                                   | tenant y asignación dentro de cada rama; nómina excluida sin permiso | `UNION ALL` segura o servicio; límite/paginación; no tabla copia                     | B-tree RFC/UUID/ID; trigram name/folio                          |
 
 Una materialized view debe almacenar `organization_id`, refrescar por tenant o por eventos y tener una estrategia explícita de staleness. No se materializa PII/fiscal fuera de RLS ni se comparte un índice de búsqueda entre tenants sin filtro previo.
 
 ## 9. Autorización y Row Level Security
 
-| Perfil visible | Representación persistida | Alcance base |
-|---|---|---|
-| Titular | `organizations.owner_user_id = users.id` + membresía `active` normalmente `role='admin'` | administración y acciones exclusivas de propiedad; no hay flag owner en membresía |
-| Administrador | membresía `role='admin'`, usuario distinto de `owner_user_id` | operación del tenant según permisos; nunca propiedad/cancelación/cobro por el rol solo |
-| Contador responsable | membresía `role='accountant'` + assignment `responsibility='primary'` | cuentas asignadas y permisos efectivos |
-| Colaborador/auxiliar | membresía `role='collaborator'` + assignment active | cuentas asignadas y permisos operativos limitados |
+| Perfil visible       | Representación persistida                                                                | Alcance base                                                                           |
+| -------------------- | ---------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
+| Titular              | `organizations.owner_user_id = users.id` + membresía `active` normalmente `role='admin'` | administración y acciones exclusivas de propiedad; no hay flag owner en membresía      |
+| Administrador        | membresía `role='admin'`, usuario distinto de `owner_user_id`                            | operación del tenant según permisos; nunca propiedad/cancelación/cobro por el rol solo |
+| Contador responsable | membresía `role='accountant'` + assignment `responsibility='primary'`                    | cuentas asignadas y permisos efectivos                                                 |
+| Colaborador/auxiliar | membresía `role='collaborator'` + assignment active                                      | cuentas asignadas y permisos operativos limitados                                      |
 
 El label frontend `responsable` se mapea a `accountant`; `titular` es una proyección de owner + membresía, no un cuarto rol almacenado.
 
@@ -1533,7 +1539,11 @@ sesión active/no expirada + MFA
 → ALLOW
 ```
 
-El backend obtiene tenant y membresía de `auth_sessions`; nunca del body. Dentro de cada transacción usa `SET LOCAL` con valores que el rol HTTP no puede falsificar:
+El backend obtiene tenant y membresía de `auth_sessions`; nunca del body.
+Dentro de cada transacción usa `SET LOCAL` con valores que el rol HTTP no puede
+falsificar. La plataforma fiscal F0 establece exactamente
+`app.organization_id` y `app.membership_id`; otros módulos preexistentes pueden
+establecer además `app.user_id` para sus propias policies:
 
 ```sql
 SET LOCAL app.organization_id = '...';
@@ -1552,7 +1562,22 @@ WITH CHECK (organization_id = current_setting('app.organization_id', true)::uuid
             AND app_can_manage_account(current_setting('app.membership_id', true)::uuid));
 ```
 
-Política fiscal conceptual:
+### 9.1 RLS fiscal ejecutable — Fase 0
+
+`stored_objects`, `ingestion_uploads`, `ingestion_jobs` e `ingestion_items`
+tienen RLS `ENABLE` y `FORCE`. Cada una posee policies separadas para
+`balanz_api` y `balanz_worker`, ambas con `USING` y `WITH CHECK`. La policy API
+exige organización coincidente y membresía activa; la policy worker exige
+organización coincidente y el sentinel técnico de membresía. Un GUC ausente,
+vacío o inválido no abre acceso. `PUBLIC` no conserva privilegios fiscales.
+
+Los LOGINs runtime sólo pueden pertenecer al grupo API o worker correspondiente
+y ambos son `NOBYPASSRLS`. El claim y la reconciliación cross-tenant se ejecutan
+exclusivamente mediante las funciones `SECURITY DEFINER` enumeradas en 6.5,
+con owners `NOLOGIN`, `search_path` fijo, ACL mínima y retorno acotado. El
+worker nunca recibe ni hereda esos roles owner.
+
+### 9.2 Política fiscal conceptual — FUTURE / NOT_STARTED
 
 ```sql
 ALTER TABLE cfdis ENABLE ROW LEVEL SECURITY;
@@ -1564,9 +1589,14 @@ WITH CHECK (organization_id = current_setting('app.organization_id', true)::uuid
             AND app_can_access_account(client_account_id, current_setting('app.membership_id', true)::uuid));
 ```
 
-Las funciones de política son `SECURITY DEFINER`, tienen `search_path` fijo, no aceptan tenant del cliente y sólo consultan sesión/membresía/asignación actual. RLS no decide owner, reauth, transiciones ni reglas fiscales; eso vive en servicios de dominio.
+Las funciones conceptuales de policies futuras tendrán `search_path` fijo, no
+aceptarán tenant del cliente y sólo consultarán sesión/membresía/asignación
+actual. Este ejemplo no existe en Fase 0. RLS no decide owner, reauth,
+transiciones ni reglas fiscales; eso vive en servicios de dominio.
 
-- **Workers:** reclaman un job por ID, cargan su tenant, revalidan actor/membresía/asignación/permiso o una política de continuación segura, establecen contexto transaccional y no usan un rol `BYPASSRLS` salvo una cuenta operativa aislada y justificada.
+- **Workers:** reclaman mediante la función definer mínima, cargan el scope
+  retornado y todo acceso posterior vuelve a una transacción tenant-scoped. El
+  LOGIN/grupo worker siempre es `NOBYPASSRLS`; no existe excepción operativa.
 - **Cambio de tenant:** rota/actualiza sesión, invalida cachés y aborta/ignora respuestas previas. No reescribe jobs ya creados; su tenant permanece inmutable.
 - **Revocación:** bloquea nuevas solicitudes, publicación/descarga y URLs. Un procesamiento técnico ya avanzado puede terminar en objeto en cuarentena para no corromper idempotencia.
 - **URLs firmadas:** se emiten después de validar objeto, tenant, assignment, permiso y reauth; TTL corto, nonce/revocación cuando aplique; `object_key` nunca llega en listados.
@@ -1576,24 +1606,26 @@ Las funciones de política son `SECURITY DEFINER`, tienen `search_path` fijo, no
 
 ## 10. Idempotencia y concurrencia
 
-| Operación | Clave/constraint | Repetición segura |
-|---|---|---|
-| Registro | `organization_id` UUID suministrado por el cliente + email normalizado, ambos dentro de una transacción | repetir el mismo ID y payload devuelve la alta existente; mismo ID con otro payload es conflicto; no duplica organización |
-| Invitación | `(organization_id,idempotency_key)` y única pending por email | reenvía/retorna la invitación vigente sin otro token lógico |
-| Aceptación | lock de fila + estado/token hash | primera transacción crea/vincula membresía; las demás devuelven conflicto seguro |
-| Descarga SAT | hash de entidad + scope + rango + parámetros + ventana activa | reutiliza job activo; un job final sólo se reemplaza con nueva key explícita |
-| Paquete SAT | `(sat_download_job_id,sat_package_id)` | no descarga/importa un paquete confirmado dos veces |
-| Archivo | tenant/entidad/kind/hash y objeto inmutable | reutiliza objeto autorizado; conserva origen en ingestion item |
-| CFDI | `(legal_entity_id,uuid)` | completa metadata/XML faltante mediante transacción controlada; no duplica documento |
-| Relación/pago | claves lógicas por documento/número/UUID | `ON CONFLICT` idempotente después de comparar payload/hash |
-| Ingesta | `(organization_id,legal_entity_id,idempotency_key)` | retoma job y ordinales; mantiene resultado parcial |
-| Cierre | `(period_id,version)` y lock del período | devuelve cierre ya confirmado si manifiesto/hash coincide; conflicto si difiere |
-| Exportación | hash de cierre/scope/formato/parámetros | reutiliza resultado disponible o una única regeneración |
-| Papel DIOT/IEPS | `(obligation_instance_id,version)` + source revision | una versión sólo se construye una vez; nueva fuente produce versión/revisión nueva |
-| Generación DIOT | hash de workpaper/layout/source revision/parámetros | devuelve generación existente; nunca sobreescribe archivo anterior |
-| Generación IEPS | misma regla, incluyendo variante/anexo | conserva cada batch y su hash |
-| Webhook de cobro | `(provider,provider_event_ref)` | procesa una vez y conserva evento duplicado como no-op observable |
-| Notificación | deduplication key por usuario/tenant | evita campanas duplicadas sin borrar historial previo |
+| Operación        | Clave/constraint                                                                                        | Repetición segura                                                                                                         |
+| ---------------- | ------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| Registro         | `organization_id` UUID suministrado por el cliente + email normalizado, ambos dentro de una transacción | repetir el mismo ID y payload devuelve la alta existente; mismo ID con otro payload es conflicto; no duplica organización |
+| Invitación       | `(organization_id,idempotency_key)` y única pending por email                                           | reenvía/retorna la invitación vigente sin otro token lógico                                                               |
+| Aceptación       | lock de fila + estado/token hash                                                                        | primera transacción crea/vincula membresía; las demás devuelven conflicto seguro                                          |
+| Descarga SAT     | hash de entidad + scope + rango + parámetros + ventana activa                                           | reutiliza job activo; un job final sólo se reemplaza con nueva key explícita                                              |
+| Paquete SAT      | `(sat_download_job_id,sat_package_id)`                                                                  | no descarga/importa un paquete confirmado dos veces                                                                       |
+| Objeto F0        | `UNIQUE (storage_provider,storage_container,object_key)` + trigger de inmutabilidad                     | una key opaca física tiene un solo ganador; el hash no sustituye procedencia ni crea dedupe global                        |
+| Upload F0        | `(organization_id,legal_entity_id,init_idempotency_key)` y unique parcial equivalente para confirmación | misma key+fingerprint reproduce la referencia; fingerprint diferente es conflicto                                         |
+| Job F0           | `(organization_id,legal_entity_id,idempotency_key)` + `request_fingerprint`                             | carrera concurrente produce un solo job; una key no puede cambiar de efecto                                               |
+| CFDI             | `(legal_entity_id,uuid)`                                                                                | completa metadata/XML faltante mediante transacción controlada; no duplica documento                                      |
+| Relación/pago    | claves lógicas por documento/número/UUID                                                                | `ON CONFLICT` idempotente después de comparar payload/hash                                                                |
+| Ingesta          | `(organization_id,legal_entity_id,idempotency_key)`                                                     | retoma job y ordinales; mantiene resultado parcial                                                                        |
+| Cierre           | `(period_id,version)` y lock del período                                                                | devuelve cierre ya confirmado si manifiesto/hash coincide; conflicto si difiere                                           |
+| Exportación      | hash de cierre/scope/formato/parámetros                                                                 | reutiliza resultado disponible o una única regeneración                                                                   |
+| Papel DIOT/IEPS  | `(obligation_instance_id,version)` + source revision                                                    | una versión sólo se construye una vez; nueva fuente produce versión/revisión nueva                                        |
+| Generación DIOT  | hash de workpaper/layout/source revision/parámetros                                                     | devuelve generación existente; nunca sobreescribe archivo anterior                                                        |
+| Generación IEPS  | misma regla, incluyendo variante/anexo                                                                  | conserva cada batch y su hash                                                                                             |
+| Webhook de cobro | `(provider,provider_event_ref)`                                                                         | procesa una vez y conserva evento duplicado como no-op observable                                                         |
+| Notificación     | deduplication key por usuario/tenant                                                                    | evita campanas duplicadas sin borrar historial previo                                                                     |
 
 Concurrencia mensual:
 
@@ -1606,7 +1638,7 @@ Concurrencia mensual:
 - Generaciones y exports no bloquean edición, pero capturan `source_revision`; si cambia antes de publicar, el resultado se marca `stale` o se descarta a cuarentena según fase.
 - Revocar una asignación impide ver/descargar resultados y crear jobs nuevos. Un worker revalida antes de cada acceso sensible; si ya procesó bytes, finaliza metadatos en cuarentena, destruye secretos temporales y audita la cancelación de publicación.
 
-## 11. DIOT e IEPS en detalle
+## 11. DIOT e IEPS en detalle — FUTURE / NOT_STARTED
 
 ### 11.1 Núcleo compartido
 
@@ -1660,132 +1692,151 @@ Flujo ejemplo:
 
 Los estados `validated` o `generated` significan “validado internamente” y “archivo preparado por Balanz”. No existen estados `filed`, `submitted_to_sat` ni `accepted_by_sat` hasta que otro alcance aprobado modele una integración oficial verificable. Un archivo externo tampoco demuestra presentación.
 
-## 12. Trazabilidad frontend → persistencia
+## 12. Trazabilidad frontend → persistencia — FUTURE / NOT_STARTED
 
-| Pantalla/ruta | Caso de uso | Escritura | Lectura/vista | Job | Permiso |
-|---|---|---|---|---|---|
-| `/es` | resolver entrada | sesión sólo cuando exista auth real | organización activa/membresías | — | sesión |
-| `/es/login` | autenticar | `auth_sessions`, auditoría | `users`, factors | — | público + MFA |
-| `/es/register` | identidad/primer despacho | user/org/membership/subscription pending | alta transaccional | email verification | público |
-| `/es/forgot-password` | recuperar | factor/session/audit según proveedor | user por token opaco | email | público |
-| `/es/onboarding` | configurar despacho | org/settings, client/entity/year | wizard read model | — | owner |
-| `/es/seleccionar-despacho` | elegir tenant | `auth_sessions` | memberships/orgs | — | sesión |
-| `/es/perfil` | editar perfil | `users` | `users` | — | identidad propia |
-| `/es/seguridad` | MFA/sesiones | factors/sessions | factors/sessions | proveedor MFA | identidad propia + reauth |
-| `/es/preferencias` | tema/zona/densidad | user/membership preferences | preferencias efectivas | — | identidad propia |
-| `/es/ayuda` | soporte/ticket | support grant sólo tras autorización | grant/audit | ticket externo futuro | `support.authorize` |
-| `/es/sin-acceso` | denegación | `audit_events` sólo si sensible | contexto seguro | — | — |
-| ruta inexistente/404 y `loading`/`error` | recuperar estado de navegación | ninguna salvo telemetría no fiscal | contexto mínimo seguro | — | — |
-| `…/inicio` | priorizar cartera | — | dashboard/portfolio/process/alerts | — | `organization.view` + scope |
-| `…/clientes` | listar/crear cuenta+RFC | account/entity/year en transacción | portfolio/client summary | — | `clients.view/manage` |
-| `…/procesos` | supervisar/reintentar | job específico/audit | `v_process_center` | SAT/ingest/export/fiscal | permiso del job |
-| `…/equipo` | miembros/invitaciones/roles/asignaciones | invitation/membership/permission/assignment | equipo efectivo | email | `team.view/manage`, `clients.assign` |
-| `…/auditoria` | consultar trazabilidad | — | audit_events paginada | — | `audit.view` |
-| `…/configuracion[/datos]` | datos despacho | org/settings | org/settings | — | `organization.manage` |
-| `…/configuracion/seguridad` | política tenant | settings/audit | settings | — | `organization.manage` + reauth |
-| `…/configuracion/plan-facturacion` | contratar/cancelar | subscription/events | plan/entitlements/subscription | proveedor pago | owner + `billing.manage` |
-| `…/configuracion/retencion-datos` | política/portabilidad | settings/audit | settings/object counts | purga/export futuro | owner/admin autorizado + reauth |
-| `…/configuracion/soporte` | JIT | support grant/audit | grants | expiry | `support.authorize` + reauth |
-| `…/clientes/:clientId/resumen` | resumen cuenta/RFC | assignment sólo en drawer | client/entity summaries | SAT/ingest por acción | `clients.view`, acciones específicas |
-| `…/ejercicios` | listar/crear año | fiscal_year/periods | fiscal year summary | — | `clients.view/manage` |
-| `…/ejercicios/:year` | comparar meses | — | fiscal year summary | — | `clients.view` |
-| `…/periodos/:period/resumen` | estado mensual | — | period workspace + obligations | — | `clients.view` |
-| `…/periodos/:period/cfdi` | revisar/acción masiva | decisions/incidents/audit | cfdi + decisión vigente | ingesta opcional | `cfdi.review/exclude` |
-| `…/periodos/:period/pagos` | revisar complemento | decisions/incidents | payments/documents/relations | — | `clients.view` |
-| `…/periodos/:period/nomina` | consultar nómina | decision opcional | CFDI N filtrados | export opcional | `payroll.view` |
-| `…/periodos/:period/incidencias` | tratar problema | incidents/audit | incidents | — | `clients.view`; excepción sensible |
-| `…/periodos/:period/cierre` | checklist/cerrar/reabrir | checklist/closes/items/reopenings/lease | close readiness/history | — | `period.close/reopen` |
-| `…/periodos/:period/exportaciones` | generar/descargar | export_jobs/audit | export history | export | `exports.create` |
-| `…/clientes/:clientId/cfdi` | consulta transversal | export job si acción | CFDI search/list | export | `clients.view`, `exports.create` |
-| `…/cfdi/:uuid` | detalle/historial/excluir | work_decision/audit | CFDI/concepts/taxes/relations/payments/history | signed URL XML | `clients.view`, `cfdi.exclude` |
-| `…/alertas` | atender condiciones | incidente/notificación según acción | `v_alert_conditions` | — | `clients.view` |
-| `…/configuracion/datos` | datos cuenta/RFC | client/entity | client/entity | — | `clients.manage` |
-| `…/configuracion/responsables` | asignar | account_assignments | assignments | — | `clients.assign` |
-| `…/configuracion/e-firma-sat` | credencial | stored object/credential/audit | credential status | validación credencial | `credentials.manage` + reauth |
-| `…/configuracion/obligaciones` | aplicabilidad | obligation configs | catálogo/configs | instance scheduler | `obligations.configure` |
-| `…/configuracion/accesos` | revisar scope | assignments/permissions | autorización efectiva | — | `clients.assign` |
-| `…/obligaciones` | resumen | — | `v_obligation_status` | — | `obligations.view` |
-| `…/obligaciones/diot` | períodos DIOT | instancia si aplica | obligation status | preparación | `obligations.view` |
-| `…/diot/:year/:period/resumen` | estado/corte | instance/workpaper | workpaper summary | prepare | `obligations.view` |
-| `…/diot/:year/:period/operaciones` | revisar renglones | adjustments/decision de papel | diot operations/sources | recompute | `obligations.view` |
-| `…/diot/:year/:period/validaciones` | resolver validaciones | validations/audit | validations | validate | `obligations.view` |
-| `…/diot/:year/:period/ajustes` | corregir criterio | adjustments | adjustments | recompute | `obligations.configure` |
-| `…/diot/:year/:period/vista-previa` | previsualizar | preview snapshot | workpaper/layout | preview | `obligations.view` |
-| `…/diot/:year/:period/archivos` | generar/descargar | generation/file/audit | file history | fiscal generation | `diot.generate` |
-| `…/obligaciones/ieps` | configurar/listar anexos | configs | variants/instances | — | `obligations.view/configure` |
-| `…/ieps/:instanceId/resumen` | estado IEPS | workpaper | instance summary | prepare | `obligations.view` |
-| `…/ieps/:instanceId/cfdi-fuente` | seleccionar fuentes | workpaper sources | CFDI/sources | recompute | `obligations.configure` |
-| `…/ieps/:instanceId/impuestos` | revisar IEPS detectado | adjustments/validations | taxes/items | recompute | `obligations.view` |
-| `…/ieps/:instanceId/productos` | revisar conceptos | items | concepts/items | — | `obligations.view` |
-| `…/ieps/:instanceId/clasificacion` | clasificar | items/adjustments | items | validate | `obligations.configure` |
-| `…/ieps/:instanceId/informacion-adicional` | completar anexo | items JSON versionado/adjustments | items/layout definition | validate | `obligations.configure` |
-| `…/ieps/:instanceId/validaciones` | resolver | validations | validations | validate | `obligations.view` |
-| `…/ieps/:instanceId/vista-previa` | preview | preview snapshot | workpaper/layout | preview | `obligations.view` |
-| `…/ieps/:instanceId/archivos` | batch/historial | generation/files | file history | fiscal generation | `ieps.generate` |
-| `…/obligaciones/archivos-generados` | historial transversal | — | generated file history | signed URL | `obligations.view` + permiso descarga |
+Esta matriz es trazabilidad objetivo, no evidencia de rutas ni persistencia
+implementadas. Fase 0 no agrega UI fiscal y Fase 1 permanece `NOT_STARTED`.
+
+| Pantalla/ruta                              | Caso de uso                              | Escritura                                   | Lectura/vista                                  | Job                      | Permiso                               |
+| ------------------------------------------ | ---------------------------------------- | ------------------------------------------- | ---------------------------------------------- | ------------------------ | ------------------------------------- |
+| `/es`                                      | resolver entrada                         | sesión sólo cuando exista auth real         | organización activa/membresías                 | —                        | sesión                                |
+| `/es/login`                                | autenticar                               | `auth_sessions`, auditoría                  | `users`, factors                               | —                        | público + MFA                         |
+| `/es/register`                             | identidad/primer despacho                | user/org/membership/subscription pending    | alta transaccional                             | email verification       | público                               |
+| `/es/forgot-password`                      | recuperar                                | factor/session/audit según proveedor        | user por token opaco                           | email                    | público                               |
+| `/es/onboarding`                           | configurar despacho                      | org/settings, client/entity/year            | wizard read model                              | —                        | owner                                 |
+| `/es/seleccionar-despacho`                 | elegir tenant                            | `auth_sessions`                             | memberships/orgs                               | —                        | sesión                                |
+| `/es/perfil`                               | editar perfil                            | `users`                                     | `users`                                        | —                        | identidad propia                      |
+| `/es/seguridad`                            | MFA/sesiones                             | factors/sessions                            | factors/sessions                               | proveedor MFA            | identidad propia + reauth             |
+| `/es/preferencias`                         | tema/zona/densidad                       | user/membership preferences                 | preferencias efectivas                         | —                        | identidad propia                      |
+| `/es/ayuda`                                | soporte/ticket                           | support grant sólo tras autorización        | grant/audit                                    | ticket externo futuro    | `support.authorize`                   |
+| `/es/sin-acceso`                           | denegación                               | `audit_events` sólo si sensible             | contexto seguro                                | —                        | —                                     |
+| ruta inexistente/404 y `loading`/`error`   | recuperar estado de navegación           | ninguna salvo telemetría no fiscal          | contexto mínimo seguro                         | —                        | —                                     |
+| `…/inicio`                                 | priorizar cartera                        | —                                           | dashboard/portfolio/process/alerts             | —                        | `organization.view` + scope           |
+| `…/clientes`                               | listar/crear cuenta+RFC                  | account/entity/year en transacción          | portfolio/client summary                       | —                        | `clients.view/manage`                 |
+| `…/procesos`                               | supervisar/reintentar                    | job específico/audit                        | `v_process_center`                             | SAT/ingest/export/fiscal | permiso del job                       |
+| `…/equipo`                                 | miembros/invitaciones/roles/asignaciones | invitation/membership/permission/assignment | equipo efectivo                                | email                    | `team.view/manage`, `clients.assign`  |
+| `…/auditoria`                              | consultar trazabilidad                   | —                                           | audit_events paginada                          | —                        | `audit.view`                          |
+| `…/configuracion[/datos]`                  | datos despacho                           | org/settings                                | org/settings                                   | —                        | `organization.manage`                 |
+| `…/configuracion/seguridad`                | política tenant                          | settings/audit                              | settings                                       | —                        | `organization.manage` + reauth        |
+| `…/configuracion/plan-facturacion`         | contratar/cancelar                       | subscription/events                         | plan/entitlements/subscription                 | proveedor pago           | owner + `billing.manage`              |
+| `…/configuracion/retencion-datos`          | política/portabilidad                    | settings/audit                              | settings/object counts                         | purga/export futuro      | owner/admin autorizado + reauth       |
+| `…/configuracion/soporte`                  | JIT                                      | support grant/audit                         | grants                                         | expiry                   | `support.authorize` + reauth          |
+| `…/clientes/:clientId/resumen`             | resumen cuenta/RFC                       | assignment sólo en drawer                   | client/entity summaries                        | SAT/ingest por acción    | `clients.view`, acciones específicas  |
+| `…/ejercicios`                             | listar/crear año                         | fiscal_year/periods                         | fiscal year summary                            | —                        | `clients.view/manage`                 |
+| `…/ejercicios/:year`                       | comparar meses                           | —                                           | fiscal year summary                            | —                        | `clients.view`                        |
+| `…/periodos/:period/resumen`               | estado mensual                           | —                                           | period workspace + obligations                 | —                        | `clients.view`                        |
+| `…/periodos/:period/cfdi`                  | revisar/acción masiva                    | decisions/incidents/audit                   | cfdi + decisión vigente                        | ingesta opcional         | `cfdi.review/exclude`                 |
+| `…/periodos/:period/pagos`                 | revisar complemento                      | decisions/incidents                         | payments/documents/relations                   | —                        | `clients.view`                        |
+| `…/periodos/:period/nomina`                | consultar nómina                         | decision opcional                           | CFDI N filtrados                               | export opcional          | `payroll.view`                        |
+| `…/periodos/:period/incidencias`           | tratar problema                          | incidents/audit                             | incidents                                      | —                        | `clients.view`; excepción sensible    |
+| `…/periodos/:period/cierre`                | checklist/cerrar/reabrir                 | checklist/closes/items/reopenings/lease     | close readiness/history                        | —                        | `period.close/reopen`                 |
+| `…/periodos/:period/exportaciones`         | generar/descargar                        | export_jobs/audit                           | export history                                 | export                   | `exports.create`                      |
+| `…/clientes/:clientId/cfdi`                | consulta transversal                     | export job si acción                        | CFDI search/list                               | export                   | `clients.view`, `exports.create`      |
+| `…/cfdi/:uuid`                             | detalle/historial/excluir                | work_decision/audit                         | CFDI/concepts/taxes/relations/payments/history | signed URL XML           | `clients.view`, `cfdi.exclude`        |
+| `…/alertas`                                | atender condiciones                      | incidente/notificación según acción         | `v_alert_conditions`                           | —                        | `clients.view`                        |
+| `…/configuracion/datos`                    | datos cuenta/RFC                         | client/entity                               | client/entity                                  | —                        | `clients.manage`                      |
+| `…/configuracion/responsables`             | asignar                                  | account_assignments                         | assignments                                    | —                        | `clients.assign`                      |
+| `…/configuracion/e-firma-sat`              | credencial                               | stored object/credential/audit              | credential status                              | validación credencial    | `credentials.manage` + reauth         |
+| `…/configuracion/obligaciones`             | aplicabilidad                            | obligation configs                          | catálogo/configs                               | instance scheduler       | `obligations.configure`               |
+| `…/configuracion/accesos`                  | revisar scope                            | assignments/permissions                     | autorización efectiva                          | —                        | `clients.assign`                      |
+| `…/obligaciones`                           | resumen                                  | —                                           | `v_obligation_status`                          | —                        | `obligations.view`                    |
+| `…/obligaciones/diot`                      | períodos DIOT                            | instancia si aplica                         | obligation status                              | preparación              | `obligations.view`                    |
+| `…/diot/:year/:period/resumen`             | estado/corte                             | instance/workpaper                          | workpaper summary                              | prepare                  | `obligations.view`                    |
+| `…/diot/:year/:period/operaciones`         | revisar renglones                        | adjustments/decision de papel               | diot operations/sources                        | recompute                | `obligations.view`                    |
+| `…/diot/:year/:period/validaciones`        | resolver validaciones                    | validations/audit                           | validations                                    | validate                 | `obligations.view`                    |
+| `…/diot/:year/:period/ajustes`             | corregir criterio                        | adjustments                                 | adjustments                                    | recompute                | `obligations.configure`               |
+| `…/diot/:year/:period/vista-previa`        | previsualizar                            | preview snapshot                            | workpaper/layout                               | preview                  | `obligations.view`                    |
+| `…/diot/:year/:period/archivos`            | generar/descargar                        | generation/file/audit                       | file history                                   | fiscal generation        | `diot.generate`                       |
+| `…/obligaciones/ieps`                      | configurar/listar anexos                 | configs                                     | variants/instances                             | —                        | `obligations.view/configure`          |
+| `…/ieps/:instanceId/resumen`               | estado IEPS                              | workpaper                                   | instance summary                               | prepare                  | `obligations.view`                    |
+| `…/ieps/:instanceId/cfdi-fuente`           | seleccionar fuentes                      | workpaper sources                           | CFDI/sources                                   | recompute                | `obligations.configure`               |
+| `…/ieps/:instanceId/impuestos`             | revisar IEPS detectado                   | adjustments/validations                     | taxes/items                                    | recompute                | `obligations.view`                    |
+| `…/ieps/:instanceId/productos`             | revisar conceptos                        | items                                       | concepts/items                                 | —                        | `obligations.view`                    |
+| `…/ieps/:instanceId/clasificacion`         | clasificar                               | items/adjustments                           | items                                          | validate                 | `obligations.configure`               |
+| `…/ieps/:instanceId/informacion-adicional` | completar anexo                          | items JSON versionado/adjustments           | items/layout definition                        | validate                 | `obligations.configure`               |
+| `…/ieps/:instanceId/validaciones`          | resolver                                 | validations                                 | validations                                    | validate                 | `obligations.view`                    |
+| `…/ieps/:instanceId/vista-previa`          | preview                                  | preview snapshot                            | workpaper/layout                               | preview                  | `obligations.view`                    |
+| `…/ieps/:instanceId/archivos`              | batch/historial                          | generation/files                            | file history                                   | fiscal generation        | `ieps.generate`                       |
+| `…/obligaciones/archivos-generados`        | historial transversal                    | —                                           | generated file history                         | signed URL               | `obligations.view` + permiso descarga |
 
 Las rutas legacy sólo redirigen y no tienen persistencia propia. `/en/*` tampoco crea locale alterno: redirige a español.
 
 ## 13. Reconciliación con `control_mensual_cfdi.md`
 
-| Entidad base | Decisión final | Objetivo | Cambio e impacto de migración |
-|---|---|---|---|
-| `users` | MODIFICAR | `users` | conservar perfil; email DB-insensitive, timestamps TZ, auth externa opcional; migrar hash sin exponerlo |
-| `organizations` | MODIFICAR | `organizations` | owner único; agregar settings/suscripción; validar owner member |
-| `memberships` | MODIFICAR | `memberships` | eliminar `organization_owner`; mover evidencia MFA a factors/session; recalcular owner antes de retirar flag |
-| `invitations` | MODIFICAR | `invitations` | permisos propuestos no conceden; key idempotente/token hash |
-| `auth_sessions` | MODIFICAR | `auth_sessions` | contexto nullable preselección, reauth y token hash |
-| `permissions` | MODIFICAR | `permissions` | unificar keys con frontend `dominio.acción`; mapear aliases underscore |
-| `role_permissions` | CONSERVAR | `role_permissions` | PK versionada/vigencia |
-| `membership_permissions` | MODIFICAR | `membership_permissions` | UUID e historial/revocación append-only |
-| `client_accounts` | MODIFICAR | `client_accounts` | sigue agrupando RFC; no copiar status mensual |
-| `account_assignments` | MODIFICAR | `account_assignments` | UUID, principal único, actor/revocación |
-| `legal_entities` | MODIFICAR | `legal_entities` | RFC único activo por tenant; regímenes/obligaciones con vigencia separados |
-| `fiscal_years` | CONSERVAR | `fiscal_years` | agrega scope compuesto explícito |
-| `periods` | DIVIDIR | `periods`, `period_leases` | mover lease a historial; conservar lock/status/corte |
-| `stored_objects` | MODIFICAR | `stored_objects` | cifrado, cuarentena y retención explícitos |
-| `credential_records` | MODIFICAR | `credential_records` | fila por versión, hashes/metadatos y reemplazo; no passwords |
-| `sat_download_jobs` | MODIFICAR | `sat_download_jobs` | DDL/state machine completa, credencial usada y parámetros snapshot |
-| `sat_download_packages` | MODIFICAR | `sat_download_packages` | objeto nullable y ciclo durable |
-| `ingestion_jobs` | MODIFICAR | `ingestion_jobs` | origen granular, key y contadores |
-| `ingestion_items` | MODIFICAR | `ingestion_items` | ordinal, hash, filename seguro y resultado parcial |
-| `cfdis` | MODIFICAR | `cfdis` | account/entity, dirección, XML presence y estados separados |
-| `cfdi_concepts` | MODIFICAR | `cfdi_concepts` | tipos/importes/constraints completos |
-| `cfdi_taxes` | MODIFICAR | `cfdi_taxes` | line number, scopes y trigger concepto-documento |
-| `cfdi_relations` | CONSERVAR | `cfdi_relations` | UUID destino resoluble después; tenant compuesto |
-| `cfdi_payments` | CONSERVAR | `cfdi_payments` | precisión y unicidad física |
-| `cfdi_payment_documents` | MODIFICAR | `cfdi_payment_documents` | moneda/equivalencia y constraints |
-| `period_cfdis` | MODIFICAR | `period_cfdis` | source revision y puntero diferible |
-| `work_decisions` | MODIFICAR | `work_decisions` | códigos controlados, supersedes y append-only |
-| `incidents` | MODIFICAR | `incidents` | origen/título/excepción explícita; no alertas/notificaciones |
-| `organization_checklist_items` | MODIFICAR | `organization_checklist_items` | ID/vigencia en vez de sobrescribir definición usada |
-| `period_checklist_items` | MODIFICAR | `period_checklist_items` | snapshot de label/required/sort y lock |
-| `period_closes` | MODIFICAR | `period_closes` | revisión y manifiesto/hash reproducible |
-| `period_close_items` | CONSERVAR | `period_close_items` | agrega UUID/created_at; append-only |
-| `period_reopenings` | MODIFICAR | `period_reopenings` | lock resultante y motivo obligatorio |
-| `export_jobs` | MODIFICAR | `export_jobs` | parámetros snapshot, scope/format y FKs diferidas |
-| `audit_events` | MODIFICAR | `audit_events` | actores user/service/support/system y metadata permitida |
+Esta reconciliación conserva el diseño de destino del documento base. Sólo
+`stored_objects`, `ingestion_uploads`, `ingestion_jobs` e `ingestion_items`
+tienen estado **F0 ejecutable**; todas las demás filas son
+**FUTURE / NOT_STARTED** para este programa y no describen tablas creadas por
+060/061.
+
+| Entidad base                   | Decisión final | Objetivo                       | Cambio e impacto de migración                                                                                |
+| ------------------------------ | -------------- | ------------------------------ | ------------------------------------------------------------------------------------------------------------ |
+| `users`                        | MODIFICAR      | `users`                        | conservar perfil; email DB-insensitive, timestamps TZ, auth externa opcional; migrar hash sin exponerlo      |
+| `organizations`                | MODIFICAR      | `organizations`                | owner único; agregar settings/suscripción; validar owner member                                              |
+| `memberships`                  | MODIFICAR      | `memberships`                  | eliminar `organization_owner`; mover evidencia MFA a factors/session; recalcular owner antes de retirar flag |
+| `invitations`                  | MODIFICAR      | `invitations`                  | permisos propuestos no conceden; key idempotente/token hash                                                  |
+| `auth_sessions`                | MODIFICAR      | `auth_sessions`                | contexto nullable preselección, reauth y token hash                                                          |
+| `permissions`                  | MODIFICAR      | `permissions`                  | unificar keys con frontend `dominio.acción`; mapear aliases underscore                                       |
+| `role_permissions`             | CONSERVAR      | `role_permissions`             | PK versionada/vigencia                                                                                       |
+| `membership_permissions`       | MODIFICAR      | `membership_permissions`       | UUID e historial/revocación append-only                                                                      |
+| `client_accounts`              | MODIFICAR      | `client_accounts`              | sigue agrupando RFC; no copiar status mensual                                                                |
+| `account_assignments`          | MODIFICAR      | `account_assignments`          | UUID, principal único, actor/revocación                                                                      |
+| `legal_entities`               | MODIFICAR      | `legal_entities`               | RFC único activo por tenant; regímenes/obligaciones con vigencia separados                                   |
+| `fiscal_years`                 | CONSERVAR      | `fiscal_years`                 | agrega scope compuesto explícito                                                                             |
+| `periods`                      | DIVIDIR        | `periods`, `period_leases`     | mover lease a historial; conservar lock/status/corte                                                         |
+| `stored_objects`               | MODIFICAR      | `stored_objects`               | **F0 ejecutable:** referencia opaca, integridad, lifecycle, retención e inmutabilidad según 060              |
+| `credential_records`           | MODIFICAR      | `credential_records`           | fila por versión, hashes/metadatos y reemplazo; no passwords                                                 |
+| `sat_download_jobs`            | MODIFICAR      | `sat_download_jobs`            | DDL/state machine completa, credencial usada y parámetros snapshot                                           |
+| `sat_download_packages`        | MODIFICAR      | `sat_download_packages`        | objeto nullable y ciclo durable                                                                              |
+| —                              | AGREGAR        | `ingestion_uploads`            | **F0 ejecutable:** intención/confirmación, objeto privado, expiración e idempotencia en dos pasos según 060  |
+| `ingestion_jobs`               | MODIFICAR      | `ingestion_jobs`               | **F0 ejecutable:** origen técnico, idempotencia, contadores, lease, heartbeat y reintentos según 060/061     |
+| `ingestion_items`              | MODIFICAR      | `ingestion_items`              | **F0 ejecutable:** ordinal, objeto observado, estado y detalle técnico; sin `cfdi_id` ni resultado de parser |
+| `cfdis`                        | MODIFICAR      | `cfdis`                        | account/entity, dirección, XML presence y estados separados                                                  |
+| `cfdi_concepts`                | MODIFICAR      | `cfdi_concepts`                | tipos/importes/constraints completos                                                                         |
+| `cfdi_taxes`                   | MODIFICAR      | `cfdi_taxes`                   | line number, scopes y trigger concepto-documento                                                             |
+| `cfdi_relations`               | CONSERVAR      | `cfdi_relations`               | UUID destino resoluble después; tenant compuesto                                                             |
+| `cfdi_payments`                | CONSERVAR      | `cfdi_payments`                | precisión y unicidad física                                                                                  |
+| `cfdi_payment_documents`       | MODIFICAR      | `cfdi_payment_documents`       | moneda/equivalencia y constraints                                                                            |
+| `period_cfdis`                 | MODIFICAR      | `period_cfdis`                 | source revision y puntero diferible                                                                          |
+| `work_decisions`               | MODIFICAR      | `work_decisions`               | códigos controlados, supersedes y append-only                                                                |
+| `incidents`                    | MODIFICAR      | `incidents`                    | origen/título/excepción explícita; no alertas/notificaciones                                                 |
+| `organization_checklist_items` | MODIFICAR      | `organization_checklist_items` | ID/vigencia en vez de sobrescribir definición usada                                                          |
+| `period_checklist_items`       | MODIFICAR      | `period_checklist_items`       | snapshot de label/required/sort y lock                                                                       |
+| `period_closes`                | MODIFICAR      | `period_closes`                | revisión y manifiesto/hash reproducible                                                                      |
+| `period_close_items`           | CONSERVAR      | `period_close_items`           | agrega UUID/created_at; append-only                                                                          |
+| `period_reopenings`            | MODIFICAR      | `period_reopenings`            | lock resultante y motivo obligatorio                                                                         |
+| `export_jobs`                  | MODIFICAR      | `export_jobs`                  | parámetros snapshot, scope/format y FKs diferidas                                                            |
+| `audit_events`                 | MODIFICAR      | `audit_events`                 | actores user/service/support/system y metadata permitida                                                     |
 
 Entidades agregadas porque no existen en el catálogo base: `user_preferences`, `auth_factors`, `organization_settings`, `membership_preferences`, cuatro tablas comerciales, `notifications`, `notification_preferences`, `support_access_grants` y las trece tablas del dominio de obligaciones/archivos fiscales. No se elimina ninguna capacidad vigente del documento base.
 
-## 14. Estrategia de implementación posterior
+## 14. Estado de implementación del programa CFDI
 
-| Etapa | Incluye | Dependencias | Riesgos/pruebas de salida |
-|---|---|---|---|
-| 1. Fundaciones multi-tenant e identidad | user/auth/org/membership/session/permission/audit | proveedor auth/MFA | alta atómica, owner único, revocación, dos tenants, no enumeración |
-| 2. Comercial y suscripción | plans/entitlements/subscription/events | proveedor/decisiones comerciales | webhooks duplicados, trial/grace/cancel, owner-only, sin tarjeta |
-| 3. Clientes y asignaciones | account/entity/assignment/settings | etapa 1 | RFC duplicado, asignación revocada, cuenta multi-RFC |
-| 4. Ejercicios y períodos | years/periods/lease/checklist base | etapa 3 | 12 meses, lock conflict, takeover auditado |
-| 5. CFDI e ingesta | objects/credentials/SAT/ingestion/CFDI | storage/KMS/workers | XXE/ZIP bomb, idempotencia, PPD múltiple, nómina aislada |
-| 6. Revisión, incidencias y cierre | participation/decisions/incidents/checklist/close | etapa 5 | append-only, manifest hash, novedades/reapertura |
-| 7. Procesos y exportaciones | export jobs + process view | etapas 5/6 | restart worker, expiry/revocation, scope exacto |
-| 8. Obligaciones fiscales | catálogo/config/instancia/papel/DIOT/IEPS/layout/generation | núcleo CFDI estable + layouts aprobados | reproducibilidad, stale, ajustes, no afirmación SAT |
-| 9. Notificaciones, búsqueda y soporte | inbox/preferences/search/JIT | autorización/read models | links cross-tenant, trigram scope, TTL soporte |
-| 10. RLS, seguridad y pruebas negativas | políticas, roles DB, signed URLs, retention | todas | matriz API/worker/object/cache; cero cruces/secretos |
+El roadmap maestro es la autoridad para dependencias, entrada, salida, pruebas,
+riesgos y entregables de cada fase. Esta tabla sólo evita confundir el modelo
+objetivo con el schema actual.
 
-Cada etapa usa migraciones aditivas, backfill verificado y constraints después de limpiar datos. Nunca se activa una ruta de escritura antes de sus pruebas de tenant/asignación/permiso. La migración real de `users` debe corregir timestamps sin zona y unicidad case-insensitive preservando IDs.
+| Fase                            | Estado en esta ejecución                                                | Persistencia de esta fase                                                                                                    |
+| ------------------------------- | ----------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| 0. Plataforma fiscal compartida | `BLOCKED` — pendientes controles externos documentados en el reporte QA | 060/061: `stored_objects`, `ingestion_uploads`, `ingestion_jobs`, `ingestion_items`, RLS y funciones operativas restringidas |
+| 1. XML individual end-to-end    | `NOT_STARTED`                                                           | CFDI, conceptos, impuestos, relaciones y resultados de parser futuros                                                        |
+| 2. ZIP y éxito parcial          | `NOT_STARTED`                                                           | extensiones de lotes/observaciones futuras                                                                                   |
+| 3. Reautenticación y e.firma    | `NOT_STARTED`                                                           | credenciales versionadas futuras                                                                                             |
+| 4. SAT on-demand                | `NOT_STARTED`                                                           | solicitudes y paquetes SAT futuros                                                                                           |
+| 5. Mesa mensual                 | `NOT_STARTED`                                                           | participación, decisiones, incidencias y cierre futuros                                                                      |
+| 6. Exportación y retención      | `NOT_STARTED`                                                           | export jobs, artefactos y políticas futuras                                                                                  |
+| 7. Operación global             | `NOT_STARTED`                                                           | read models, búsqueda, notificaciones y soporte futuros                                                                      |
+| 8. Hardening y piloto           | `NOT_STARTED`                                                           | ajustes append-only que resulten del piloto; no anticipados aquí                                                             |
+
+Cada fase futura deberá usar migraciones append-only, backfill verificado y
+constraints después de limpiar datos. Nunca se activa una ruta de escritura
+antes de sus pruebas de tenant, asignación y permiso. En particular, la Fase 1
+no puede iniciarse ni marcarse `IN_PROGRESS` durante esta ejecución.
 
 ## 15. Preguntas pendientes
+
+Estas decisiones pertenecen a capacidades futuras y no reducen la Definition
+of Done de Fase 0. Deben resolverse como criterio de entrada de su fase dueña.
 
 - [DECISIÓN REQUERIDA] Proveedor final de identidad/MFA y modelo de sesión; de ello depende mantener `password_hash` o migrar completamente a `auth_provider/auth_subject`.
 - [DECISIÓN REQUERIDA] Política contractual/legal de retención, cancelación, exportación y purgado para XML, credenciales, exportaciones, archivos fiscales y auditoría.
