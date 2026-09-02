@@ -27,7 +27,7 @@ export const envVarsSchema = Joi.object({
     .default('development'),
 
   // App
-  APP_PORT: Joi.number().port().default(3001),
+  APP_PORT: Joi.number().port().default(3021),
   APP_GLOBAL_PREFIX: Joi.string().default('api/v1'),
   APP_CORS_ORIGINS: Joi.when('NODE_ENV', {
     is: 'production',
@@ -248,7 +248,7 @@ export const envVarsSchema = Joi.object({
       .required(),
     otherwise: Joi.string()
       .uri({ scheme: ['http', 'https'] })
-      .default('http://localhost:3000'),
+      .default('http://localhost:5181'),
   }),
   EMAIL_ASSETS_BASE_URL: Joi.string()
     .uri({ scheme: ['http', 'https'] })

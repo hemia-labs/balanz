@@ -1,0 +1,107 @@
+name: deploy-balanz-dev
+
+on:
+  push:
+    branches: [develop]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: balanz-dev
+  cancel-in-progress: false
+
+env:
+  DEPLOY_ROOT: /srv/apps/balanz
+  DEPLOY_USER: deploy
+  NEXT_PUBLIC_API_URL: https://api-contable.hemia.dev/api/v1
+  RELEASE_DIR: /srv/apps/balanz/releases/${{ github.sha }}
+  VPS_HOST: ${{ vars.VPS_HOST }}
+
+jobs:
+  deploy:
+    name: Deploy Balanz DEV
+    runs-on: ubuntu-latest
+    environment: dev
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.2
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Validate frontend
+        run: |
+          bun run --cwd apps/web lint
+          bun run --cwd apps/web typecheck
+          bun run --cwd apps/web test
+
+      - name: Validate backend
+        run: bun run --cwd apps/api test --runInBand
+
+      - name: Build applications
+        run: bun run build
+
+      - name: Configure SSH
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.VPS_DEPLOY_SSH_PRIVATE_KEY }}
+          SSH_KNOWN_HOSTS: ${{ vars.VPS_SSH_KNOWN_HOSTS }}
+        run: |
+          test -n "$VPS_HOST"
+          test -n "$SSH_PRIVATE_KEY"
+          test -n "$SSH_KNOWN_HOSTS"
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/vps-deploy
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/vps-deploy ~/.ssh/known_hosts
+
+      - name: Prepare release
+        env:
+          API_ENV: ${{ secrets.BALANZ_API_ENV }}
+        run: |
+          test -n "$API_ENV"
+          ssh -i ~/.ssh/vps-deploy "$DEPLOY_USER@$VPS_HOST" "mkdir -p '$RELEASE_DIR'"
+          printf '%s\n' "$API_ENV" | ssh -i ~/.ssh/vps-deploy "$DEPLOY_USER@$VPS_HOST" "umask 077; cat > '$DEPLOY_ROOT/shared/api.env'"
+
+      - name: Upload release
+        run: |
+          rsync -az \
+            --exclude='.git/' \
+            --exclude='.github/' \
+            --exclude='node_modules/' \
+            --exclude='.env*' \
+            --exclude='.test-dist/' \
+            --exclude='coverage/' \
+            -e "ssh -i $HOME/.ssh/vps-deploy" \
+            ./ "$DEPLOY_USER@$VPS_HOST:$RELEASE_DIR/"
+
+      - name: Activate release
+        run: |
+          ssh -i ~/.ssh/vps-deploy "$DEPLOY_USER@$VPS_HOST" bash -s -- "$RELEASE_DIR" "$DEPLOY_ROOT" <<'REMOTE'
+          set -euo pipefail
+          release_dir=$1
+          deploy_root=$2
+
+          source "$HOME/.nvm/nvm.sh"
+          export PATH="$HOME/.bun/bin:$PATH"
+          command -v bun >/dev/null || { echo "Bun 1.3.2 must be installed on the VPS" >&2; exit 1; }
+
+          cd "$release_dir"
+          bun install --frozen-lockfile
+          ln -sfn "$deploy_root/shared/api.env" "$release_dir/apps/api/.env"
+          ln -sfn "$release_dir" "$deploy_root/current.next"
+          mv -Tf "$deploy_root/current.next" "$deploy_root/current"
+
+          cd "$deploy_root/current"
+          pm2 startOrReload ecosystem.config.cjs --update-env
+          pm2 save
+
+          curl --fail --silent --show-error --retry 10 --retry-connrefused --retry-delay 2 http://127.0.0.1:5181/ >/dev/null
+          curl --fail --silent --show-error --retry 10 --retry-connrefused --retry-delay 2 http://127.0.0.1:3021/api/v1 >/dev/null
+          REMOTE

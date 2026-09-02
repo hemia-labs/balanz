@@ -1,5 +1,5 @@
 const API_BASE =
-  process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001/api/v1";
+  process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3021/api/v1";
 const DEFAULT_TIMEOUT_MS = 10_000;
 const activeApiRequests = new Set<AbortController>();
 

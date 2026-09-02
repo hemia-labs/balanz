@@ -40,6 +40,6 @@ async function bootstrap() {
   const corsOrigins = config.get<string[]>('app.corsOrigins') ?? [];
   app.enableCors(getCorsOptions(nodeEnv, corsOrigins));
 
-  await app.listen(config.get<number>('app.port') ?? 3001);
+  await app.listen(config.get<number>('app.port') ?? 3021, '127.0.0.1');
 }
 void bootstrap();

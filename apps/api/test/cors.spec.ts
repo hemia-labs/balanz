@@ -33,9 +33,9 @@ describe('CORS', () => {
   it('canonicalizes exact HTTP(S) origins and removes duplicates', () => {
     expect(
       parseCorsOrigins(
-        'HTTPS://APP.EXAMPLE:443/, https://app.example, http://localhost:3000',
+        'HTTPS://APP.EXAMPLE:443/, https://app.example, http://localhost:5181',
       ),
-    ).toEqual(['https://app.example', 'http://localhost:3000']);
+    ).toEqual(['https://app.example', 'http://localhost:5181']);
   });
 
   it.each([

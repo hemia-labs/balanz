@@ -65,7 +65,7 @@ export default registerAs('email', (): EmailConfig => {
     },
     appName: process.env.EMAIL_APP_NAME || 'Balanz',
     appSubtitle: process.env.EMAIL_APP_SUBTITLE || 'Contable',
-    appUrl: process.env.EMAIL_APP_URL || 'http://localhost:3000',
+    appUrl: process.env.EMAIL_APP_URL || 'http://localhost:5181',
     assetsBaseUrl: (
       process.env.EMAIL_ASSETS_BASE_URL || 'https://cdn.hemia.dev'
     ).replace(/\/+$/, ''),

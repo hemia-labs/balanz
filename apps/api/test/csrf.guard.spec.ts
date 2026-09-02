@@ -20,7 +20,7 @@ function guard(): CsrfGuard {
   return new CsrfGuard({
     get: (key: string, fallback: unknown) =>
       key === 'app.corsOrigins'
-        ? ['https://app.example', 'http://localhost:3000']
+        ? ['https://app.example', 'http://localhost:5181']
         : fallback,
   } as ConfigService);
 }
