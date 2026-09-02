@@ -1,0 +1,128 @@
+name: balanz-cfdi-phase0
+
+services:
+  postgres:
+    image: postgres:16.15-bookworm
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-balanz_cfdi_phase0_test}
+      POSTGRES_USER: ${POSTGRES_USER:-balanz_cfdi_admin}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in infra/cfdi-phase0/.env}
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-55432}:5432"
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB} -h 127.0.0.1",
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    volumes:
+      - cfdi_phase0_postgres:/var/lib/postgresql/data
+      - ./postgres/001-extensions.sql:/docker-entrypoint-initdb.d/001-extensions.sql:ro
+
+  redis:
+    image: redis:7.4.10-alpine
+    restart: unless-stopped
+    command:
+      [
+        "redis-server",
+        "--appendonly",
+        "yes",
+        "--save",
+        "60",
+        "1",
+        "--loglevel",
+        "warning",
+      ]
+    ports:
+      - "127.0.0.1:${REDIS_PORT:-56379}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    volumes:
+      - cfdi_phase0_redis:/data
+
+  minio:
+    image: balanz/minio:RELEASE.2025-10-15T17-29-55Z
+    build:
+      context: minio
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-balanz_phase0}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?set MINIO_ROOT_PASSWORD in infra/cfdi-phase0/.env}
+      # Development-only static KMS master key. It is required because MinIO
+      # cannot honor client SSE-S3/AES256 requests without a configured KMS.
+      MINIO_KMS_SECRET_KEY: ${MINIO_KMS_SECRET_KEY:?set a disposable MinIO KMS key in infra/cfdi-phase0/.env}
+    ports:
+      - "127.0.0.1:${MINIO_API_PORT:-59000}:9000"
+      - "127.0.0.1:${MINIO_CONSOLE_PORT:-59001}:9001"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "curl",
+          "--fail",
+          "--silent",
+          "http://127.0.0.1:9000/minio/health/live",
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+    volumes:
+      - cfdi_phase0_minio:/data
+
+  minio-bootstrap:
+    image: quay.io/minio/mc:RELEASE.2025-08-13T08-35-41Z
+    restart: "no"
+    depends_on:
+      minio:
+        condition: service_healthy
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-balanz_phase0}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?set MINIO_ROOT_PASSWORD in infra/cfdi-phase0/.env}
+      MINIO_APP_USER: ${MINIO_APP_USER:-balanz_cfdi_app}
+      MINIO_APP_PASSWORD: ${MINIO_APP_PASSWORD:?set MINIO_APP_PASSWORD in infra/cfdi-phase0/.env}
+      MINIO_BUCKET: balanz-cfdi-phase0-test
+    volumes:
+      - ./minio/app-policy.json:/config/app-policy.json:ro
+    entrypoint:
+      - /bin/sh
+      - -ec
+      - |
+        mc alias set phase0 http://minio:9000 "$${MINIO_ROOT_USER}" "$${MINIO_ROOT_PASSWORD}"
+        mc mb --ignore-existing "phase0/$${MINIO_BUCKET}"
+        mc anonymous set none "phase0/$${MINIO_BUCKET}"
+        mc admin user add phase0 "$${MINIO_APP_USER}" "$${MINIO_APP_PASSWORD}"
+        mc admin policy create phase0 balanz-cfdi-phase0-app /config/app-policy.json
+        mc admin policy attach phase0 balanz-cfdi-phase0-app --user "$${MINIO_APP_USER}"
+
+  clamav:
+    image: clamav/clamav:1.5.4-debian13-slim
+    restart: unless-stopped
+    environment:
+      CLAMD_CONF_MaxFileSize: 55M
+      CLAMD_CONF_StreamMaxLength: 55M
+      CLAMD_CONF_MaxScanSize: 55M
+    ports:
+      - "127.0.0.1:${CLAMAV_PORT:-53310}:3310"
+    healthcheck:
+      test: ["CMD", "clamdscan", "--ping", "1"]
+      start_period: 120s
+      interval: 15s
+      timeout: 10s
+      retries: 20
+    volumes:
+      - cfdi_phase0_clamav_signatures:/var/lib/clamav
+
+volumes:
+  cfdi_phase0_postgres:
+  cfdi_phase0_redis:
+  cfdi_phase0_minio:
+  cfdi_phase0_clamav_signatures:
