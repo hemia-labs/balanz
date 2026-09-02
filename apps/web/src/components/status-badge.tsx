@@ -1,44 +1,244 @@
-import { AlertCircle, CheckCircle2, Circle, Clock3, LockKeyhole, RotateCcw } from "lucide-react";
+import {
+  AlertCircle,
+  Archive,
+  CheckCircle2,
+  Circle,
+  Clock3,
+  LockKeyhole,
+  RotateCcw,
+} from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 
 const statusMap = {
-  "Sin iniciar": { variant: "outline", icon: Circle },
-  "En preparación": { variant: "info", icon: Clock3 },
-  "En proceso": { variant: "info", icon: Clock3 },
-  "En revisión": { variant: "warning", icon: Clock3 },
-  "Listo para cerrar": { variant: "success", icon: CheckCircle2 },
-  Cerrado: { variant: "success", icon: CheckCircle2 },
-  Completado: { variant: "success", icon: CheckCircle2 },
-  "Con novedades": { variant: "warning", icon: AlertCircle },
-  "Con errores": { variant: "destructive", icon: AlertCircle },
-  "Con observaciones": { variant: "warning", icon: AlertCircle },
-  Reabierto: { variant: "info", icon: RotateCcw },
-  Bloqueado: { variant: "destructive", icon: LockKeyhole },
-  Pendiente: { variant: "warning", icon: Clock3 },
-  Revisado: { variant: "success", icon: CheckCircle2 },
-  Cancelado: { variant: "destructive", icon: AlertCircle },
-  "Con incidencia": { variant: "destructive", icon: AlertCircle },
-  Vigente: { variant: "success", icon: CheckCircle2 },
-  "Próxima a vencer": { variant: "warning", icon: AlertCircle },
-  Vencida: { variant: "destructive", icon: AlertCircle },
-  Conectado: { variant: "success", icon: CheckCircle2 },
-  "Requiere atención": { variant: "warning", icon: AlertCircle },
-  "Sin configurar": { variant: "outline", icon: Circle },
-  Generada: { variant: "success", icon: CheckCircle2 },
-  Desactualizada: { variant: "warning", icon: AlertCircle },
-  Activo: { variant: "success", icon: CheckCircle2 },
-  "Invitación pendiente": { variant: "warning", icon: Clock3 },
-  Bloqueante: { variant: "destructive", icon: LockKeyhole },
-  Advertencia: { variant: "warning", icon: AlertCircle },
-  Información: { variant: "info", icon: AlertCircle },
-  Completo: { variant: "success", icon: CheckCircle2 },
-  "No aplica": { variant: "outline", icon: Circle },
-  Excluido: { variant: "outline", icon: Circle },
-  Preparado: { variant: "info", icon: Clock3 },
+  "Sin iniciar": {
+    variant: "outline",
+    icon: Circle,
+    labels: { es: "Sin iniciar", en: "Not started" },
+  },
+  "En preparación": {
+    variant: "info",
+    icon: Clock3,
+    labels: { es: "En preparación", en: "In preparation" },
+  },
+  "En proceso": {
+    variant: "info",
+    icon: Clock3,
+    labels: { es: "En proceso", en: "In progress" },
+  },
+  "En revisión": {
+    variant: "warning",
+    icon: Clock3,
+    labels: { es: "En revisión", en: "Under review" },
+  },
+  "Listo para cerrar": {
+    variant: "success",
+    icon: CheckCircle2,
+    labels: { es: "Listo para cerrar", en: "Ready to close" },
+  },
+  Cerrado: {
+    variant: "success",
+    icon: CheckCircle2,
+    labels: { es: "Cerrado", en: "Closed" },
+  },
+  Completado: {
+    variant: "success",
+    icon: CheckCircle2,
+    labels: { es: "Completado", en: "Completed" },
+  },
+  "Con novedades": {
+    variant: "warning",
+    icon: AlertCircle,
+    labels: { es: "Con novedades", en: "Updates found" },
+  },
+  "Cambios detectados": {
+    variant: "warning",
+    icon: AlertCircle,
+    labels: { es: "Cambios detectados", en: "Changes detected" },
+  },
+  "Con errores": {
+    variant: "destructive",
+    icon: AlertCircle,
+    labels: { es: "Con errores", en: "With errors" },
+  },
+  "Con observaciones": {
+    variant: "warning",
+    icon: AlertCircle,
+    labels: { es: "Con observaciones", en: "With observations" },
+  },
+  Reabierto: {
+    variant: "info",
+    icon: RotateCcw,
+    labels: { es: "Reabierto", en: "Reopened" },
+  },
+  Bloqueado: {
+    variant: "destructive",
+    icon: LockKeyhole,
+    labels: { es: "Bloqueado", en: "Blocked" },
+  },
+  Pendiente: {
+    variant: "warning",
+    icon: Clock3,
+    labels: { es: "Pendiente", en: "Pending" },
+  },
+  Revisado: {
+    variant: "success",
+    icon: CheckCircle2,
+    labels: { es: "Revisado", en: "Reviewed" },
+  },
+  Cancelado: {
+    variant: "destructive",
+    icon: AlertCircle,
+    labels: { es: "Cancelado", en: "Cancelled" },
+  },
+  "Con incidencia": {
+    variant: "destructive",
+    icon: AlertCircle,
+    labels: { es: "Con incidencia", en: "Issue found" },
+  },
+  Vigente: {
+    variant: "success",
+    icon: CheckCircle2,
+    labels: { es: "Vigente", en: "Current" },
+  },
+  "Próxima a vencer": {
+    variant: "warning",
+    icon: AlertCircle,
+    labels: { es: "Próxima a vencer", en: "Expiring soon" },
+  },
+  Vencida: {
+    variant: "destructive",
+    icon: AlertCircle,
+    labels: { es: "Vencida", en: "Expired" },
+  },
+  Conectado: {
+    variant: "success",
+    icon: CheckCircle2,
+    labels: { es: "Conectado", en: "Connected" },
+  },
+  "Requiere atención": {
+    variant: "warning",
+    icon: AlertCircle,
+    labels: { es: "Requiere atención", en: "Needs attention" },
+  },
+  "Sin configurar": {
+    variant: "outline",
+    icon: Circle,
+    labels: { es: "Sin configurar", en: "Not configured" },
+  },
+  Generada: {
+    variant: "success",
+    icon: CheckCircle2,
+    labels: { es: "Generada", en: "Generated" },
+  },
+  Desactualizada: {
+    variant: "warning",
+    icon: AlertCircle,
+    labels: { es: "Desactualizada", en: "Out of date" },
+  },
+  Activo: {
+    variant: "success",
+    icon: CheckCircle2,
+    labels: { es: "Activo", en: "Active" },
+  },
+  Suspendido: {
+    variant: "warning",
+    icon: AlertCircle,
+    labels: { es: "Suspendido", en: "Suspended" },
+  },
+  Archivado: {
+    variant: "outline",
+    icon: Archive,
+    labels: { es: "Archivado", en: "Archived" },
+  },
+  Revocado: {
+    variant: "destructive",
+    icon: LockKeyhole,
+    labels: { es: "Revocado", en: "Revoked" },
+  },
+  "Invitación pendiente": {
+    variant: "warning",
+    icon: Clock3,
+    labels: { es: "Invitación pendiente", en: "Invitation pending" },
+  },
+  Bloqueante: {
+    variant: "destructive",
+    icon: LockKeyhole,
+    labels: { es: "Bloqueante", en: "Blocking" },
+  },
+  Advertencia: {
+    variant: "warning",
+    icon: AlertCircle,
+    labels: { es: "Advertencia", en: "Warning" },
+  },
+  Información: {
+    variant: "info",
+    icon: AlertCircle,
+    labels: { es: "Información", en: "Information" },
+  },
+  Completo: {
+    variant: "success",
+    icon: CheckCircle2,
+    labels: { es: "Completo", en: "Complete" },
+  },
+  "No aplica": {
+    variant: "outline",
+    icon: Circle,
+    labels: { es: "No aplica", en: "Not applicable" },
+  },
+  Excluido: {
+    variant: "outline",
+    icon: Circle,
+    labels: { es: "Excluido", en: "Excluded" },
+  },
+  Preparado: {
+    variant: "info",
+    icon: Clock3,
+    labels: { es: "Preparado", en: "Prepared" },
+  },
 } as const;
 
-export function StatusBadge({ status }: { status: string }) {
-  const config = statusMap[status as keyof typeof statusMap] ?? { variant: "outline" as const, icon: Circle };
-  const Icon = config.icon;
-  return <Badge variant={config.variant}><Icon className="size-3" aria-hidden="true" />{status}</Badge>;
+const apiStatusAliases: Record<string, keyof typeof statusMap> = {
+  active: "Activo",
+  suspended: "Suspendido",
+  archived: "Archivado",
+  revoked: "Revocado",
+  not_started: "Sin iniciar",
+  preparation: "En preparación",
+  review: "En revisión",
+  ready_to_close: "Listo para cerrar",
+  closed: "Cerrado",
+  completed: "Completado",
+  changes_detected: "Cambios detectados",
+  reopened: "Reabierto",
+  blocked: "Bloqueado",
+  pending: "Pendiente",
+  cancelled: "Cancelado",
+  canceled: "Cancelado",
+};
+
+function humanizeStatus(status: string) {
+  const normalized = status.trim().replaceAll(/[_-]+/g, " ");
+  return normalized
+    ? `${normalized.charAt(0).toUpperCase()}${normalized.slice(1).toLowerCase()}`
+    : "—";
+}
+
+export function StatusBadge({
+  status,
+  locale = "es",
+}: {
+  status: string;
+  locale?: string;
+}) {
+  const statusKey = apiStatusAliases[status.toLowerCase()] ?? status;
+  const config = statusMap[statusKey as keyof typeof statusMap];
+  const language = locale.toLowerCase().startsWith("en") ? "en" : "es";
+  const Icon = config?.icon ?? Circle;
+  const label = config?.labels[language] ?? humanizeStatus(status);
+  return (
+    <Badge variant={config?.variant ?? "outline"}>
+      <Icon className="size-3" aria-hidden="true" />
+      {label}
+    </Badge>
+  );
 }
