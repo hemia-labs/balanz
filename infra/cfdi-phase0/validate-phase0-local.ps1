@@ -145,6 +145,17 @@ $summary = [ordered]@{
   localResourcesDeleted = $false
   localReport = 'NOT_RUN'
   failedStep = $null
+  failureDiagnostics = [ordered]@{
+    stage = $null
+    failedCommand = $null
+    exitCode = $null
+    stdout = @()
+    stderr = @()
+    composePs = @()
+    unhealthyOrExitedServices = @()
+    serviceLogs = @()
+    cleanupResult = 'NOT_RUN'
+  }
 }
 
 function New-RandomBase64Secret {
@@ -386,6 +397,336 @@ function Remove-OwnedLocalDirectory {
   [IO.Directory]::Delete($target, $true)
 }
 
+function ConvertTo-SanitizedDiagnosticLines {
+  param(
+    [AllowNull()][string]$Text,
+    [ValidateRange(1, 200)][int]$Tail = 80
+  )
+
+  if ([string]::IsNullOrEmpty($Text)) {
+    return @()
+  }
+
+  $safeText = $Text
+  foreach ($secret in $script:secretValues) {
+    if (-not [string]::IsNullOrEmpty($secret)) {
+      $safeText = $safeText.Replace($secret, '[REDACTED]')
+    }
+  }
+  $safeText = $safeText.Replace($workspace, '<workspace>')
+  $safeText = [regex]::Replace(
+    $safeText,
+    '(?i)\b(?:postgres(?:ql)?|redis(?:s)?|mysql|mongodb(?:\+srv)?):\/\/[^\s''"<>]+',
+    '[REDACTED_CONNECTION_STRING]'
+  )
+  $safeText = [regex]::Replace(
+    $safeText,
+    '(?i)\bhttps?:\/\/[^\s''"<>]*\?[^\s''"<>]*(?:x-amz-|signature=|token=)[^\s''"<>]*',
+    '[REDACTED_SIGNED_URL]'
+  )
+  $safeText = [regex]::Replace(
+    $safeText,
+    '(?i)\bAuthorization\s*[:=]\s*[^\r\n]+',
+    'Authorization: [REDACTED]'
+  )
+  $safeText = [regex]::Replace(
+    $safeText,
+    '(?i)\b(?:Bearer|Basic)\s+[A-Za-z0-9+/_=.-]+',
+    '[REDACTED_AUTH]'
+  )
+  $safeText = [regex]::Replace(
+    $safeText,
+    '(?i)(["'']?[A-Z0-9_]*(?:PASSWORD|SECRET|TOKEN|AUTHORIZATION|ACCESS[_-]?KEY)[A-Z0-9_]*["'']?\s*[:=]\s*)(?:"[^"]*"|''[^'']*''|[^\s,;]+)',
+    '$1[REDACTED]'
+  )
+  $safeText = [regex]::Replace(
+    $safeText,
+    '\b(?:AKIA|ASIA)[A-Z0-9]{16}\b',
+    '[REDACTED_ACCESS_KEY]'
+  )
+  $safeText = [regex]::Replace(
+    $safeText,
+    '\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b',
+    '[REDACTED_JWT]'
+  )
+  $safeText = [regex]::Replace(
+    $safeText,
+    '\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\b',
+    '<uuid>'
+  )
+
+  $lines = @($safeText -split '\r?\n' | Select-Object -Last $Tail)
+  foreach ($lineValue in $lines) {
+    $line = [string]$lineValue
+    if ($line -match '^\s*[A-Z][A-Z0-9_]{2,}\s*=') {
+      $line = '[REDACTED_ENVIRONMENT_LINE]'
+    }
+    if ($line.Length -gt 500) {
+      $line = $line.Substring(0, 500) + '...'
+    }
+    $line
+  }
+}
+
+function ConvertTo-SanitizedDiagnosticCommand {
+  param([AllowNull()][string]$Text)
+
+  return (@(ConvertTo-SanitizedDiagnosticLines -Text $Text -Tail 20) -join ' ').Trim()
+}
+
+function Invoke-ExternalCommandCapture {
+  param(
+    [Parameter(Mandatory = $true)][string]$FilePath,
+    [Parameter(Mandatory = $true)][string[]]$Arguments,
+    [AllowNull()][string]$InputText
+  )
+
+  $stdoutPath = [IO.Path]::GetTempFileName()
+  $stderrPath = [IO.Path]::GetTempFileName()
+  $commandFailure = $null
+  $commandSucceeded = $false
+  $exitCode = -1
+  $previousPreference = $ErrorActionPreference
+  $ErrorActionPreference = 'Continue'
+  try {
+    $global:LASTEXITCODE = 0
+    try {
+      if ($null -ne $InputText) {
+        $InputText | & $FilePath @Arguments 1> $stdoutPath 2> $stderrPath
+      } else {
+        & $FilePath @Arguments 1> $stdoutPath 2> $stderrPath
+      }
+      $commandSucceeded = $?
+      $exitCode = [int]$LASTEXITCODE
+      if (-not $commandSucceeded -and $exitCode -eq 0) {
+        $exitCode = -1
+      }
+    } catch {
+      $commandFailure = $_
+      if ($LASTEXITCODE -is [int] -and $LASTEXITCODE -ne 0) {
+        $exitCode = [int]$LASTEXITCODE
+      }
+    }
+    $stdoutText = if (Test-Path -LiteralPath $stdoutPath) {
+      [IO.File]::ReadAllText($stdoutPath)
+    } else {
+      ''
+    }
+    $stderrText = if (Test-Path -LiteralPath $stderrPath) {
+      [IO.File]::ReadAllText($stderrPath)
+    } else {
+      ''
+    }
+    if ($null -ne $commandFailure) {
+      $stderrText = @($stderrText, [string]$commandFailure.Exception.Message) -join [Environment]::NewLine
+    }
+    return [pscustomobject]@{
+      exitCode = $exitCode
+      stdout = $stdoutText
+      stderr = $stderrText
+    }
+  } finally {
+    $ErrorActionPreference = $previousPreference
+    foreach ($temporaryPath in @($stdoutPath, $stderrPath)) {
+      if (Test-Path -LiteralPath $temporaryPath) {
+        [IO.File]::Delete($temporaryPath)
+      }
+    }
+  }
+}
+
+function Set-PrimaryFailureDiagnostics {
+  param(
+    [Parameter(Mandatory = $true)][string]$Stage,
+    [Parameter(Mandatory = $true)][string]$FailedCommand,
+    [AllowNull()][Nullable[int]]$ExitCode,
+    [AllowNull()][string]$Stdout,
+    [AllowNull()][string]$Stderr
+  )
+
+  if ($null -ne $summary.failureDiagnostics.stage) {
+    return
+  }
+  $summary.failureDiagnostics.stage = $Stage
+  $summary.failureDiagnostics.failedCommand = ConvertTo-SanitizedDiagnosticCommand `
+    -Text $FailedCommand
+  $summary.failureDiagnostics.exitCode = $ExitCode
+  $summary.failureDiagnostics.stdout = @(
+    ConvertTo-SanitizedDiagnosticLines -Text $Stdout
+  )
+  $summary.failureDiagnostics.stderr = @(
+    ConvertTo-SanitizedDiagnosticLines -Text $Stderr
+  )
+}
+
+function Get-DiagnosticPropertyValue {
+  param(
+    [Parameter(Mandatory = $true)]$InputObject,
+    [Parameter(Mandatory = $true)][string]$Name
+  )
+
+  $property = $InputObject.PSObject.Properties[$Name]
+  if ($null -eq $property -or $null -eq $property.Value) {
+    return ''
+  }
+  return [string]$property.Value
+}
+
+function Get-SanitizedDiagnosticScalar {
+  param([AllowNull()][string]$Value)
+
+  return (@(ConvertTo-SanitizedDiagnosticLines -Text $Value -Tail 5) -join ' ').Trim()
+}
+
+function Get-ComposeFailureDiagnostics {
+  $psCapture = Invoke-ExternalCommandCapture `
+    -FilePath 'docker' `
+    -Arguments (@('compose') + $composeArguments + @(
+      'ps', '--all', '--format', 'json'
+    ))
+  if ($psCapture.exitCode -ne 0) {
+    $captureFailure = @(
+      ConvertTo-SanitizedDiagnosticLines `
+        -Text (@($psCapture.stdout, $psCapture.stderr) -join [Environment]::NewLine) `
+        -Tail 40
+    )
+    $summary.failureDiagnostics.stderr = @(
+      @($summary.failureDiagnostics.stderr) +
+        @('docker compose ps diagnostic failed') +
+        $captureFailure
+    )
+    return
+  }
+
+  $rawItems = @()
+  $psText = $psCapture.stdout.Trim()
+  if ($psText) {
+    try {
+      $rawItems = @($psText | ConvertFrom-Json -ErrorAction Stop)
+    } catch {
+      foreach ($jsonLine in @($psText -split '\r?\n')) {
+        if (-not $jsonLine.Trim()) {
+          continue
+        }
+        try {
+          $rawItems += @($jsonLine | ConvertFrom-Json -ErrorAction Stop)
+        } catch {
+          # Compose versions differ between an array and newline-delimited JSON.
+        }
+      }
+    }
+  }
+
+  $composeState = @()
+  foreach ($item in $rawItems) {
+    $service = Get-SanitizedDiagnosticScalar `
+      -Value (Get-DiagnosticPropertyValue -InputObject $item -Name 'Service')
+    $name = Get-SanitizedDiagnosticScalar `
+      -Value (Get-DiagnosticPropertyValue -InputObject $item -Name 'Name')
+    $state = Get-SanitizedDiagnosticScalar `
+      -Value (Get-DiagnosticPropertyValue -InputObject $item -Name 'State')
+    $health = Get-SanitizedDiagnosticScalar `
+      -Value (Get-DiagnosticPropertyValue -InputObject $item -Name 'Health')
+    $itemExitCode = Get-SanitizedDiagnosticScalar `
+      -Value (Get-DiagnosticPropertyValue -InputObject $item -Name 'ExitCode')
+    $status = Get-SanitizedDiagnosticScalar `
+      -Value (Get-DiagnosticPropertyValue -InputObject $item -Name 'Status')
+    $composeState += [ordered]@{
+      service = $service
+      name = $name
+      state = $state
+      health = $health
+      exitCode = $itemExitCode
+      status = $status
+    }
+  }
+  $summary.failureDiagnostics.composePs = @($composeState)
+
+  $primaryFailureText = @(
+    @($summary.failureDiagnostics.stdout) + @($summary.failureDiagnostics.stderr)
+  ) -join [Environment]::NewLine
+  $composeWaitTimedOut = $primaryFailureText -match `
+    '(?i)(timed?\s*out|timeout|context deadline exceeded)'
+  $failedServices = @(
+    $composeState |
+      Where-Object {
+        $_.service -and (
+          $_.state -ine 'running' -or
+          $_.health -ieq 'unhealthy' -or
+          ($composeWaitTimedOut -and $_.health -ieq 'starting') -or
+          ($_.exitCode -and $_.exitCode -ne '0')
+        )
+      } |
+      ForEach-Object { $_.service } |
+      Where-Object { $_ -match '^[a-z0-9][a-z0-9_.-]*$' } |
+      Sort-Object -Unique
+  )
+  $summary.failureDiagnostics.unhealthyOrExitedServices = @($failedServices)
+
+  $serviceLogs = @()
+  foreach ($service in $failedServices) {
+    $logCapture = Invoke-ExternalCommandCapture `
+      -FilePath 'docker' `
+      -Arguments (@('compose') + $composeArguments + @(
+        'logs', '--no-color', '--tail', '40', $service
+      ))
+    $serviceLogs += [ordered]@{
+      service = $service
+      lines = @(
+        ConvertTo-SanitizedDiagnosticLines `
+          -Text (@($logCapture.stdout, $logCapture.stderr) -join [Environment]::NewLine) `
+          -Tail 40
+      )
+    }
+  }
+  $summary.failureDiagnostics.serviceLogs = @($serviceLogs)
+}
+
+function Invoke-ComposeFailureDiagnosticsSafely {
+  try {
+    Get-ComposeFailureDiagnostics
+  } catch {
+    $diagnosticFailure = @(
+      ConvertTo-SanitizedDiagnosticLines `
+        -Text ([string]$_.Exception.Message) `
+        -Tail 10
+    )
+    $summary.failureDiagnostics.stderr = @(
+      @($summary.failureDiagnostics.stderr) +
+        @('docker compose diagnostic collection failed safely') +
+        $diagnosticFailure
+    )
+  }
+}
+
+function Invoke-DiagnosticExternal {
+  param(
+    [Parameter(Mandatory = $true)][string]$Step,
+    [Parameter(Mandatory = $true)][string]$FilePath,
+    [Parameter(Mandatory = $true)][string[]]$Arguments,
+    [Parameter(Mandatory = $true)][string]$CommandDescription,
+    [switch]$CollectComposeDiagnostics
+  )
+
+  $script:currentStep = $Step
+  $capture = Invoke-ExternalCommandCapture `
+    -FilePath $FilePath `
+    -Arguments $Arguments
+  if ($capture.exitCode -ne 0) {
+    Set-PrimaryFailureDiagnostics `
+      -Stage $Step `
+      -FailedCommand $CommandDescription `
+      -ExitCode $capture.exitCode `
+      -Stdout $capture.stdout `
+      -Stderr $capture.stderr
+    if ($CollectComposeDiagnostics) {
+      Invoke-ComposeFailureDiagnosticsSafely
+    }
+    throw "$Step failed with exit code $($capture.exitCode); sanitized diagnostics were retained"
+  }
+  return $capture.stdout.Trim()
+}
+
 function Invoke-CheckedCommand {
   param(
     [Parameter(Mandatory = $true)][string]$Step,
@@ -393,24 +734,46 @@ function Invoke-CheckedCommand {
   )
 
   $script:currentStep = $Step
-  $global:LASTEXITCODE = 0
-  $captured = @()
+  $stdoutPath = [IO.Path]::GetTempFileName()
+  $stderrPath = [IO.Path]::GetTempFileName()
   $commandFailure = $null
+  $commandSucceeded = $false
+  $exitCode = -1
   $previousPreference = $ErrorActionPreference
   # Windows PowerShell promotes native stderr records to non-terminating
   # ErrorRecords. Passing test suites intentionally exercise logged failures,
   # so judge native commands by their exit code while still capturing output.
   $ErrorActionPreference = 'Continue'
   try {
-    $captured = @(& $Command 2>&1)
-    $exitCode = $LASTEXITCODE
-  } catch {
-    $commandFailure = $_
-    $exitCode = $LASTEXITCODE
+    $global:LASTEXITCODE = 0
+    try {
+      & $Command 1> $stdoutPath 2> $stderrPath
+      $commandSucceeded = $?
+      $exitCode = [int]$LASTEXITCODE
+      if (-not $commandSucceeded -and $exitCode -eq 0) {
+        $exitCode = -1
+      }
+    } catch {
+      $commandFailure = $_
+      if ($LASTEXITCODE -is [int] -and $LASTEXITCODE -ne 0) {
+        $exitCode = [int]$LASTEXITCODE
+      }
+    }
+    $stdoutText = [IO.File]::ReadAllText($stdoutPath)
+    $stderrText = [IO.File]::ReadAllText($stderrPath)
+    if ($null -ne $commandFailure) {
+      $stderrText = @($stderrText, [string]$commandFailure.Exception.Message) -join `
+        [Environment]::NewLine
+    }
   } finally {
     $ErrorActionPreference = $previousPreference
+    foreach ($temporaryPath in @($stdoutPath, $stderrPath)) {
+      if (Test-Path -LiteralPath $temporaryPath) {
+        [IO.File]::Delete($temporaryPath)
+      }
+    }
   }
-  $capturedText = (($captured | ForEach-Object { [string]$_ }) -join [Environment]::NewLine)
+  $capturedText = @($stdoutText, $stderrText) -join [Environment]::NewLine
   foreach ($secret in $script:secretValues) {
     if ($capturedText.IndexOf($secret, [StringComparison]::Ordinal) -ge 0) {
       throw "$Step exposed a disposable credential; captured output was suppressed"
@@ -434,9 +797,21 @@ function Invoke-CheckedCommand {
     }
   }
   if ($null -ne $commandFailure) {
+    Set-PrimaryFailureDiagnostics `
+      -Stage $Step `
+      -FailedCommand $Command.ToString() `
+      -ExitCode $exitCode `
+      -Stdout $stdoutText `
+      -Stderr $stderrText
     throw "$Step failed; captured output was suppressed"
   }
   if ($exitCode -ne 0) {
+    Set-PrimaryFailureDiagnostics `
+      -Stage $Step `
+      -FailedCommand $Command.ToString() `
+      -ExitCode $exitCode `
+      -Stdout $stdoutText `
+      -Stderr $stderrText
     throw "$Step failed with exit code $exitCode; captured output was suppressed"
   }
 }
@@ -451,51 +826,31 @@ function Invoke-CapturedExternal {
   )
 
   $script:currentStep = $Step
-  $previousPreference = $ErrorActionPreference
-  $ErrorActionPreference = 'Continue'
-  try {
-    $global:LASTEXITCODE = 0
-    if ($null -ne $InputText) {
-      $output = $InputText | & $FilePath @Arguments 2>&1
-    } else {
-      $output = & $FilePath @Arguments 2>&1
-    }
-    $exitCode = $LASTEXITCODE
-  } finally {
-    $ErrorActionPreference = $previousPreference
-  }
-  if ($exitCode -ne 0) {
+  $capture = Invoke-ExternalCommandCapture `
+    -FilePath $FilePath `
+    -Arguments $Arguments `
+    -InputText $InputText
+  if ($capture.exitCode -ne 0) {
+    Set-PrimaryFailureDiagnostics `
+      -Stage $Step `
+      -FailedCommand ("$FilePath " + ($Arguments -join ' ')) `
+      -ExitCode $capture.exitCode `
+      -Stdout $capture.stdout `
+      -Stderr $capture.stderr
     if ($SanitizeFailureOutput) {
-      $safeOutput = (($output | ForEach-Object { [string]$_ }) -join [Environment]::NewLine)
-      foreach ($secret in $script:secretValues) {
-        $safeOutput = $safeOutput.Replace($secret, '[REDACTED]')
-      }
-      $safeOutput = $safeOutput.Replace($workspace, '<workspace>')
-      $safeOutput = [regex]::Replace(
-        $safeOutput,
-        '(?i)(password|secret(?:_id)?|token|authorization|access[_-]?key)(\s*[:=]\s*)[^\s,;]+',
-        '$1$2[REDACTED]'
-      )
-      $safeOutput = [regex]::Replace(
-        $safeOutput,
-        '\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b',
-        '[REDACTED_JWT]'
-      )
-      $safeOutput = [regex]::Replace(
-        $safeOutput,
-        '\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\b',
-        '<uuid>'
-      )
-      foreach ($line in @($safeOutput -split '\r?\n' | Select-Object -Last 20)) {
-        if ($line.Length -gt 500) {
-          $line = $line.Substring(0, 500) + '...'
-        }
+      $combinedFailureOutput = @($capture.stdout, $capture.stderr) -join `
+        [Environment]::NewLine
+      foreach ($line in @(
+        ConvertTo-SanitizedDiagnosticLines `
+          -Text $combinedFailureOutput `
+          -Tail 20
+      )) {
         [Console]::Error.WriteLine("SANITIZED_EXTERNAL_FAILURE[$Step]: $line")
       }
     }
-    throw "$Step failed with exit code $exitCode; captured output was suppressed"
+    throw "$Step failed with exit code $($capture.exitCode); captured output was suppressed"
   }
-  return (($output | ForEach-Object { [string]$_ }) -join [Environment]::NewLine).Trim()
+  return (@($capture.stdout, $capture.stderr) -join [Environment]::NewLine).Trim()
 }
 
 function Invoke-ExpectedFailureCaptured {
@@ -507,22 +862,16 @@ function Invoke-ExpectedFailureCaptured {
   )
 
   $script:currentStep = $Step
-  $previousPreference = $ErrorActionPreference
-  $ErrorActionPreference = 'Continue'
-  try {
-    $global:LASTEXITCODE = 0
-    $output = & $FilePath @Arguments 2>&1
-    $exitCode = $LASTEXITCODE
-  } finally {
-    $ErrorActionPreference = $previousPreference
-  }
-  $captured = (($output | ForEach-Object { [string]$_ }) -join [Environment]::NewLine)
+  $capture = Invoke-ExternalCommandCapture `
+    -FilePath $FilePath `
+    -Arguments $Arguments
+  $captured = @($capture.stdout, $capture.stderr) -join [Environment]::NewLine
   foreach ($secret in $script:secretValues) {
     if ($captured.IndexOf($secret, [StringComparison]::Ordinal) -ge 0) {
       throw 'An expected-failure command exposed a disposable credential'
     }
   }
-  if ($exitCode -eq 0) {
+  if ($capture.exitCode -eq 0) {
     throw "$Step unexpectedly succeeded"
   }
   if ($captured.IndexOf($ExpectedText, [StringComparison]::Ordinal) -lt 0) {
@@ -2277,7 +2626,7 @@ function Write-SanitizedReport {
   ))) {
     throw 'The report filename must equal ProjectName'
   }
-  $reportJson = $summary | ConvertTo-Json -Depth 5
+  $reportJson = $summary | ConvertTo-Json -Depth 8
   foreach ($secret in $secretValues) {
     if ($reportJson.IndexOf($secret, [StringComparison]::Ordinal) -ge 0) {
       throw 'Refusing to write a report containing a disposable credential'
@@ -2671,10 +3020,30 @@ try {
     $summary.deployRollbackSmoke = 'SKIPPED_FOCAL'
     $summary.deployLegacyCutoverSmoke = 'SKIPPED_FOCAL'
   }
-  Invoke-CheckedCommand -Step 'compose-infrastructure-up' -Command {
-    docker compose @composeArguments up --build -d --wait --wait-timeout 420 `
-      postgres redis minio clamav vault
-  }
+  $composeUpArguments = @('compose') + $composeArguments + @(
+    'up',
+    '--build',
+    '-d',
+    '--wait',
+    '--wait-timeout',
+    '420',
+    'postgres',
+    'redis',
+    'minio',
+    'clamav',
+    'vault'
+  )
+  $composeFileForDiagnostics = $composeFile.Replace($workspace, '<workspace>')
+  $null = Invoke-DiagnosticExternal `
+    -Step 'compose-infrastructure-up' `
+    -FilePath 'docker' `
+    -Arguments $composeUpArguments `
+    -CommandDescription (
+      "docker compose --project-name $ProjectName --file " +
+        "$composeFileForDiagnostics --profile phase0-validation up --build " +
+        '-d --wait --wait-timeout 420 postgres redis minio clamav vault'
+    ) `
+    -CollectComposeDiagnostics
   $minioValidationImageId = Assert-LocalBuildImageOwnership `
     -ImageTag $minioValidationImage `
     -Service 'minio'
@@ -2934,6 +3303,17 @@ try {
 } catch {
   $failure = $_
   $summary.failedStep = $currentStep
+  if ($null -eq $summary.failureDiagnostics.stage) {
+    Set-PrimaryFailureDiagnostics `
+      -Stage $currentStep `
+      -FailedCommand "validator block: $currentStep" `
+      -ExitCode $null `
+      -Stdout '' `
+      -Stderr ([string]$_.Exception.Message)
+  }
+  if ($stackOwnedByThisRun -and $summary.failureDiagnostics.composePs.Count -eq 0) {
+    Invoke-ComposeFailureDiagnosticsSafely
+  }
 } finally {
   if ($stackOwnedByThisRun) {
     try {
@@ -2977,9 +3357,11 @@ try {
       }
       $summary.composeDown = 'PASS'
       $summary.volumesDeleted = -not [bool]$PreserveEvidence
+      $summary.failureDiagnostics.cleanupResult = 'PASS'
     } catch {
       $summary.status = 'FAIL'
       $summary.composeDown = 'FAIL'
+      $summary.failureDiagnostics.cleanupResult = 'FAIL'
       if ($null -eq $failure) {
         $failure = $_
         $summary.failedStep = $currentStep
@@ -3000,6 +3382,7 @@ try {
       $summary.localResourcesDeleted = $true
     } catch {
       $summary.status = 'FAIL'
+      $summary.failureDiagnostics.cleanupResult = 'FAIL'
       if ($null -eq $failure) {
         $failure = $_
         $summary.failedStep = 'local-resource-cleanup'
@@ -3008,6 +3391,16 @@ try {
   }
   Set-Location -LiteralPath $originalLocation
   Restore-TrackedEnvironment
+  if (
+    $null -ne $failure -and
+    $summary.failureDiagnostics.cleanupResult -eq 'NOT_RUN'
+  ) {
+    $summary.failureDiagnostics.cleanupResult = if ($PreserveEvidence) {
+      'EVIDENCE_PRESERVED'
+    } else {
+      'NOT_REQUIRED'
+    }
+  }
 }
 
 $completedAt = [DateTime]::UtcNow
@@ -3029,10 +3422,10 @@ try {
   }
 }
 
-$summary | ConvertTo-Json -Depth 5
+$summary | ConvertTo-Json -Depth 8
 if ($null -ne $failure) {
   [Console]::Error.WriteLine(
-    "CFDI Phase 0 validation failed at step '$($summary.failedStep)'. Captured output and disposable credentials were not reported."
+    "CFDI Phase 0 validation failed at step '$($summary.failedStep)'. Sanitized diagnostics were written to the validation report."
   )
   exit 1
 }
