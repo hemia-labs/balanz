@@ -590,8 +590,8 @@ function Assert-LocalBuildImageOwnership {
   $image = $images[0]
   $labels = $image.Config.Labels
   if (
-    $labels.'com.docker.compose.project' -cne $ProjectName -or
-    $labels.'com.docker.compose.service' -cne $Service
+    $labels.'com.balanz.validation.run' -cne $ProjectName -or
+    $labels.'com.balanz.validation.service' -cne $Service
   ) {
     throw "Refusing local image access because $Service ownership labels differ"
   }
@@ -2521,6 +2521,7 @@ try {
     API_PORT = [string]$ports.API_PORT
     WORKER_HEALTH_PORT = [string]$ports.WORKER_HEALTH_PORT
     CFDI_WORKSPACE_ROOT = $workspace
+    CFDI_VALIDATION_RUN_ID = $ProjectName
     CFDI_DEPLOY_SMOKE_IMAGE = $deploySmokeImage
     RUNTIME_API_ENV_FILE = (Join-Path $runtimeEnvRoot '.env.api')
     RUNTIME_WORKER_ENV_FILE = (Join-Path $runtimeEnvRoot '.env.worker')

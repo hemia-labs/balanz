@@ -54,6 +54,9 @@ services:
     build:
       context: minio
       dockerfile: Dockerfile
+      labels:
+        com.balanz.validation.run: ${CFDI_VALIDATION_RUN_ID:-manual-development}
+        com.balanz.validation.service: minio
     restart: "no"
     command: server /data --console-address ":9001"
     environment:
@@ -177,6 +180,9 @@ services:
     build:
       context: deploy-smoke
       dockerfile: Dockerfile
+      labels:
+        com.balanz.validation.run: ${CFDI_VALIDATION_RUN_ID:-manual-development}
+        com.balanz.validation.service: deploy-control-smoke
     restart: "no"
     user: "0:0"
     working_dir: /workspace
