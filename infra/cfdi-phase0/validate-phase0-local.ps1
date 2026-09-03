@@ -14,7 +14,7 @@ param(
 
   [string]$StorageRoot = '',
 
-  [ValidateSet('Full', 'RuntimeFocal', 'RedisOfflineFocal')]
+  [ValidateSet('Full', 'RuntimeFocal', 'RedisOfflineFocal', 'VaultOnlyFocal')]
   [string]$ValidationMode = 'Full',
 
   [switch]$PreserveEvidence
@@ -59,6 +59,7 @@ $deploySmokeImage = "balanz/deploy-smoke:$ProjectName"
 $minioValidationImage = "balanz/minio:cfdi-phase0-$ProjectName"
 $startedAt = [DateTime]::UtcNow
 $currentStep = 'preflight'
+$vaultOnly = $ValidationMode -eq 'VaultOnlyFocal'
 $failure = $null
 $stackOwnedByThisRun = $false
 $storageRootOwnedByThisRun = $false
@@ -110,6 +111,12 @@ $summary = [ordered]@{
   services = 'NOT_RUN'
   localStorage = 'NOT_RUN'
   vault = 'NOT_RUN'
+  vaultTlsInit = 'NOT_RUN'
+  vaultTlsVolume = 'NOT_RUN'
+  vaultProcessUser = 'NOT_RUN'
+  vaultCaExport = 'NOT_RUN'
+  vaultHttps = 'NOT_RUN'
+  vaultPrivateKeyExport = 'NOT_RUN'
   vaultPolicyIsolation = 'NOT_RUN'
   releaseProcessDefinition = 'NOT_RUN'
   deployRuntimeIsolationSmoke = 'NOT_RUN'
@@ -416,6 +423,16 @@ function ConvertTo-SanitizedDiagnosticLines {
   $safeText = $safeText.Replace($workspace, '<workspace>')
   $safeText = [regex]::Replace(
     $safeText,
+    '(?im)^.*(?:Root Token|Unseal Key|VAULT_DEV_ROOT_TOKEN_ID).*$',
+    '[REDACTED_VAULT_SECRET_LINE]'
+  )
+  $safeText = [regex]::Replace(
+    $safeText,
+    '(?is)-----BEGIN [^-\r\n]*PRIVATE KEY-----.*?-----END [^-\r\n]*PRIVATE KEY-----',
+    '[REDACTED_PRIVATE_KEY]'
+  )
+  $safeText = [regex]::Replace(
+    $safeText,
     '(?i)\b(?:postgres(?:ql)?|redis(?:s)?|mysql|mongodb(?:\+srv)?):\/\/[^\s''"<>]+',
     '[REDACTED_CONNECTION_STRING]'
   )
@@ -650,7 +667,12 @@ function Get-ComposeFailureDiagnostics {
   $failedServices = @(
     $composeState |
       Where-Object {
-        $_.service -and (
+        $successfulVaultTlsInit = (
+          $_.service -ceq 'vault-tls-init' -and
+          $_.state -ieq 'exited' -and
+          $_.exitCode -eq '0'
+        )
+        $_.service -and -not $successfulVaultTlsInit -and (
           $_.state -ine 'running' -or
           $_.health -ieq 'unhealthy' -or
           ($composeWaitTimedOut -and $_.health -ieq 'starting') -or
@@ -1059,6 +1081,7 @@ function Assert-ComposeResourceOwnership {
       'minio',
       'minio-bootstrap',
       'clamav',
+      'vault-tls-init',
       'vault',
       'deploy-control-smoke',
       'runtime-storage-init',
@@ -1085,7 +1108,8 @@ function Assert-ComposeResourceOwnership {
       'cfdi_phase0_redis',
       'cfdi_phase0_minio',
       'cfdi_phase0_clamav_signatures',
-      'cfdi_phase0_runtime_storage'
+      'cfdi_phase0_runtime_storage',
+      'cfdi_phase0_vault_tls'
     )
     if ($volumeKey -notin $allowedVolumes) {
       throw 'Refusing cleanup because a volume has an unexpected Compose volume label'
@@ -1143,6 +1167,171 @@ function Assert-HealthyComposeService {
   if ($state -ne 'healthy') {
     throw "The $Service service did not reach healthy state"
   }
+}
+
+function Assert-VaultTlsVolumeLifecycle {
+  param([Parameter(Mandatory = $true)][string]$VaultContainerId)
+
+  $initContainerId = Get-ComposeContainerId `
+    -Service 'vault-tls-init' `
+    -IncludeStopped
+  $initState = Invoke-CapturedExternal `
+    -Step 'inspect-vault-tls-init-state' `
+    -FilePath 'docker' `
+    -Arguments @(
+      'inspect',
+      '--format',
+      '{{.State.Status}}:{{.State.ExitCode}}',
+      $initContainerId
+    )
+  if ($initState -cne 'exited:0') {
+    throw 'The Vault TLS initializer did not complete successfully'
+  }
+
+  $volumeSources = @()
+  foreach ($container in @($initContainerId, $VaultContainerId)) {
+    $mountJson = Invoke-CapturedExternal `
+      -Step 'inspect-vault-tls-mount' `
+      -FilePath 'docker' `
+      -Arguments @('inspect', '--format', '{{json .Mounts}}', $container)
+    $mounts = @($mountJson | ConvertFrom-Json)
+    $tlsMounts = @(
+      $mounts | Where-Object { [string]$_.Destination -ceq '/vault/tls' }
+    )
+    if (
+      $tlsMounts.Count -ne 1 -or
+      [string]$tlsMounts[0].Type -cne 'volume' -or
+      -not [bool]$tlsMounts[0].RW
+    ) {
+      throw 'Vault TLS must use exactly one writable private Docker volume'
+    }
+    $volumeSources += [string]$tlsMounts[0].Name
+  }
+  if (
+    $volumeSources.Count -ne 2 -or
+    $volumeSources[0] -cne $volumeSources[1] -or
+    $volumeSources[0] -cne "$ProjectName`_cfdi_phase0_vault_tls"
+  ) {
+    throw 'Vault and its TLS initializer do not share the project-owned TLS volume'
+  }
+  Assert-ComposeResourceOwnership `
+    -Kind 'volume' `
+    -ResourceId $volumeSources[0]
+
+  $tlsDirectoryState = Invoke-CapturedExternal `
+    -Step 'inspect-vault-tls-directory' `
+    -FilePath 'docker' `
+    -Arguments @(
+      'exec',
+      $VaultContainerId,
+      '/bin/sh',
+      '-ec',
+      'state="$(stat -c %u:%g:%a /vault/tls)"; if su-exec vault test -w /vault/tls; then writable=yes; else writable=no; fi; printf "%s:%s" "$state" "$writable"'
+    )
+  if ($tlsDirectoryState -cne '100:1000:700:yes') {
+    throw 'The Vault TLS directory is not privately writable by the vault user'
+  }
+
+  $vaultEntrypoint = Invoke-CapturedExternal `
+    -Step 'inspect-vault-process-user' `
+    -FilePath 'docker' `
+    -Arguments @('inspect', '--format', '{{json .Config.Entrypoint}}', $VaultContainerId)
+  if ($vaultEntrypoint -cne '["docker-entrypoint.sh"]') {
+    throw 'Vault does not use the pinned image entrypoint'
+  }
+  $vaultImageUser = Invoke-CapturedExternal `
+    -Step 'inspect-vault-process-user' `
+    -FilePath 'docker' `
+    -Arguments @(
+      'exec',
+      $VaultContainerId,
+      '/bin/sh',
+      '-ec',
+      'grep -q ''set -- su-exec vault'' /usr/local/bin/docker-entrypoint.sh; printf "%s:%s" "$(id -u vault)" "$(id -g vault)"'
+    )
+  if ($vaultImageUser -cne '100:1000') {
+    throw 'The pinned Vault image does not reduce to its non-privileged user'
+  }
+
+  return [pscustomobject]@{
+    initState = $initState
+    volume = $volumeSources[0]
+    directory = $tlsDirectoryState
+    processOwner = $vaultImageUser
+  }
+}
+
+function Export-VaultCaToHost {
+  param([Parameter(Mandatory = $true)][string]$VaultContainerId)
+
+  if (Get-ChildItem -LiteralPath $vaultTlsRoot -Force | Select-Object -First 1) {
+    throw 'The Vault CA export directory must be empty before docker cp'
+  }
+  $caPath = Join-Path $vaultTlsRoot 'vault-ca.pem'
+  $null = Invoke-CapturedExternal `
+    -Step 'export-vault-public-ca' `
+    -FilePath 'docker' `
+    -Arguments @(
+      'cp',
+      "$VaultContainerId`:/vault/tls/vault-ca.pem",
+      $caPath
+    )
+  Assert-NoReparseTree -Root $vaultTlsRoot
+  $exportedFiles = @(Get-ChildItem -LiteralPath $vaultTlsRoot -Force)
+  if (
+    $exportedFiles.Count -ne 1 -or
+    $exportedFiles[0].PSIsContainer -or
+    $exportedFiles[0].Name -cne 'vault-ca.pem'
+  ) {
+    throw 'Only vault-ca.pem may be exported from the private TLS volume'
+  }
+  $caContent = [IO.File]::ReadAllText($caPath)
+  if (
+    $caContent -notmatch '-----BEGIN CERTIFICATE-----' -or
+    $caContent -match '-----BEGIN [^-\r\n]*PRIVATE KEY-----'
+  ) {
+    throw 'The exported Vault CA is invalid or contains private key material'
+  }
+  if ($isWindowsHost) {
+    $exportedFiles[0].IsReadOnly = $true
+  } else {
+    & chmod 0444 $caPath
+    if ($LASTEXITCODE -ne 0) {
+      throw 'Could not make the exported Vault CA read-only'
+    }
+  }
+  return $caPath
+}
+
+function Assert-VaultHttpsWithExportedCa {
+  param(
+    [Parameter(Mandatory = $true)][string]$CaPath,
+    [Parameter(Mandatory = $true)][int]$Port
+  )
+
+  $probeScript = @'
+const fs = require('node:fs');
+const https = require('node:https');
+const [url, caPath] = process.argv.slice(1);
+const request = https.get(url, {
+  ca: fs.readFileSync(caPath),
+  timeout: 10000,
+}, (response) => {
+  response.resume();
+  response.on('end', () => process.exit(response.statusCode === 200 ? 0 : 1));
+});
+request.on('timeout', () => request.destroy(new Error('timeout')));
+request.on('error', () => process.exit(1));
+'@
+  $null = Invoke-CapturedExternal `
+    -Step 'verify-vault-https-with-exported-ca' `
+    -FilePath 'node' `
+    -Arguments @(
+      '-e',
+      $probeScript,
+      "https://127.0.0.1:$Port/v1/sys/health",
+      $CaPath
+    )
 }
 
 function Invoke-PostgresAdminSql {
@@ -2632,6 +2821,9 @@ function Write-SanitizedReport {
       throw 'Refusing to write a report containing a disposable credential'
     }
   }
+  if ($reportJson -match '-----BEGIN [^-\r\n]*PRIVATE KEY-----') {
+    throw 'Refusing to write a report containing private key material'
+  }
   $encoding = [Text.UTF8Encoding]::new($false)
   $bytes = $encoding.GetBytes($reportJson + [Environment]::NewLine)
   $stream = [IO.FileStream]::new(
@@ -2701,12 +2893,17 @@ try {
   if (-not (Test-Path -LiteralPath $composeFile -PathType Leaf)) {
     throw 'The Phase 0 Compose manifest was not found'
   }
-  if (-not (Test-Path -LiteralPath $prepareStorageScript -PathType Leaf)) {
+  if (
+    -not $vaultOnly -and
+    -not (Test-Path -LiteralPath $prepareStorageScript -PathType Leaf)
+  ) {
     throw 'The local-storage preparation script was not found'
   }
   Assert-NoReparseAncestor -Path $workspace
   Assert-NoReparseAncestor -Path $composeFile
-  Assert-NoReparseAncestor -Path $prepareStorageScript
+  if (-not $vaultOnly) {
+    Assert-NoReparseAncestor -Path $prepareStorageScript
+  }
 
   $requestedStorageRoot = if ($StorageRoot) {
     if ([IO.Path]::IsPathRooted($StorageRoot)) {
@@ -2888,8 +3085,12 @@ try {
     }
   }
 
-  Assert-ReleaseProcessDefinition
-  $summary.releaseProcessDefinition = 'PASS'
+  if ($vaultOnly) {
+    $summary.releaseProcessDefinition = 'SKIPPED_FOCAL'
+  } else {
+    Assert-ReleaseProcessDefinition
+    $summary.releaseProcessDefinition = 'PASS'
+  }
 
   Invoke-CheckedCommand -Step 'docker-engine' -Command {
     docker info --format '{{.ServerVersion}}'
@@ -2927,37 +3128,47 @@ try {
   if (Get-ChildItem -LiteralPath $vaultTlsRoot -Force | Select-Object -First 1) {
     throw 'Refusing to reuse a non-empty Vault TLS validation root'
   }
-  $storageRootOwnedByThisRun = $true
-  $effectiveStorageRoot = Initialize-PrivateStorageRoot `
-    -RequestedRoot $requestedStorageRoot
-  $summary.localStorage = 'PASS'
-
-  $currentStep = 'prepare-runtime-profile-files'
-  $runtimeEnvRootOwnedByThisRun = $true
-  $runtimeEnvRoot = Initialize-SafeDirectory `
-    -Path $runtimeEnvRoot `
-    -AllowedBase $runtimeEnvBase `
-    -RequireProjectLeaf
-  $runtimeApiEnvFile = Join-Path $runtimeEnvRoot '.env.api'
-  $runtimeWorkerEnvFile = Join-Path $runtimeEnvRoot '.env.worker'
-  $utf8NoBom = [Text.UTF8Encoding]::new($false)
-  [IO.File]::WriteAllText(
-    $runtimeApiEnvFile,
-    "BALANZ_RUNTIME_PROFILE=api`nAPP_GLOBAL_PREFIX=api/v1`n",
-    $utf8NoBom
-  )
-  [IO.File]::WriteAllText(
-    $runtimeWorkerEnvFile,
-    "BALANZ_RUNTIME_PROFILE=worker`nWORKER_HEALTH_PORT=3002`n",
-    $utf8NoBom
-  )
   if (-not $isWindowsHost) {
-    & chmod 600 $runtimeApiEnvFile $runtimeWorkerEnvFile
+    & chmod 700 $vaultTlsRoot
     if ($LASTEXITCODE -ne 0) {
-      throw 'Could not apply private mode to runtime marker env files'
+      throw 'Could not make the Vault CA export directory private'
     }
   }
-  Assert-NoReparseTree -Root $runtimeEnvRoot
+  if ($vaultOnly) {
+    $summary.localStorage = 'SKIPPED_FOCAL'
+  } else {
+    $storageRootOwnedByThisRun = $true
+    $effectiveStorageRoot = Initialize-PrivateStorageRoot `
+      -RequestedRoot $requestedStorageRoot
+    $summary.localStorage = 'PASS'
+
+    $currentStep = 'prepare-runtime-profile-files'
+    $runtimeEnvRootOwnedByThisRun = $true
+    $runtimeEnvRoot = Initialize-SafeDirectory `
+      -Path $runtimeEnvRoot `
+      -AllowedBase $runtimeEnvBase `
+      -RequireProjectLeaf
+    $runtimeApiEnvFile = Join-Path $runtimeEnvRoot '.env.api'
+    $runtimeWorkerEnvFile = Join-Path $runtimeEnvRoot '.env.worker'
+    $utf8NoBom = [Text.UTF8Encoding]::new($false)
+    [IO.File]::WriteAllText(
+      $runtimeApiEnvFile,
+      "BALANZ_RUNTIME_PROFILE=api`nAPP_GLOBAL_PREFIX=api/v1`n",
+      $utf8NoBom
+    )
+    [IO.File]::WriteAllText(
+      $runtimeWorkerEnvFile,
+      "BALANZ_RUNTIME_PROFILE=worker`nWORKER_HEALTH_PORT=3002`n",
+      $utf8NoBom
+    )
+    if (-not $isWindowsHost) {
+      & chmod 600 $runtimeApiEnvFile $runtimeWorkerEnvFile
+      if ($LASTEXITCODE -ne 0) {
+        throw 'Could not apply private mode to runtime marker env files'
+      }
+    }
+    Assert-NoReparseTree -Root $runtimeEnvRoot
+  }
 
   Set-TrackedEnvironment -Name 'VAULT_DEV_ROOT_TOKEN_ID' -Value $vaultRootToken
   Invoke-CheckedCommand -Step 'compose-config' -Command {
@@ -3020,40 +3231,79 @@ try {
     $summary.deployRollbackSmoke = 'SKIPPED_FOCAL'
     $summary.deployLegacyCutoverSmoke = 'SKIPPED_FOCAL'
   }
-  $composeUpArguments = @('compose') + $composeArguments + @(
-    'up',
-    '--build',
+  $infrastructureServices = if ($vaultOnly) {
+    @('vault')
+  } else {
+    @('postgres', 'redis', 'minio', 'clamav', 'vault')
+  }
+  $composeWaitTimeout = if ($vaultOnly) { '55' } else { '420' }
+  $composeUpArguments = @('compose') + $composeArguments + @('up')
+  if (-not $vaultOnly) {
+    $composeUpArguments += '--build'
+  }
+  $composeUpArguments += @(
     '-d',
     '--wait',
     '--wait-timeout',
-    '420',
-    'postgres',
-    'redis',
-    'minio',
-    'clamav',
-    'vault'
-  )
+    $composeWaitTimeout
+  ) + $infrastructureServices
   $composeFileForDiagnostics = $composeFile.Replace($workspace, '<workspace>')
+  $composeBuildDescription = if ($vaultOnly) { '' } else { ' --build' }
+  $composeUpStep = if ($vaultOnly) {
+    'vault-only-up'
+  } else {
+    'compose-infrastructure-up'
+  }
   $null = Invoke-DiagnosticExternal `
-    -Step 'compose-infrastructure-up' `
+    -Step $composeUpStep `
     -FilePath 'docker' `
     -Arguments $composeUpArguments `
     -CommandDescription (
       "docker compose --project-name $ProjectName --file " +
-        "$composeFileForDiagnostics --profile phase0-validation up --build " +
-        '-d --wait --wait-timeout 420 postgres redis minio clamav vault'
+        "$composeFileForDiagnostics --profile phase0-validation up" +
+        "$composeBuildDescription -d --wait --wait-timeout " +
+        "$composeWaitTimeout $($infrastructureServices -join ' ')"
     ) `
     -CollectComposeDiagnostics
-  $minioValidationImageId = Assert-LocalBuildImageOwnership `
-    -ImageTag $minioValidationImage `
-    -Service 'minio'
-  if ($ValidationMode -eq 'Full' -and -not $deploySmokeImageId) {
-    throw 'The Full validator did not record its deploy smoke image'
+  if ($vaultOnly) {
+    $summary.localBuildImages = 'SKIPPED_FOCAL'
+    Assert-HealthyComposeService -Service 'vault'
+  } else {
+    $minioValidationImageId = Assert-LocalBuildImageOwnership `
+      -ImageTag $minioValidationImage `
+      -Service 'minio'
+    if ($ValidationMode -eq 'Full' -and -not $deploySmokeImageId) {
+      throw 'The Full validator did not record its deploy smoke image'
+    }
+    $summary.localBuildImages = 'PASS'
+    foreach ($service in $infrastructureServices) {
+      Assert-HealthyComposeService -Service $service
+    }
   }
-  $summary.localBuildImages = 'PASS'
-  foreach ($service in @('postgres', 'redis', 'minio', 'clamav', 'vault')) {
-    Assert-HealthyComposeService -Service $service
-  }
+  $vaultContainerId = Get-ComposeContainerId -Service 'vault'
+  $null = Assert-VaultTlsVolumeLifecycle -VaultContainerId $vaultContainerId
+  $summary.vaultTlsInit = 'PASS'
+  $summary.vaultTlsVolume = 'PASS'
+  $summary.vaultProcessUser = 'PASS'
+  $vaultCaPath = Export-VaultCaToHost -VaultContainerId $vaultContainerId
+  $summary.vaultCaExport = 'PASS'
+  $summary.vaultPrivateKeyExport = 'ABSENT'
+  Assert-VaultHttpsWithExportedCa `
+    -CaPath $vaultCaPath `
+    -Port $ports.VAULT_PORT
+  $summary.vaultHttps = 'PASS'
+
+  if ($vaultOnly) {
+    $summary.services = 'PASS'
+    $summary.vault = 'PASS'
+    Assert-AllComposeResourcesOwned
+    $summary.cleanupOwnership = 'PASS'
+    Invoke-CheckedCommand -Step 'vault-only-stop' -Command {
+      docker compose @composeArguments stop --timeout 15 vault
+    }
+    Assert-ComposeServiceStopped -Service 'vault'
+    $summary.status = 'FOCAL_PASS'
+  } else {
   Invoke-CheckedCommand -Step 'minio-bootstrap' -Command {
     docker compose @composeArguments run --rm --no-deps minio-bootstrap
   }
@@ -3086,7 +3336,6 @@ try {
       -Sql "DROP ROLE IF EXISTS $negativeMigrator;"
   }
 
-  $vaultContainerId = Get-ComposeContainerId -Service 'vault'
   $vaultCredentials = Initialize-EphemeralVault `
     -ApiPassword $apiDatabasePassword `
     -WorkerPassword $workerDatabasePassword `
@@ -3300,6 +3549,7 @@ try {
     -Step 'vault-revoke-bootstrap-token' `
     -Arguments @('token', 'revoke', '-self')
   $summary.status = if ($ValidationMode -eq 'Full') { 'PASS' } else { 'FOCAL_PASS' }
+  }
 } catch {
   $failure = $_
   $summary.failedStep = $currentStep

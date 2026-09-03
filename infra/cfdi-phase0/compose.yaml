@@ -136,16 +136,34 @@ services:
     volumes:
       - cfdi_phase0_clamav_signatures:/var/lib/clamav
 
+  vault-tls-init:
+    profiles: ["phase0-validation"]
+    image: hashicorp/vault:1.20.4@sha256:268bb80aa9c6d13d65fcfa05c0c268caca068952240a8087291a6ce0b66e3a10
+    restart: "no"
+    user: "0:0"
+    entrypoint: ["/bin/sh", "-ec"]
+    command:
+      - |
+        mkdir -p /vault/tls
+        chown vault:vault /vault/tls
+        chmod 0700 /vault/tls
+    volumes:
+      - cfdi_phase0_vault_tls:/vault/tls
+
   vault:
     profiles: ["phase0-validation"]
     image: hashicorp/vault:1.20.4@sha256:268bb80aa9c6d13d65fcfa05c0c268caca068952240a8087291a6ce0b66e3a10
     restart: "no"
     user: "0"
+    depends_on:
+      vault-tls-init:
+        condition: service_completed_successfully
     cap_add:
       - IPC_LOCK
     command:
       - server
       - -dev
+      - -dev-no-store-token
       - -dev-tls
       - -dev-tls-cert-dir=/vault/tls
       - -dev-listen-address=0.0.0.0:8200
@@ -166,8 +184,8 @@ services:
       timeout: 2s
       retries: 30
     volumes:
-      - type: bind
-        source: ${VAULT_TLS_DIR:-./.local/vault-tls}
+      - type: volume
+        source: cfdi_phase0_vault_tls
         target: /vault/tls
     # Vault dev mode prints its bootstrap token. Disable container logging so
     # the disposable root credential never enters Docker or CI logs.
@@ -415,3 +433,4 @@ volumes:
   cfdi_phase0_minio:
   cfdi_phase0_clamav_signatures:
   cfdi_phase0_runtime_storage:
+  cfdi_phase0_vault_tls:
