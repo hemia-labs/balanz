@@ -21,16 +21,22 @@ un cambio inseguro al activarlas.
 ### 1.1 Perfiles de proceso y credenciales
 
 La configuración runtime no es un grafo compartido. El entrypoint API aplica el
-perfil inmutable `api`; el entrypoint worker aplica `worker`. Los archivos
-preferidos son `.env.api.local` y `.env.worker.local`, respectivamente, con
-plantillas sin secretos en `.env.api.example` y `.env.worker.example`.
-`.env.example` es sólo el catálogo completo para tooling explícito.
+perfil inmutable `api`; el entrypoint worker aplica `worker`. En desarrollo
+local, los archivos preferidos son `.env.api.local` y `.env.worker.local`,
+respectivamente, con plantillas sin secretos en `.env.api.example` y
+`.env.worker.example`. `.env.example` es sólo el catálogo completo para tooling
+explícito. En producción, `ConfigModule` ignora todos los archivos `.env*` del
+repositorio: el wrapper aislado inicia cada proceso con `env -i` y Node carga
+únicamente `runtime-config/<release>/api/runtime.env` o
+`runtime-config/<release>/worker/runtime.env`. Web no recibe archivo de secretos
+y el migrator usa un archivo efímero externo al release que se elimina antes de
+activar los runtimes.
 
-| Proceso | Puede cargar | Rechaza/no carga | Identidad PostgreSQL |
-| ------- | ------------ | ---------------- | -------------------- |
-| API | app, auth, cookies, email, Redis, plataforma fiscal y su scope Vault | `DB_WORKER_*`; credencial migrator | sólo `DB_API_*` o `database/postgres-api` |
-| Worker | Redis wakeup, plataforma fiscal, Horus y su scope Vault | `DB_API_*`, `JWT_*`, `MFA_*`, `EMAIL_*`, app/cookies/auth y credencial migrator | sólo `DB_WORKER_*` o `database/postgres-worker` |
-| Release/provisioner explícito | migraciones/seeds y, sólo el provisioner con doble gate, ambos LOGINs runtime | no es un proceso servidor | `DB_USERNAME/PASSWORD` y paths estrictamente requeridos por el comando |
+| Proceso                       | Puede cargar                                                                  | Rechaza/no carga                                                                | Identidad PostgreSQL                                                   |
+| ----------------------------- | ----------------------------------------------------------------------------- | ------------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
+| API                           | app, auth, cookies, email, Redis, plataforma fiscal y su scope Vault          | `DB_WORKER_*`; credencial migrator                                              | sólo `DB_API_*` o `database/postgres-api`                              |
+| Worker                        | Redis wakeup, plataforma fiscal, Horus y su scope Vault                       | `DB_API_*`, `JWT_*`, `MFA_*`, `EMAIL_*`, app/cookies/auth y credencial migrator | sólo `DB_WORKER_*` o `database/postgres-worker`                        |
+| Release/provisioner explícito | migraciones/seeds y, sólo el provisioner con doble gate, ambos LOGINs runtime | no es un proceso servidor                                                       | `DB_USERNAME/PASSWORD` y paths estrictamente requeridos por el comando |
 
 Un valor no vacío de otro perfil hace fallar el arranque; no se ignora ni se
 serializa en `ConfigService`. API y worker tampoco reciben `DB_USERNAME` ni
@@ -44,22 +50,23 @@ provisioner efímero autorizado puede resolver ambos paths runtime.
 
 ## 2. Ambiente y Redis wakeup
 
-| Variable                   | Tipo/rango                    | Desarrollo                | Producción                      | Secreto | Falla/nota                                                    |
-| -------------------------- | ----------------------------- | ------------------------- | ------------------------------- | ------- | ------------------------------------------------------------- |
-| `NODE_ENV`                 | `development/test/production` | `development`             | explícito `production`          | no      | Controla prohibiciones; valor inválido no inicia.             |
-| `SECRETS_ENABLED`          | boolean                       | `false` o Vault de dev    | según despliegue                | no      | Si es `true` en producción, exige scope `prod`.               |
-| `SECRETS_ENVIRONMENT`      | `dev/qa/staging/prod`         | `dev`                     | obligatorio `prod` con Vault    | no      | Impide que un proceso productivo consuma secretos de dev.     |
-| `SECRETS_SYSTEM`           | taxonomía Vault no vacía      | `api` existente           | obligatorio explícito con Vault | no      | No implica identidad; AppRole y perfil restringen paths.      |
-| `REDIS_ENABLED`            | boolean                       | `true`                    | según política de sesión        | no      | Redis puede deshabilitarse; PostgreSQL conserva autoridad.    |
-| `REDIS_HOST`               | host                          | `localhost`               | secret/config service           | no      | Ausencia hace Redis no disponible, no corrompe jobs.          |
-| `REDIS_PORT`               | 1–65535                       | `6379`                    | explícito                       | no      | Valor inválido no inicia.                                     |
-| `REDIS_PASSWORD`           | string                        | vacío local               | secret manager si aplica        | sí      | Nunca en logs.                                                |
-| `REDIS_DB`                 | 0–15                          | `0`                       | explícito                       | no      | No usar para aislar ambientes sin prefijo.                    |
-| `REDIS_KEY_PREFIX`         | string no vacía               | `balanz:`                 | prefijo único por ambiente      | no      | La sesión/cache conserva su prefijo existente.                |
-| `REDIS_CONNECT_TIMEOUT_MS` | entero >0                     | `1000`                    | explícito medido                | no      | Timeout degrada Redis, no readiness fiscal.                   |
-| `REDIS_WAKEUP_ENABLED`     | boolean                       | `true`                    | `true` salvo decisión operativa | no      | `false` deja polling activo.                                  |
-| `REDIS_WAKEUP_PREFIX`      | `[A-Za-z0-9:_-]+`             | `balanz:ingestion:wakeup` | único por ambiente              | no      | Canal efectivo agrega `NODE_ENV`; sin payload fiscal.         |
-| `REDIS_WAKEUP_TIMEOUT_MS`  | entero `50..5000`             | `500`                     | `500`                           | no      | Acota publicación best-effort aun con conexión medio abierta. |
+| Variable                   | Tipo/rango                    | Desarrollo                                        | Producción                      | Secreto | Falla/nota                                                                                                            |
+| -------------------------- | ----------------------------- | ------------------------------------------------- | ------------------------------- | ------- | --------------------------------------------------------------------------------------------------------------------- |
+| `NODE_ENV`                 | `development/test/production` | `development`                                     | explícito `production`          | no      | Controla prohibiciones; valor inválido no inicia.                                                                     |
+| `SECRETS_ENABLED`          | boolean                       | `false` o Vault de dev                            | según despliegue                | no      | Si es `true` en producción, exige scope `prod`.                                                                       |
+| `SECRETS_ENVIRONMENT`      | `dev/qa/staging/prod`         | `dev`                                             | obligatorio `prod` con Vault    | no      | Impide que un proceso productivo consuma secretos de dev.                                                             |
+| `SECRETS_SYSTEM`           | taxonomía Vault no vacía      | `api` existente                                   | obligatorio explícito con Vault | no      | No implica identidad; AppRole y perfil restringen paths.                                                              |
+| `DB_LOGGING`               | boolean                       | `false`; `true` sólo diagnóstico local controlado | obligatorio `false`             | no      | API/worker productivos fallan antes de crear el pool si el valor efectivo, incluido `db_logging` de Vault, es `true`. |
+| `REDIS_ENABLED`            | boolean                       | `true`                                            | según política de sesión        | no      | Redis puede deshabilitarse; PostgreSQL conserva autoridad.                                                            |
+| `REDIS_HOST`               | host                          | `localhost`                                       | secret/config service           | no      | Ausencia hace Redis no disponible, no corrompe jobs.                                                                  |
+| `REDIS_PORT`               | 1–65535                       | `6379`                                            | explícito                       | no      | Valor inválido no inicia.                                                                                             |
+| `REDIS_PASSWORD`           | string                        | vacío local                                       | secret manager si aplica        | sí      | Nunca en logs.                                                                                                        |
+| `REDIS_DB`                 | 0–15                          | `0`                                               | explícito                       | no      | No usar para aislar ambientes sin prefijo.                                                                            |
+| `REDIS_KEY_PREFIX`         | string no vacía               | `balanz:`                                         | prefijo único por ambiente      | no      | La sesión/cache conserva su prefijo existente.                                                                        |
+| `REDIS_CONNECT_TIMEOUT_MS` | entero >0                     | `1000`                                            | explícito medido                | no      | Timeout degrada Redis, no readiness fiscal.                                                                           |
+| `REDIS_WAKEUP_ENABLED`     | boolean                       | `true`                                            | `true` salvo decisión operativa | no      | `false` deja polling activo.                                                                                          |
+| `REDIS_WAKEUP_PREFIX`      | `[A-Za-z0-9:_-]+`             | `balanz:ingestion:wakeup`                         | único por ambiente              | no      | Canal efectivo agrega `NODE_ENV`; sin payload fiscal.                                                                 |
+| `REDIS_WAKEUP_TIMEOUT_MS`  | entero `50..5000`             | `500`                                             | `500`                           | no      | Acota publicación best-effort aun con conexión medio abierta.                                                         |
 
 Redis wakeup nunca almacena estado, usa `KEYS`, lleva RFC/filename/scope/secreto
 ni publica antes del commit. `publish` y `subscribe` fallidos incrementan
@@ -104,32 +111,33 @@ convierte el archivo en clean ni activa bypass.
 
 ## 5. Worker durable
 
-| Variable                        | Tipo/rango   | Valor bloqueado/default | Producción                       | Secreto | Falla/nota                                                                        |
-| ------------------------------- | ------------ | ----------------------: | -------------------------------- | ------- | --------------------------------------------------------------------------------- |
-| `WORKER_CONCURRENCY`            | entero 1–32  |                     `4` | explícito según capacidad        | no      | Se aplica como límite total, con fairness.                                        |
-| `WORKER_LEASE_SECONDS`          | entero       |                    `90` | `90`                             | no      | Otro valor no inicia en F0.                                                       |
-| `WORKER_HEARTBEAT_SECONDS`      | entero       |                    `20` | `20`                             | no      | Debe ser < un tercio del lease.                                                   |
-| `WORKER_MAX_ATTEMPTS`           | entero       |                     `3` | `3`                              | no      | Máximo de ejecuciones totales, incluida la inicial.                               |
-| `WORKER_BACKOFF_SECONDS`        | lista exacta |             `10,30,120` | igual                            | no      | 10/30 preceden ejecuciones 2/3; 120 queda reservado y nunca habilita ejecución 4. |
-| `WORKER_BACKOFF_JITTER_PERCENT` | 0–50         |                    `20` | explícito                        | no      | Jitter aplicado por intento.                                                      |
-| `WORKER_POLL_INTERVAL_MS`       | 100–60000    |                  `5000` | explícito según SLO/carga        | no      | Polling siempre activo aun con Redis.                                             |
-| `WORKER_RECONCILE_INTERVAL_MS`  | 1000–3600000 |                 `60000` | explícito                        | no      | Reconciliadores idempotentes.                                                     |
-| `WORKER_SHUTDOWN_GRACE_MS`      | 1000–120000  |                 `30000` | menor que ventana de orquestador | no      | Deja de reclamar y cierra seguro.                                                 |
-| `WORKER_HEALTH_HOST`            | host         |             `127.0.0.1` | interfaz privada                 | no      | No exponer probes públicamente.                                                   |
-| `WORKER_HEALTH_PORT`            | 1–65535      |                  `3002` | explícito                        | no      | No comparte autoridad con API.                                                    |
+| Variable                        | Tipo/rango   | Valor bloqueado/default | Producción                       | Secreto | Falla/nota                                                                   |
+| ------------------------------- | ------------ | ----------------------: | -------------------------------- | ------- | ---------------------------------------------------------------------------- |
+| `WORKER_CONCURRENCY`            | entero 1–32  |                     `4` | explícito según capacidad        | no      | Se aplica como límite total, con fairness.                                   |
+| `WORKER_LEASE_SECONDS`          | entero       |                    `90` | `90`                             | no      | Otro valor no inicia en F0.                                                  |
+| `WORKER_HEARTBEAT_SECONDS`      | entero       |                    `20` | `20`                             | no      | Debe ser < un tercio del lease.                                              |
+| `WORKER_MAX_ATTEMPTS`           | entero       |                     `4` | `4`                              | no      | Ejecuciones presupuestadas del ciclo normal; no limita claims tras shutdown. |
+| `WORKER_MAX_RETRIES`            | entero       |                     `3` | `3`                              | no      | Presupuesto durable de reintentos automáticos tras fallo o lease vencido.    |
+| `WORKER_BACKOFF_SECONDS`        | lista exacta |             `10,30,120` | igual                            | no      | Precede los reintentos automáticos 1/2/3, cada valor con jitter.             |
+| `WORKER_BACKOFF_JITTER_PERCENT` | 0–50         |                    `20` | explícito                        | no      | Jitter aplicado por intento.                                                 |
+| `WORKER_POLL_INTERVAL_MS`       | 100–60000    |                  `5000` | explícito según SLO/carga        | no      | Polling siempre activo aun con Redis.                                        |
+| `WORKER_RECONCILE_INTERVAL_MS`  | 1000–3600000 |                 `60000` | explícito                        | no      | Reconciliadores idempotentes.                                                |
+| `WORKER_SHUTDOWN_GRACE_MS`      | 1000–120000  |                 `30000` | menor que ventana de orquestador | no      | Deja de reclamar y cierra seguro.                                            |
+| `WORKER_HEALTH_HOST`            | host         |             `127.0.0.1` | interfaz privada                 | no      | No exponer probes públicamente.                                              |
+| `WORKER_HEALTH_PORT`            | 1–65535      |                  `3002` | explícito                        | no      | No comparte autoridad con API.                                               |
 
 `worker_id` es identidad efímera generada por proceso/replica con formato
 acotado; no se configura con un secreto ni se reutiliza como credencial.
 
 ### 5.1 Decisión de conteo de intentos
 
-El material de entrada alterna “máximo de tres intentos” y “máximo de tres
-intentos automáticos”. Por precedencia, la instrucción directa de esta ejecución
-fija `WORKER_MAX_ATTEMPTS=3` como **tres ejecuciones totales**, incluida la
-inicial. Los valores 10 y 30 de `WORKER_BACKOFF_SECONDS` preceden a las
-ejecuciones 2 y 3. El valor 120 se conserva como reserva compatible, no se
-consume y no autoriza un cuarto claim. Un fallo retryable en la ejecución 3
-queda terminal. Esta semántica no varía por ambiente.
+`WORKER_MAX_RETRIES=3` concede tres reintentos automáticos además de la
+ejecución inicial. Los valores 10, 30 y 120 de `WORKER_BACKOFF_SECONDS`
+preceden cada reintento y la cuarta ejecución fallida queda terminal.
+`automatic_retry_count` avanza sólo por fallo retryable o lease vencido;
+shutdown gracioso vuelve a `queued` sin consumirlo. `attempt_count` registra
+todos los claims y por ello puede superar 4. Esta semántica no varía por
+ambiente.
 
 ## 6. Retención y reconciliación
 
@@ -184,16 +192,16 @@ o header. Registrarlos no añade parser/extractor ni una ruta de carga.
 
 ## 8. RLS
 
-| Setting             | Fuente                         | Valor                                  | Regla                                                          |
-| ------------------- | ------------------------------ | -------------------------------------- | -------------------------------------------------------------- |
-| GUC organización    | constante de código/migración  | `app.organization_id`                  | UUID válido; sólo `SET LOCAL` dentro de transacción.           |
-| GUC membresía       | constante de código/migración  | `app.membership_id`                    | UUID válido/autorizado cuando la policy lo use.                |
-| Grupo API           | migración                      | `balanz_api` (`NOLOGIN`)               | no owner, no superuser, no BYPASSRLS; grants fiscales mínimos. |
-| Grupo worker        | migración                      | `balanz_worker` (`NOLOGIN`)            | igual; sólo este grupo recibe además `EXECUTE` de claim.       |
-| LOGIN API           | secret manager/DB provisioning | dedicado, p. ej. `balanz_api_login`    | miembro sólo de `balanz_api`; nunca migrator/owner/worker.     |
-| LOGIN worker        | secret manager/DB provisioning | dedicado, p. ej. `balanz_worker_login` | miembro sólo de `balanz_worker`; nunca migrator/owner/API.     |
-| Rol migración       | CI/operación                   | credencial separada                    | nunca usado ni heredado en runtime.                            |
-| Claim `search_path` | migración fija                 | sólo schemas explícitos + `pg_catalog` | No configurable por request/ambiente.                          |
+| Setting             | Fuente                         | Valor                                  | Regla                                                                                                                                |
+| ------------------- | ------------------------------ | -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| GUC organización    | constante de código/migración  | `app.organization_id`                  | UUID válido; sólo `SET LOCAL` dentro de transacción.                                                                                 |
+| GUC membresía       | constante de código/migración  | `app.membership_id`                    | UUID válido/autorizado cuando la policy lo use.                                                                                      |
+| Grupo API           | migración                      | `balanz_api` (`NOLOGIN`)               | no owner, no superuser, no BYPASSRLS; grants fiscales mínimos.                                                                       |
+| Grupo worker        | migración                      | `balanz_worker` (`NOLOGIN`)            | igual; sólo este grupo recibe además `EXECUTE` de claim.                                                                             |
+| LOGIN API           | secret manager/DB provisioning | dedicado, p. ej. `balanz_api_login`    | `NOINHERIT`; miembro sólo de `balanz_api`; conexión selecciona ese grupo por opción fija; nunca migrator/owner/worker.               |
+| LOGIN worker        | secret manager/DB provisioning | dedicado, p. ej. `balanz_worker_login` | `NOINHERIT`; miembro sólo de `balanz_worker`; conexión selecciona ese grupo por opción fija; nunca migrator/owner/API.               |
+| Rol migración       | CI/operación                   | superuser efímero y separado           | obligatorio mientras haya 060/061/062/063 pendiente; `transaction: all`; archivo temporal 0600 y limpieza verificada; nunca runtime. |
+| Claim `search_path` | migración fija                 | sólo schemas explícitos + `pg_catalog` | No configurable por request/ambiente.                                                                                                |
 
 No existe `RLS_DISABLED`, tenant default ni fallback a una organización. Un GUC
 ausente/vacío/inválido falla cerrado. El table owner también queda sujeto a

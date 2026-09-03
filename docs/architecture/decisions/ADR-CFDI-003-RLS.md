@@ -38,6 +38,13 @@ esos grupos. La API nunca hereda `balanz_worker`; sólo el grupo del worker reci
 identidades separadas y jamás se reutilizan como credenciales de runtime ni se
 conceden como membresía a esos LOGINs.
 
+Aplicar cualquier migración de Fase 0 pendiente requiere un migrator superuser
+efímero y separado. PostgreSQL 16 no permite que un `CREATEROLE` sin
+`ADMIN OPTION` recupere las membresías de los owners ni transfiera una función
+a un owner sin `CREATE` sobre el schema. Preflight y el runner bloquean ese caso
+antes del DDL; la ejecución autorizada usa una sola transacción, revoca
+membresías y `CREATE`, y elimina la credencial antes del arranque de API/worker.
+
 El worker reclama trabajo cross-tenant mediante una única función
 `SECURITY DEFINER` de privilegio mínimo. La función:
 
@@ -47,14 +54,17 @@ El worker reclama trabajo cross-tenant mediante una única función
 - hace selección/claim atómico con lease y fairness;
 - no acepta una organización elegida por el llamador;
 - no permite SQL dinámico ni lectura fiscal arbitraria;
-- retorna sólo job ID, scope técnico, lease/version y referencias necesarias;
+- retorna sólo job ID, scope técnico, `lease_token`, versión observable y
+  referencias necesarias;
 - registra el claim auditable y obliga a continuar en una transacción normal
   con `SET LOCAL` y RLS.
 
 La mutación de claim y su evento de auditoría forman una sola transacción: no se
 acepta un lease sin evidencia ni evidencia de un claim que no ocurrió. Los
 heartbeats y transiciones posteriores se auditan por la ruta tenant-scoped
-normal y comparan worker, versión y lease.
+normal y cercan ownership con el `lease_token`, estado y lease vigentes.
+`worker_id` conserva procedencia y `version` es una revisión monotónica
+observable, no un CAS de ownership.
 
 Las FKs compuestas y checks de scope complementan RLS; no se consideran
 sustitutos.

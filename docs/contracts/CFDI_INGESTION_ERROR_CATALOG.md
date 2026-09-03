@@ -16,12 +16,11 @@ El boundary HTTP futuro devuelve el envelope estándar de Balanz con `code`,
 Nunca devuelve stack, SQL, host, DSN, bucket/key, signed URL, firma de malware,
 idempotency key/fingerprint completo, XML, RFC, UUID fiscal ni PII.
 
-Retryable significa que el **orquestador** puede usar
-`WORKER_MAX_ATTEMPTS=3` como máximo de tres ejecuciones totales, incluida la
-inicial. Backoff 10/30+jitter precede a las ejecuciones 2 y 3. El valor 120 queda
-reservado por compatibilidad y no habilita una ejecución 4. Esta es la
-resolución de Fase 0 por precedencia de la instrucción directa. No autoriza
-loops del cliente. Un conflicto de lease exige abandonar el resultado local.
+Retryable significa que el **orquestador** puede usar tres reintentos
+automáticos (`WORKER_MAX_RETRIES=3`) además de la ejecución inicial, con
+backoff 10/30/120+jitter. El cuarto fallo queda terminal. No autoriza loops del
+cliente. Un conflicto de lease exige abandonar el resultado local; shutdown
+gracioso no consume retry y un lease vencido sí.
 
 ## 2. Códigos
 
@@ -79,15 +78,15 @@ loops del cliente. Un conflicto de lease exige abandonar el resultado local.
 Los probes F0 exponen además códigos técnicos, no persistibles, que describen
 la dependencia exacta sin incluir excepciones crudas:
 
-| Código técnico de health           | Probe                     | Efecto                                         |
-| ---------------------------------- | ------------------------- | ---------------------------------------------- |
-| `POSTGRES_UNAVAILABLE`             | readiness API/worker      | `down`; PostgreSQL es obligatorio              |
-| `POSTGRES_FISCAL_SCHEMA_NOT_READY` | readiness API/worker      | `down`; faltan tablas o funciones 060/061      |
-| `OBJECT_STORAGE_HEALTH_TIMEOUT`    | readiness API/worker      | `down`; la operación se aborta al deadline     |
-| `MALWARE_SCANNER_HEALTH_TIMEOUT`   | readiness API/worker      | `down`; la operación se aborta al deadline     |
-| `WORKER_SUPERVISOR_UNAVAILABLE`    | liveness/readiness worker | `down`; no existe runtime inyectado            |
-| `WORKER_SUPERVISOR_NOT_RUNNING`    | liveness/readiness worker | `down`; no acepta claims                       |
-| `WORKER_SUPERVISOR_STALE`          | liveness/readiness worker | `down`; no hubo actividad dentro de la ventana |
+| Código técnico de health           | Probe                     | Efecto                                                 |
+| ---------------------------------- | ------------------------- | ------------------------------------------------------ |
+| `POSTGRES_UNAVAILABLE`             | readiness API/worker      | `down`; PostgreSQL es obligatorio                      |
+| `POSTGRES_FISCAL_SCHEMA_NOT_READY` | readiness API/worker      | `down`; faltan tablas, ACL o funciones 060/061/062/063 |
+| `OBJECT_STORAGE_HEALTH_TIMEOUT`    | readiness API/worker      | `down`; la operación se aborta al deadline             |
+| `MALWARE_SCANNER_HEALTH_TIMEOUT`   | readiness API/worker      | `down`; la operación se aborta al deadline             |
+| `WORKER_SUPERVISOR_UNAVAILABLE`    | liveness/readiness worker | `down`; no existe runtime inyectado                    |
+| `WORKER_SUPERVISOR_NOT_RUNNING`    | liveness/readiness worker | `down`; no acepta claims                               |
+| `WORKER_SUPERVISOR_STALE`          | liveness/readiness worker | `down`; no hubo actividad dentro de la ventana         |
 
 Redis no inventa un `errorCode` en el probe: se representa como dependencia
 `down` no requerida y el resultado global queda `degraded`, con las métricas
@@ -136,8 +135,9 @@ resultado terminal seguro.
 ### Transitorio
 
 Storage/scanner no disponible, timeout del scanner y errores internos
-clasificados explícitamente pueden usar el presupuesto durable. El código y
-`attempt_count` quedan registrados antes de programar `next_attempt_at`.
+clasificados explícitamente pueden usar el presupuesto durable. El código,
+`attempt_count` y `automatic_retry_count` quedan registrados antes de programar
+`next_attempt_at`.
 
 ### Conflicto de concurrencia
 

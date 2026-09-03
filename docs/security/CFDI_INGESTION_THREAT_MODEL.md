@@ -166,6 +166,14 @@ técnicos acotados. Se prueba la salida capturada con canarios sintéticos.
   `NOLOGIN`; LOGINs dedicados de despliegue heredan sólo el grupo esperado y
   nunca migrator/owner/BYPASSRLS.
 - Migraciones append-only, constraints, índices, `timestamptz` y versiones.
+- Preflight y runner exigen superuser/migrator efímero mientras haya 060/061/062/063
+  pendiente; el secreto se inyecta sólo durante la transacción de release, se
+  limpia de forma verificada y nunca llega a API/worker.
+- La migración 063 sustituye el CRUD general y los grants sobre secuencias por
+  permisos exactos por operación; el LOGIN `NOINHERIT` selecciona su único
+  grupo mediante una opción PostgreSQL fija por perfil y no recibe ACL directo.
+  El guard comprueba `session_user`/`current_user`; las tablas fiscales conservan
+  RLS forzado y contexto transaccional.
 - `ENABLE` + `FORCE`, policies de select/insert/update/delete y `WITH CHECK`.
 - GUC exactas `app.organization_id` y `app.membership_id` únicamente mediante
   `SET LOCAL`; ausencia o invalidez falla cerrado.
@@ -176,9 +184,9 @@ técnicos acotados. Se prueba la salida capturada con canarios sintéticos.
 - PostgreSQL siempre es autoridad; Redis sólo publica ID técnico/evento vacío
   con prefijo por ambiente, nunca payload fiscal ni secreto.
 - Polling continúa aunque subscriber esté caído; Redis no afecta readiness.
-- Lease 90 s y heartbeat 20 s; `WORKER_MAX_ATTEMPTS=3` significa tres
-  ejecuciones totales incluida la inicial, con backoff 10/30+jitter antes de las
-  ejecuciones 2/3. El valor 120 queda reservado y no habilita una ejecución 4.
+- Lease 90 s y heartbeat 20 s; `WORKER_MAX_RETRIES=3` permite tres reintentos
+  tras la ejecución inicial, con backoff 10/30/120+jitter. La cuarta ejecución
+  fallida es terminal. Shutdown no consume retry; lease vencido sí.
 - Concurrencia/fairness configuradas, shutdown acotado y reconciliadores
   idempotentes.
 

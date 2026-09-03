@@ -43,25 +43,25 @@ sin un problema medido que el diseño actual no pueda resolver.
 
 ### Módulos existentes
 
-| Área              | Responsabilidad                                            |
-| ----------------- | ---------------------------------------------------------- |
-| `auth`            | Registro, verificación de correo, login, MFA y logout.     |
-| `sessions`        | Crear, resolver, rotar, expirar y revocar sesiones.        |
-| `users`           | Identidad global y administración de miembros por tenant.  |
-| `organizations`   | Organización o tenant.                                     |
-| `memberships`     | Relación usuario-organización, rol y estado.               |
-| `permissions`     | Catálogo de permisos, roles y asignaciones.                |
-| `subscriptions`   | Estado inicial de suscripción y trial.                     |
-| `audit`           | Registro durable de decisiones y acciones sensibles.       |
-| `redis`           | Cliente opcional y cache de sesión/autorización.           |
-| `email`           | Casos de envío y adaptador SES.                            |
-| `secrets`         | Resolución de secretos locales o desde Vault.              |
-| `client-accounts` | Cuentas cliente, RFC, asignaciones, ejercicios y períodos. |
-| `object-storage`  | Streams privados, keys opacas, hash/tamaño y adapters local/S3. |
-| `malware-scanner` | Escaneo ClamAV `INSTREAM` y bypass explícito sólo de desarrollo. |
+| Área              | Responsabilidad                                                      |
+| ----------------- | -------------------------------------------------------------------- |
+| `auth`            | Registro, verificación de correo, login, MFA y logout.               |
+| `sessions`        | Crear, resolver, rotar, expirar y revocar sesiones.                  |
+| `users`           | Identidad global y administración de miembros por tenant.            |
+| `organizations`   | Organización o tenant.                                               |
+| `memberships`     | Relación usuario-organización, rol y estado.                         |
+| `permissions`     | Catálogo de permisos, roles y asignaciones.                          |
+| `subscriptions`   | Estado inicial de suscripción y trial.                               |
+| `audit`           | Registro durable de decisiones y acciones sensibles.                 |
+| `redis`           | Cliente opcional y cache de sesión/autorización.                     |
+| `email`           | Casos de envío y adaptador SES.                                      |
+| `secrets`         | Resolución de secretos locales o desde Vault.                        |
+| `client-accounts` | Cuentas cliente, RFC, asignaciones, ejercicios y períodos.           |
+| `object-storage`  | Streams privados, keys opacas, hash/tamaño y adapters local/S3.      |
+| `malware-scanner` | Escaneo ClamAV `INSTREAM` y bypass explícito sólo de desarrollo.     |
 | `ingestion`       | Persistencia fundacional, idempotencia, jobs/items y worker durable. |
-| `fiscal-platform` | Composición de storage/scanner y configuración fiscal validada. |
-| `health`          | Liveness/readiness de API y worker, con Redis sólo degradable. |
+| `fiscal-platform` | Composición de storage/scanner y configuración fiscal validada.      |
+| `health`          | Liveness/readiness de API y worker, con Redis sólo degradable.       |
 
 ### Diagrama de alto nivel
 
@@ -103,11 +103,14 @@ flowchart LR
 
 La Fase 0 implementa infraestructura reutilizable, no una capacidad de producto
 CFDI. Sus únicas tablas fiscales nuevas son `stored_objects`,
-`ingestion_uploads`, `ingestion_jobs` e `ingestion_items`, creadas por las
-migraciones append-only `1787690600000-FiscalIngestionFoundation.ts` y
-`1787690610000-FiscalRlsWorkerClaims.ts`. La segunda activa y fuerza RLS, crea
-roles runtime separados y encapsula claim/cancelación/reconciliación en
-funciones `SECURITY DEFINER` de privilegio acotado.
+`ingestion_uploads`, `ingestion_jobs` e `ingestion_items`. La migración
+append-only `1787690600000-FiscalIngestionFoundation.ts` crea las tablas y
+`1787690610000-FiscalRlsWorkerClaims.ts` activa/fuerza RLS y crea roles y
+funciones base; `1787690620000-IngestionAutomaticRetryBudget.ts` fija el
+presupuesto automático de tres reintentos y las firmas finales, y
+`1787690630000-PhaseZeroRuntimeCompatibility.ts` limita las ACL compatibles de
+API/worker. Claim, cancelación y reconciliación quedan encapsulados en funciones
+`SECURITY DEFINER` de privilegio acotado.
 
 La API y el worker usan LOGINs distintos, sin `BYPASSRLS`, owner ni credencial
 de migración. Todo acceso tenant-scoped establece `app.organization_id` y

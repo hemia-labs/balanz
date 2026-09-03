@@ -2,666 +2,763 @@
 
 ## 1. Resultado ejecutivo
 
+La plataforma fiscal compartida de Fase 0 quedó implementada y validada con
+PostgreSQL, Redis, MinIO, ClamAV, Vault, API y worker reales en infraestructura
+aislada. También se comprobó el Redis compartido de desarrollo recuperando su
+configuración desde Vault, sin exponer ni versionar secretos. Las migraciones
+append-only `060`, `061`, `062` y `063` están aplicadas e inspeccionadas en
+`accounting_dev`; los seeds se ejecutaron dos veces y las migraciones `030` y
+`050` quedaron reconciliadas al integrar la base vigente de `origin/develop`.
+
+El resultado permanece `PHASE_0_BLOCKED` por un único control externo,
+`TD-004`: los paths canónicos `database/postgres-api` y
+`database/postgres-worker` no existen en el Vault compartido de desarrollo y
+el AppRole disponible responde `ACCESS_DENIED` al intentar escribirlos. Por
+ello no se pueden crear ni validar los LOGINs persistentes de API y worker
+contra la base compartida. Los mismos perfiles, políticas Vault, LOGINs
+`NOINHERIT`/`NOBYPASSRLS`, RLS y entrypoints sí fueron validados de extremo a
+extremo con credenciales efímeras en el ambiente aislado; esa evidencia no se
+presenta como sustituto del gate del ambiente compartido.
+
 ```text
 RESULT: PHASE_0_BLOCKED
 PHASE_0: BLOCKED
 PHASE_1_XML: NOT_STARTED
-TECHNICAL_DEBT: 4
+TECHNICAL_DEBT: 1
 KNOWN_DEFECTS: 0
 ```
 
-La plataforma fiscal compartida quedó implementada, compilada y validada con
-PostgreSQL 16 real, filesystem real y escenarios reales de indisponibilidad de
-Redis y ClamAV. Las migraciones append-only `060` y `061` quedaron aplicadas en
-`accounting_dev`; los seeds se ejecutaron dos veces; el esquema post-migración
-y el ciclo transaccional resultaron correctos.
-
-No se usa `PHASE_0_DONE` porque cuatro controles obligatorios no pudieron
-ejecutarse contra servicios levantados en este host:
-
-1. wakeup con Redis real disponible;
-2. adapter S3 contra MinIO/S3-compatible real;
-3. ClamAV real con archivo limpio y fixture EICAR controlado;
-4. arranque real de API y worker con LOGINs persistentes separados: Vault no
-   contiene todavía el secreto de runtime requerido.
-
-No hay un defecto de código conocido abierto. Los cuatro controles pendientes
-se registran como deuda de validación y no se ocultan bajo una fase futura.
-
-## 2. Rama, SHA y estado Git
-
-| Campo           | Valor                                      |
-| --------------- | ------------------------------------------ |
-| Rama            | `codex/cfdis`                              |
-| SHA base/actual | `a53de839eddf7febbbd611c63f514e611a3cf8b6` |
-| Rama base       | `develop`                                  |
-| Commits creados | ninguno                                    |
-| Push            | no ejecutado                               |
-| Fecha de corte  | 2026-08-28, `America/Mexico_City`          |
-
-### Estado inicial preservado
-
-La rama se creó conservando los cambios que ya estaban sobre `develop`:
+Estado solicitado por el ajuste de ejecución:
 
 ```text
- M apps/web/src/components/status-badge.tsx
- M apps/web/src/features/clients/live-client-detail-screen.tsx
- M apps/web/src/features/clients/live-clients-screen.tsx
- M apps/web/src/features/clients/live-fiscal-screens.tsx
-?? docs/architecture/CFDI_DOWNLOAD_INGESTION_CURRENT_STATE.md
-?? docs/architecture/CFDI_DOWNLOAD_INGESTION_DECISION_INPUTS.md
-?? docs/architecture/PROMPT_CODEX_ROADMAP_E_IMPLEMENTACION_CFDI_BALANZ_FASE_0_1.md
-?? docs/architecture/control_mensual_cfdi (2).md
+REDIS_SECRET_IN_VAULT: PASS
+REDIS_NETWORK_ACCESS: PASS
+REDIS_PUBSUB: PASS
+REDIS_ONLINE_TEST: PASS
+REDIS_OFFLINE_FALLBACK: PASS
+DOCKER_IN_CODEX_ENVIRONMENT: PASS
+LOCAL_VALIDATION_SCRIPT: PASS
+MINIO_TEST: PASS
+CLAMAV_TEST: PASS
+API_RUNTIME_SECRET: NOT_FOUND
+WORKER_RUNTIME_SECRET: NOT_FOUND
+API_RUNTIME_LOGIN: BLOCKED
+WORKER_RUNTIME_LOGIN: BLOCKED
+PHASE_0_RESULT: BLOCKED
+PR_STATUS: DRAFT
+MERGE_STATUS: NOT_MERGED
 ```
 
-Esos archivos no se descartaron ni se sobrescribieron. Los cuatro componentes
-web siguen siendo cambios previos del usuario y no forman parte de la
-implementación funcional de Fase 0.
+Evidencia final de cierre:
+
+```text
+FINAL_IMPLEMENTATION_SHA: 92cd036b754ec2ab9277603f6ece080882a141da
+FINAL_FULL_VALIDATION: PASS
+FINAL_FULL_VALIDATION_REPORT: .local/cfdi-phase0-validation-reports/cfdi-phase0-full-final-20260903.json
+FINAL_API_JEST_COUNTS: PASS - 52 suites, 370 tests
+FINAL_WEB_TEST_COUNTS: PASS - 53 tests
+```
+
+## 2. Rama, base, SHA y estado Git
+
+| Campo                 | Valor                                                               |
+| --------------------- | ------------------------------------------------------------------- |
+| Rama                  | `codex/cfdis`                                                       |
+| Base integrada        | `origin/develop` en `e3d4f432dca1df6bbd0877d86e60bd52d8c15325`      |
+| SHA de implementación | `92cd036b754ec2ab9277603f6ece080882a141da`                          |
+| Fecha de corte        | 2026-09-03, `America/Mexico_City`                                   |
+| Resultado de Fase 0   | `PHASE_0_BLOCKED`                                                   |
+| Estado de Fase 1      | `NOT_STARTED`                                                       |
+| Pull request          | `DRAFT`                                                             |
+| Merge a `develop`     | `NOT_MERGED`, prohibido mientras el resultado sea `PHASE_0_BLOCKED` |
+
+La rama integra la versión vigente de `develop` mediante el commit
+`9a8a769 merge: integrate latest develop into cfdi phase zero`. Al momento de
+esa integración estaba 0 commits detrás y 7 delante de `origin/develop`.
+
+### Estado inicial preservado y clasificación
+
+Los cambios que ya existían sobre `develop` se conservaron y se separaron de
+la implementación de plataforma:
+
+- cambios web previos del usuario en status y flujos fiscales: commit
+  `4778f5e feat(web): improve fiscal status and year workflows`;
+- documentos de descubrimiento aportados como entrada: commit
+  `63a6535 docs(cfdi): add ingestion discovery inputs`;
+- implementación, pruebas, infraestructura y documentación inicial de Fase 0:
+  commits `01933b5`, `0c1d50f`, `189e0ef` y `1de79c3`;
+- integración de `origin/develop`: commit `9a8a769`;
+- correcciones finales de implementación: reflejadas en
+  `92cd036b754ec2ab9277603f6ece080882a141da`.
+
+El estado inicial incluía cuatro componentes web modificados y cuatro
+documentos de arquitectura/entrada sin rastrear. No se descartaron, mezclaron
+silenciosamente ni sobrescribieron. Los archivos locales de reparación WSL y
+sus logs permanecen fuera del alcance y no deben versionarse.
 
 ## 3. Alcance y frontera de fase
 
-Implementado exclusivamente en Fase 0:
+Se implementó exclusivamente la plataforma compartida de Fase 0:
 
-- plataforma durable compartida;
-- persistencia fundacional;
-- FORCE RLS y funciones mínimas;
-- worker separado;
-- Redis wakeup best-effort con polling PostgreSQL permanente;
-- filesystem privado y S3/MinIO adapter;
-- ClamAV `INSTREAM` y bypass sólo de desarrollo;
-- reconciliación, health, métricas, logs y configuración;
-- infraestructura reproducible y documentación.
+- planeación, ADR, threat model, contrato, runbooks y matrices;
+- persistencia fundacional, idempotencia, procedencia y lifecycle;
+- FORCE RLS y roles de ejecución mínimos;
+- worker durable separado y Redis wakeup best-effort;
+- adapters filesystem y S3/MinIO;
+- scanner ClamAV `INSTREAM`;
+- reconciliadores, health, métricas, logs y configuración;
+- infraestructura reproducible, validación local/CI y controles de deploy.
 
-Verificación negativa de alcance:
+Verificación negativa del límite:
 
-- no existe controller/endpoint de upload;
-- no existe parser XML funcional;
-- no existen tablas `cfdis`, conceptos, impuestos, relaciones, pagos o nómina;
-- no existe reporte de Fase 1;
-- no se implementó UI fiscal nueva para carga/lista/detalle;
-- Fase 1 permanece `NOT_STARTED`.
+- no hay endpoint de carga XML ni ZIP;
+- no hay parser CFDI funcional ni validación XSD;
+- no hay persistencia de CFDI, conceptos, impuestos, relaciones, pagos o
+  nómina;
+- no hay lista, detalle, descarga ni carga CFDI funcional integrada; la UI
+  demostrativa preexistente no llama un endpoint ni persiste datos y no fue
+  convertida en capacidad de Fase 1;
+- no hay e.firma, descarga SAT, mesa mensual, exportaciones ni retención de
+  producto;
+- no existe `docs/qa/CFDI_PHASE_1_VALIDATION_REPORT.md`;
+- Fases 1–8 permanecen `NOT_STARTED`.
 
-## 4. Documentación creada y actualizada
+## 4. Planeación y documentación
 
-### Roadmap maestro
+Se creó y mantuvo el roadmap maestro:
 
-- `docs/roadmaps/CFDI_P0_MASTER_IMPLEMENTATION_PLAN.md`
+- `docs/roadmaps/CFDI_P0_MASTER_IMPLEMENTATION_PLAN.md`.
 
-Registra Fases 0–8, dependencias, entradas, salidas, pruebas, riesgos,
-rollback, entregables y estados. Fases 1–8 permanecen `NOT_STARTED`.
+Registra las Fases 0–8, dependencias, criterios de entrada/salida, pruebas,
+riesgos, entregables y gates. El parser seguro se define como decisión futura,
+sin iniciar Fase 1.
 
-### ADR
+ADR creados:
 
-- `docs/architecture/decisions/ADR-CFDI-001-DURABLE-JOBS.md`
-- `docs/architecture/decisions/ADR-CFDI-002-OBJECT-STORAGE.md`
-- `docs/architecture/decisions/ADR-CFDI-003-RLS.md`
-- `docs/architecture/decisions/ADR-CFDI-004-IDEMPOTENCY-PROVENANCE.md`
-- `docs/architecture/decisions/ADR-CFDI-005-XML-PARSER.md`
+- `docs/architecture/decisions/ADR-CFDI-001-DURABLE-JOBS.md`;
+- `docs/architecture/decisions/ADR-CFDI-002-OBJECT-STORAGE.md`;
+- `docs/architecture/decisions/ADR-CFDI-003-RLS.md`;
+- `docs/architecture/decisions/ADR-CFDI-004-IDEMPOTENCY-PROVENANCE.md`;
+- `docs/architecture/decisions/ADR-CFDI-005-XML-PARSER.md`.
 
-El ADR del parser fija la frontera segura futura sin implementar Fase 1.
+Seguridad, contrato y operación:
 
-### Seguridad, contratos y operación
+- `docs/security/CFDI_INGESTION_THREAT_MODEL.md`;
+- `docs/security/CFDI_INGESTION_PERMISSION_MATRIX.md`;
+- `docs/contracts/CFDI_INGESTION_API.md`;
+- `docs/contracts/CFDI_INGESTION_ERROR_CATALOG.md`;
+- `docs/operations/CFDI_WORKER_RUNBOOK.md`;
+- `docs/operations/CFDI_INGESTION_CONFIGURATION_MATRIX.md`.
 
-- `docs/security/CFDI_INGESTION_THREAT_MODEL.md`
-- `docs/security/CFDI_INGESTION_PERMISSION_MATRIX.md`
-- `docs/contracts/CFDI_INGESTION_API.md`
-- `docs/contracts/CFDI_INGESTION_ERROR_CATALOG.md`
-- `docs/operations/CFDI_WORKER_RUNBOOK.md`
-- `docs/operations/CFDI_INGESTION_CONFIGURATION_MATRIX.md`
-
-### Documentación integrada
-
-- `docs/architecture/ARCHITECTURE.md`
-- `docs/architecture/CORRECTED_POSTGRESQL_DATA_MODEL.md`
-- `apps/api/README.md`
-- `apps/web/README.md`
-- `infra/cfdi-phase0/README.md`
-
-El modelo ejecutable está alineado con migraciones `060`/`061`, incluye
-`ingestion_uploads` y marca como `FUTURE / NOT_STARTED` todo dominio posterior.
+También se alinearon `docs/architecture/ARCHITECTURE.md`,
+`docs/architecture/CORRECTED_POSTGRESQL_DATA_MODEL.md`, los README de API/web y
+`infra/cfdi-phase0/README.md`.
 
 ## 5. Arquitectura implementada
 
-### Procesos
+- API NestJS con perfil `api` y worker NestJS con perfil `worker` dentro del
+  mismo monorepo/release, pero con procesos, configuración y secretos
+  separados.
+- Entrypoints reales `apps/api/src/main.ts` y `apps/api/src/worker.ts`, con
+  scripts `start:api:*` y `start:worker:*`.
+- PostgreSQL es la única autoridad durable. Redis sólo notifica después del
+  commit y el polling nunca se deshabilita.
+- `fiscal-platform` compone la infraestructura; `ingestion` contiene estados,
+  repositorios y runner; `object-storage` y `malware-scanner` implementan sus
+  ports; `health` y `observability` exponen probes y telemetría.
+- El worker no recibe secretos JWT, MFA, email o cookies; la API no recibe la
+  credencial del worker. Los perfiles fallan rápido ante mezcla de variables.
+- No se registró ningún tipo de job ficticio en producción. Los handlers
+  sintéticos existen sólo en módulos/scripts de prueba.
 
-- API NestJS con perfil de configuración `api`.
-- Worker NestJS separado con perfil `worker` y entrypoint real
-  `apps/api/src/worker.ts`.
-- Scripts `start:api:*` y `start:worker:*`.
-- PostgreSQL como única autoridad durable.
-- Redis sólo acelera el despertar después del commit.
-
-Los perfiles fallan rápido si reciben credenciales del otro proceso. El worker
-no carga secretos JWT/MFA/email/cookies ni la credencial API; la API no carga
-la credencial worker.
-
-### Módulos fundacionales
-
-- `fiscal-platform` compone infraestructura compartida;
-- `ingestion` contiene repositorios, estados y worker durable;
-- `object-storage` contiene port, key factory y adapters local/S3;
-- `malware-scanner` contiene port, ClamAV y bypass de desarrollo;
-- `health` y `observability` exponen probes, métricas y logs estructurados;
-- `database/rls` aplica rol y GUC únicamente dentro de transacciones.
-
-No se registró un handler ficticio en producción. Los handlers de prueba viven
-únicamente en el entorno de test.
-
-## 6. Persistencia y migraciones
+## 6. Persistencia, migraciones y seeds
 
 ### Migraciones append-only
 
-| Timestamp       | Migración                   | Resultado en `accounting_dev` |
-| --------------- | --------------------------- | ----------------------------- |
-| `1787690600000` | `FiscalIngestionFoundation` | ejecutada                     |
-| `1787690610000` | `FiscalRlsWorkerClaims`     | ejecutada                     |
+| Timestamp       | Migración                       | `accounting_dev` |
+| --------------- | ------------------------------- | ---------------- |
+| `1787690600000` | `FiscalIngestionFoundation`     | aplicada         |
+| `1787690610000` | `FiscalRlsWorkerClaims`         | aplicada         |
+| `1787690620000` | `IngestionAutomaticRetryBudget` | aplicada         |
+| `1787690630000` | `PhaseZeroRuntimeCompatibility` | aplicada         |
 
-El preflight anterior a migrar confirmó:
+La secuencia creó únicamente `stored_objects`, `ingestion_uploads`,
+`ingestion_jobs` e `ingestion_items`, además de funciones, roles, políticas,
+índices y estructuras auxiliares indispensables. No se añadieron tablas de
+dominio CFDI.
 
-- PostgreSQL `16.11` (`server_version_num=160011`);
-- base `accounting_dev` y migrator `admin` de desarrollo;
-- `uuid-ossp` y candidate keys requeridas;
-- cero `legal_entities` huérfanas respecto de tenant/cuenta;
-- cero colisiones de timestamp fiscal;
-- ausencia previa de las cuatro tablas fundacionales;
-- autoridad suficiente para owner roles, FORCE RLS y funciones.
+La inspección confirmó:
 
-`pg_dump` no estaba instalado (`PG_DUMP_NOT_FOUND`), por lo que no fue posible
-crear un schema-only dump local. Se capturaron en su lugar el historial,
-preflight y catálogo read-only antes de aplicar cambios. No se ejecutó
-`DROP DATABASE`, `TRUNCATE`, `migration:revert` ni `synchronize=true` sobre
-desarrollo.
+- `organization_id`, `client_account_id` y `legal_entity_id` con FKs
+  compuestas;
+- checks, uniques e índices de claim, idempotencia, reconciliación, dirty
+  counters, cancelación y retención;
+- timestamps `timestamptz`, versión, estados canónicos, correlación,
+  procedencia, fingerprint e idempotency key;
+- lease token, worker ID, lock, heartbeat, intentos, reintentos automáticos,
+  próximo intento, cancelación, inicio, finalización y último error;
+- triggers de inmutabilidad y counters;
+- funciones mínimas de claim, queue age y reconciliación;
+- cero drift TypeORM después de aplicar el manifest.
 
-### Esquema inspeccionado
+### Reconciliación de `030` y `050`
 
-Se verificaron en PostgreSQL real:
+Las migraciones `PasswordResetTokens1787690300000` y
+`AuthDataCleanupIndexes1787690500000`, antes ejecutadas pero ausentes del árbol
+de trabajo, llegaron desde la base vigente de `origin/develop`. El manifest y
+los runners las reconocen; `migration:show` ya no reporta esas entradas como
+desconocidas. No se fabricaron migraciones vacías ni se reescribió el historial
+aplicado.
 
-- cuatro tablas: `stored_objects`, `ingestion_uploads`, `ingestion_jobs`,
-  `ingestion_items`;
-- cuatro tablas con `ENABLE ROW LEVEL SECURITY` y
-  `FORCE ROW LEVEL SECURITY`;
-- nueve políticas;
-- columnas durables de lease, heartbeat, retry, cancelación, error,
-  correlación, procedencia, timestamps y versión;
-- FKs compuestas completas;
-- checks, uniques e índices fundacionales;
-- índices de claim, cancelación, reconciliación y dirty items usados por
-  `EXPLAIN`;
-- trigger de inmutabilidad de objetos;
-- trigger de dirty counters;
-- funciones de claim, queue age, cancelación y reconciliación;
-- cero drift TypeORM (`upQueries=0`, `downQueries=0`).
+### Respaldos y preflight
 
-### Historial externo preexistente
+Evidencia schema-only preservada fuera de Git:
 
-`accounting_dev` contiene dos migraciones ejecutadas que no pertenecen al
-working tree actual:
+| Evidencia                                                   |  Bytes | SHA-256                                                            |
+| ----------------------------------------------------------- | -----: | ------------------------------------------------------------------ |
+| `.local/accounting_dev-schema-post-062-20260902-123601.sql` | 169059 | `120DA10DAF39560F18B253BC2558C82FD0A42F558EA3C1E753CBE752F9BE27D0` |
+| `.local/accounting_dev-schema-pre-063-20260902-154900.sql`  | 202370 | `FD73295235EFF55D699719A9B0E3FE80D272A4ADF9DDABD545C1E412B809A44D` |
+| `.local/accounting_dev-schema-post-063-20260902-154950.sql` | 202846 | `55AA9AB3DBF1E00F37A5ADE1F051FC96CE72B3271ED646F1FAD7F21D83E0E104` |
 
-- `PasswordResetTokens1787690300000`;
-- `AuthDataCleanupIndexes1787690500000`.
+El dump pre-062 no existe porque la instrucción se recibió después de aplicar
+esa migración. Se registró como defecto de proceso, se tomó inmediatamente el
+dump post-062 y antes de `063` ya se exigieron preflight y dump previo. No se
+revirtió ni editó ninguna migración aplicada.
 
-`migration:show` las reporta como `unknownExecuted`. No colisionan con `060` ni
-`061` y el preflight fue verde. Es una divergencia preexistente del ambiente,
-registrada como riesgo; no se inventaron archivos vacíos ni se modificó su
-historial para ocultarla.
+El preflight verificó PostgreSQL 16.11, base `accounting_dev`, extensiones,
+candidate keys, ausencia de datos incompatibles y autoridad migrator. No se
+ejecutó `DROP DATABASE`, `TRUNCATE` general, `migration:revert` sobre datos de
+desarrollo ni `synchronize=true`.
 
-## 7. Seeds
+### Seeds
 
-Los seeds se ejecutaron dos veces en la base aislada y dos veces en
-`accounting_dev`. Ambas corridas terminaron con commit.
+Los seeds se ejecutaron dos veces tanto en la base aislada como en
+`accounting_dev`. Ambas pasadas conservaron los mismos 4 roles, 38 permisos y
+86 relaciones rol/permiso, con conteos distintos idénticos. Resultado:
+idempotencia demostrada.
 
-La comprobación transaccional obtuvo en las dos pasadas:
+## 7. RLS, roles y autoridad de ejecución
 
-| Conteo                 | Primera | Segunda |
-| ---------------------- | ------: | ------: |
-| Roles                  |       4 |       4 |
-| Roles distintos        |       4 |       4 |
-| Permisos               |      38 |      38 |
-| Permisos distintos     |      38 |      38 |
-| Relaciones rol/permiso |      86 |      86 |
+Las cuatro tablas fundacionales tienen `ENABLE ROW LEVEL SECURITY`,
+`FORCE ROW LEVEL SECURITY` y políticas por `organization_id`. El contexto se
+establece únicamente mediante `SET LOCAL` dentro de una transacción.
 
-Resultado: idempotencia demostrada.
+Las pruebas PostgreSQL reales cubrieron:
 
-## 8. RLS, roles y función cross-tenant
+- tenant A y tenant B sin fuga cruzada;
+- GUC ausente fail-closed y GUC inválida con error controlado;
+- table owner bajo FORCE RLS;
+- API y worker con `NOBYPASSRLS`;
+- LOGINs `NOINHERIT` que sólo pueden seleccionar su grupo exacto;
+- rechazo de membresía inactiva, inexistente o cross-tenant;
+- rechazo de FKs cross-scope;
+- rechazo de ACL directa, ownership, privilegios por defecto, `CREATE`, roles
+  privilegiados alcanzables y cualquier LOGIN hermano que pertenezca a
+  `balanz_api` o `balanz_worker`.
 
-Se validó con PostgreSQL real:
+El claim cross-tenant usa una función `SECURITY DEFINER` mínima con
+`search_path` fijo, `FOR UPDATE SKIP LOCKED`, claim atómico, lease token,
+worker ID y retorno del scope estrictamente necesario. La migración `063`
+ajusta los grants exactos requeridos por los entrypoints y revoca firmas legacy
+sin conceder lectura fiscal arbitraria.
 
-- tenant A ve sólo tenant A;
-- tenant B no ve tenant A;
-- GUC ausente devuelve cero filas;
-- GUC inválida falla con SQLSTATE `22P02`;
-- membresía inexistente, cross-tenant o inactiva falla cerrado;
-- table owner no atraviesa `FORCE RLS`;
-- API y worker operan con roles `NOBYPASSRLS`;
-- LOGINs QA `NOINHERIT` sólo pueden `SET LOCAL ROLE` al grupo esperado;
-- ACL directa de columna para API es rechazada por el runtime guard;
-- ACL directa de función para worker es rechazada;
-- owner roles no son alcanzables ni conservan `CREATE` sobre `public`;
-- FKs cross-scope fallan con SQLSTATE `23503`.
+## 8. Worker durable
 
-El claim cross-tenant es `SECURITY DEFINER`, tiene `search_path` fijo, parámetros
-operativos bloqueados, scope de retorno mínimo, claim atómico con
-`FOR UPDATE SKIP LOCKED`, lease token y worker ID. El worker no obtiene lectura
-fiscal arbitraria.
+Se validaron con PostgreSQL real y procesos reales:
 
-## 9. Worker durable
+- un solo ganador ante claim concurrente de dos workers;
+- fairness entre tenants y límite de concurrencia;
+- lease de 90 segundos y heartbeat cada 20 segundos;
+- recuperación de leases vencidos y protección ABA por lease token;
+- ejecución inicial más tres reintentos automáticos;
+- backoff de 10, 30 y 120 segundos con jitter;
+- `automatic_retry_count` separado del `attempt_count` de claims;
+- shutdown/reclaim sin consumir presupuesto de retry;
+- expiración real de lease sí consume el fallo/retry correspondiente;
+- cancelación durable y rechazo de resultados stale;
+- reconciliación y polling PostgreSQL permanentes;
+- SIGTERM acotado, sin SIGKILL, restart ni doble ejecución.
 
-Validado en PostgreSQL real con dos conexiones:
+El registry productivo no contiene un handler ficticio. El smoke del worker
+usa únicamente una operación read-only de la cola durable para probar el
+entrypoint y su principal real.
 
-- un solo ganador entre dos workers concurrentes;
-- lease de 90 segundos;
-- heartbeat y auditoría;
-- pérdida del lease después de estado terminal;
-- protección ABA mediante lease token;
-- recuperación de lease vencido;
-- fairness entre dos tenants;
-- cancelación durable;
-- máximo de tres ejecuciones;
-- backoff 10/30 con jitter dentro del límite de tres ejecuciones; la lista
-  configurada conserva `10,30,120` sin autorizar un cuarto claim;
-- shutdown real libera el lease y deja el job `queued` o terminal según el
-  presupuesto;
-- stale handler no puede publicar resultado;
-- polling completa un job con Redis apagado.
+## 9. Redis wakeup
 
-El límite de concurrencia está configurado y probado en el runner. El registry
-productivo no contiene job ficticio.
+### Secreto compartido y conectividad
 
-## 10. Redis wakeup
-
-Implementado:
-
-- publicación best-effort sólo después de commit;
-- canal con prefijo de ambiente;
-- mensaje constante sin payload fiscal ni secretos;
-- subscriber del worker;
-- polling PostgreSQL siempre activo;
-- sin `KEYS`;
-- Redis degradado no falla readiness;
-- lifecycle y shutdown acotados.
-
-Evidencia ejecutada con Redis totalmente apagado:
-
-- publicación devuelve `false` sin perder autoridad durable;
-- métrica `redis_wakeup_failures_total` presente;
-- publisher/subscriber permanecen no-ready;
-- el worker completa el job mediante polling;
-- dos pruebas externas offline pasan y una prueba online queda omitida por
-  bloqueo de infraestructura.
-
-Pendiente obligatorio: demostrar latencia de wakeup con Redis real arriba.
-
-## 11. Object storage
-
-### Adapter local
-
-Implementado y probado contra filesystem real privado:
-
-- root fuera de `public`;
-- key opaca generada por UUID técnico;
-- rechazo de traversal, rutas absolutas, backslash y symlink/reparse unsafe;
-- stream de escritura/lectura;
-- hash SHA-256 y tamaño;
-- conflicto de key inmutable;
-- permisos POSIX/Windows fail-closed;
-- cleanup al finalizar.
-
-La prueba externa real pasó y dejó únicamente el marcador de root
-`.balanz-fiscal-object-storage-root-v1`; no quedaron objetos sintéticos.
-
-### Adapter S3/MinIO
-
-Implementado:
-
-- `S3ObjectStorageAdapter` productivo, sin `TODO`;
-- bucket privado y sin ACL pública;
-- SSE-S3/SSE-KMS según configuración;
-- URL firmada de TTL corto;
-- streaming/multipart, hash/tamaño, timeout y cleanup;
-- rechazo atómico de carreras sobre key inmutable;
-- fail-fast productivo por bucket/KMS/HTTPS/config faltante.
-
-El contrato unitario del adapter pasa. La prueba externa contra MinIO real no
-pudo ejecutarse porque no hay runtime ni servicio disponible en el host.
-
-## 12. Malware scanner
-
-Implementado:
-
-- `MalwareScannerPort`;
-- `ClamAvScannerAdapter` mediante protocolo `INSTREAM`;
-- framing/chunks, límite de bytes, timeout y health;
-- errores tipados y política fail-closed;
-- bypass sólo con configuración explícita en desarrollo;
-- producción rechaza scanner deshabilitado;
-- no construye comandos shell.
-
-Pruebas ejecutadas:
-
-- protocolo `INSTREAM`, respuesta clean/infected/error/timeout mediante servidor
-  controlado del test;
-- scanner totalmente inaccesible: health `down` y scan rechaza con
-  `MALWARE_SCANNER_UNAVAILABLE`;
-- configuración productiva fail-fast.
-
-Pendiente obligatorio: clean y EICAR contra un daemon ClamAV real arriba.
-
-## 13. Reconciliadores y lifecycle
-
-La función idempotente de reconciliación verificó:
-
-- uploads expirados;
-- objetos huérfanos;
-- objetos confirmados sin job;
-- jobs con root/upload no disponible;
-- lease vencido retryable/final/cancelado;
-- reparación acotada de counters;
-- bytes redundantes;
-- elegibilidad de retención;
-- auditoría de transiciones.
-
-La segunda pasada devolvió cero cambios en todas las categorías. La función
-procesa lotes acotados de 100 y usa índices confirmados con `EXPLAIN`.
-
-## 14. Health, readiness, observabilidad y métricas
-
-Implementado:
-
-- liveness/readiness HTTP de API;
-- liveness/readiness HTTP del worker;
-- PostgreSQL, storage y scanner como dependencias requeridas;
-- Redis como estado degradado no bloqueante;
-- métricas de jobs, queue age, leases, recovery, storage, scanner y wakeup;
-- correlation ID propagado;
-- logs estructurados con job/object/stage/duración/resultado;
-- redacción de datos y allowlist de labels;
-- sin RFC, UUID fiscal, nombre, razón social o PII como labels.
-
-Las suites `fiscal-health-http`, `fiscal-readiness` y
-`fiscal-observability` pasan. El arranque HTTP contra LOGINs persistentes reales
-queda bloqueado por el secreto Vault ausente; el guard y las operaciones de
-repositorio sí se validaron con LOGINs efímeros reales en la base aislada.
-
-## 15. Configuración
-
-Se agregó validación para storage, S3/MinIO, scanner, worker, lease, heartbeat,
-retries, backoff, polling, Redis wakeup, concurrencia, retención, límites, RLS,
-métricas y health.
-
-Controles relevantes:
-
-- filesystem y scanner bypass rechazados en producción;
-- producción exige S3, HTTPS y SSE-KMS;
-- producción exige ClamAV;
-- secretos productivos exigen `SECRETS_ENVIRONMENT=prod`;
-- API y worker usan perfiles mutuamente excluyentes;
-- lease 90, heartbeat 20, máximo 3 y backoff `10,30,120` están bloqueados;
-- `.env.example`, `.env.api.example` y `.env.worker.example` no contienen
-  secretos.
-
-## 16. Infraestructura reproducible
-
-Se creó `infra/cfdi-phase0` con:
-
-- Docker Compose para PostgreSQL, Redis, MinIO y ClamAV;
-- imágenes versionadas;
-- healthchecks;
-- bucket/policy privados;
-- extensión PostgreSQL;
-- `.env.example` sin secretos;
-- script PowerShell para preparar y verificar el root local privado;
-- README de operación y cleanup.
-
-Evidencia del host:
+Evidencia segura, sin valores:
 
 ```text
-docker=NOT_FOUND
-podman=NOT_FOUND
-nerdctl=NOT_FOUND
-wsl --status => WSL no está instalado
-redis-server=NOT_FOUND
-redis-cli=NOT_FOUND
-minio=NOT_FOUND
-mc=NOT_FOUND
-clamd=NOT_FOUND
-clamscan=NOT_FOUND
-127.0.0.1:56379=False
-127.0.0.1:59000=False
-127.0.0.1:53310=False
-127.0.0.1:55432=False
+Logical path: cache/redis
+Vault environment: dev (KV v2)
+Vault secret: FOUND
+Redis connectivity: REACHABLE
+TLS: DISABLED
+Pub/Sub capability: AVAILABLE
 ```
 
-No se instaló WSL ni un runtime de contenedores porque sería aprovisionamiento
-externo del host. No se simuló que los servicios estaban disponibles.
+El contrato encontrado usa `redis_host`, `redis_port`,
+`redis_password` opcional y `redis_db`. No contiene URL completa, username ni
+campo TLS. API y worker resuelven el mismo secreto a través del módulo Redis,
+sin duplicar configuración ni copiar credenciales a archivos.
 
-## 17. Matriz de pruebas ejecutada
+La prueba online compartida se ejecutó con namespace/canal exclusivo y mensaje
+constante sin datos fiscales. Verificó `PING`, cache mínimo, `PUBLISH`,
+`SUBSCRIBE`, wakeup posterior al commit, claim PostgreSQL, reconexión, métricas
+y shutdown limpio: 1 suite y 3 pruebas PASS. No se ejecutaron `KEYS`, flush,
+shutdown, cambios ACL/configuración ni operaciones destructivas sobre el Redis
+compartido.
 
-| Prueba                                         | Resultado                            |
-| ---------------------------------------------- | ------------------------------------ |
-| API Jest completa                              | PASS — 41 suites, 286 tests          |
-| API ESLint sin autocorrección                  | PASS — 0 errores, 0 warnings         |
-| API TypeScript `--noEmit`                      | PASS                                 |
-| API build                                      | PASS                                 |
-| Web ESLint                                     | PASS                                 |
-| Web typecheck                                  | PASS                                 |
-| Web tests                                      | PASS — 49/49                         |
-| Web build Next 16.3.3                          | PASS                                 |
-| `npm audit --audit-level=moderate`             | PASS — 0 vulnerabilidades            |
-| `git diff --check`                             | PASS                                 |
-| Preflight PostgreSQL aislado                   | PASS                                 |
-| Migraciones en base aislada                    | PASS                                 |
-| Seeds dobles aislados                          | PASS                                 |
-| Down/up 060/061 bajo savepoint                 | PASS                                 |
-| Validación PostgreSQL transaccional            | PASS                                 |
-| Validación PostgreSQL runtime multi-conexión   | PASS                                 |
-| Pipeline aislado repetido de extremo a extremo | PASS                                 |
-| Migraciones 060/061 en `accounting_dev`        | PASS                                 |
-| Seeds dobles en `accounting_dev`               | PASS                                 |
-| Postflight/schema/drift en `accounting_dev`    | PASS                                 |
-| Storage local real                             | PASS — 1/1 y cleanup                 |
-| Redis totalmente apagado                       | PASS — 2/2 seleccionadas             |
-| Redis real arriba                              | BLOCKED — servicio/runtimes ausentes |
-| ClamAV totalmente apagado                      | PASS — 1/1 seleccionada              |
-| ClamAV real clean/EICAR                        | BLOCKED — servicio/runtimes ausentes |
-| MinIO/S3 real                                  | BLOCKED — servicio/runtimes ausentes |
-| Provisión LOGINs runtime persistentes          | BLOCKED — `Vault secret not found`   |
+### Fallback offline
 
-## 18. Defectos encontrados y corregidos
+La indisponibilidad se probó contra el Redis aislado, nunca apagando el
+servicio compartido. Se verificó:
 
-Todos los siguientes hallazgos quedaron corregidos y cubiertos por regresión:
+- publicación best-effort fallida sin perder el job;
+- `redis_wakeup_failures_total` incrementada;
+- Redis reportado `down` y `required=false`;
+- API/worker vivos y readiness degradada sin convertir Redis en dependencia;
+- polling/reconciliación PostgreSQL activos y job procesado;
+- recuperación posterior y shutdown limpio con Redis disponible/no disponible.
 
-1. colisión preventiva con una migración externa `050`: las migraciones CFDI se
-   fijaron en `060`/`061`;
-2. guard de base insuficientemente estricto: ahora rechaza `INHERIT`, membresías
-   indebidas, ACL directa fiscal, ownership, roles privilegiados alcanzables y
-   `CREATE` sobre base/schema;
-3. perfiles API/worker compartían demasiado entorno: se separaron contratos y
-   secretos de arranque;
-4. `aclexplode` recibía un array ACL vacío de cero dimensiones en PostgreSQL:
-   se usa `NULL` strict y no un array artificial;
-5. una colección `name[]` del catálogo no tenía contrato estable en el driver:
-   se sustituyó por conteo entero;
-6. parámetros preparados reutilizaban UUID como `text`: se fijó cast
-   `uuid::text`;
-7. `SELECT ... FOR UPDATE` sobre replay de job pedía privilegio `UPDATE` al API:
-   se eliminó el lock redundante y se conservó el advisory lock transaccional;
-8. TypeORM devuelve `[rows, rowCount]` para `UPDATE ... RETURNING`: se normalizó
-   el resultado antes de evaluar/usar filas;
-9. el parámetro de estado del job se deducía como tipos incompatibles: se fijó
-   `varchar` explícito;
-10. cleanup del test Redis intentaba destruir un cliente ya cerrado: ahora es
-    idempotente;
-11. el árbol web contenía una versión de Next con advisories: se actualizó Next
-    y `eslint-config-next` a `16.3.3`; el audit final reporta cero;
-12. catálogo/runbook/modelo conservaban nombres o estados anteriores: quedaron
-    alineados con código y migraciones `060`/`061`.
+El payload no contiene CFDI, RFC, UUID fiscal, object key, cliente ni secreto.
+PostgreSQL sigue siendo la única autoridad.
 
-`KNOWN_DEFECTS: 0` significa que no quedó ningún fallo reproducible abierto;
-no convierte en PASS los cuatro controles externos pendientes.
+## 10. Object storage
 
-## 19. Riesgos restantes y deuda técnica
+### Filesystem local
 
-| ID        | Tipo                  | Estado     | Acción necesaria                                                              |
-| --------- | --------------------- | ---------- | ----------------------------------------------------------------------------- |
-| TD-001    | control obligatorio   | OPEN       | levantar Redis real y ejecutar wakeup online                                  |
-| TD-002    | control obligatorio   | OPEN       | levantar MinIO privado y ejecutar roundtrip/SSE/signed URL/race               |
-| TD-003    | control obligatorio   | OPEN       | levantar ClamAV real y ejecutar clean/EICAR                                   |
-| TD-004    | control obligatorio   | OPEN       | aprovisionar secretos Vault API/worker, crear LOGINs y ejecutar probes reales |
-| R-EXT-001 | ambiente preexistente | OPEN       | reconciliar las migraciones `030`/`050` con su rama/autorización de origen    |
-| R-EXT-002 | herramienta host      | DOCUMENTED | instalar `pg_dump` para próximos respaldos schema-only                        |
+`LocalFilesystemObjectStorageAdapter` fue validado con un root privado fuera de
+`public`: key UUID opaca, rechazo de traversal/rutas absolutas/backslash y
+reparse/symlink, streaming de escritura/lectura, SHA-256, tamaño, inmutabilidad,
+permisos mínimos y cleanup. En Windows el preparador exige una DACL privada
+para el SID actual y LocalSystem; producción no acepta ese adapter.
 
-Los TD-001 a TD-004 son el motivo exacto de `PHASE_0_BLOCKED`. No requieren
-cambiar el diseño ni implementar Fase 1; requieren disponibilidad/aprovisionado
-externo y repetir las suites ya preparadas.
+### S3/MinIO
 
-## 20. Archivos modificados
+`S3ObjectStorageAdapter` se validó contra MinIO real:
 
-### Cambios previos preservados
+- bucket privado, acceso anónimo deshabilitado y usuario app bucket-scoped;
+- roundtrip por streams y cleanup;
+- hash y tamaño;
+- URL firmada de corta duración;
+- SSE-S3 `AES256` observada mediante `HeadObject`;
+- carrera de multipart writes sobre una key inmutable con un solo ganador;
+- timeouts y abort/cleanup de multipart.
 
-- `apps/web/src/components/status-badge.tsx`
-- `apps/web/src/features/clients/live-client-detail-screen.tsx`
-- `apps/web/src/features/clients/live-clients-screen.tsx`
-- `apps/web/src/features/clients/live-fiscal-screens.tsx`
-- `docs/architecture/CFDI_DOWNLOAD_INGESTION_CURRENT_STATE.md`
-- `docs/architecture/CFDI_DOWNLOAD_INGESTION_DECISION_INPUTS.md`
-- `docs/architecture/PROMPT_CODEX_ROADMAP_E_IMPLEMENTACION_CFDI_BALANZ_FASE_0_1.md`
-- `docs/architecture/control_mensual_cfdi (2).md`
+El adapter productivo soporta SSE-KMS por configuración, nunca solicita ACL
+pública y falla rápido en producción si faltan bucket, HTTPS, KMS o parámetros
+obligatorios. La prueba MinIO demuestra compatibilidad S3 y headers SSE; no
+pretende sustituir una integración futura con un KMS administrado.
 
-### Configuración, paquetes y entrypoints
+## 11. Malware scanner
 
-- `.gitignore`
-- `package.json`
-- `package-lock.json`
-- `bun.lock`
-- `apps/api/package.json`
-- `apps/api/.env.example`
-- `apps/api/.env.api.example`
-- `apps/api/.env.worker.example`
-- `apps/api/src/app.module.ts`
-- `apps/api/src/main.ts`
-- `apps/api/src/worker.ts`
-- `apps/api/src/worker.module.ts`
-- `apps/api/src/config/database.config.ts`
-- `apps/api/src/config/env.validation.ts`
-- `apps/api/src/config/fiscal-platform.config.ts`
-- `apps/api/src/config/platform-config.module.ts`
-- `apps/api/src/config/secrets.config.ts`
-- `apps/api/src/modules/secrets/secrets.module.ts`
-- `apps/web/package.json`
+`ClamAvScannerAdapter` usa protocolo `INSTREAM`, framing/chunks acotados,
+timeout, health check y errores tipados. No construye comandos shell con datos
+de usuario. Producción falla al arrancar si el scanner está deshabilitado; el
+bypass sólo existe en desarrollo y requiere configuración explícita.
 
-### Persistencia, seguridad y scripts
+Con `clamd` real se verificaron health, archivo limpio y fixture EICAR de
+seguridad controlado. Con el contenedor aislado inaccesible se verificó
+fail-closed: health `down` y error `MALWARE_SCANNER_UNAVAILABLE`, nunca resultado
+clean. También pasan las pruebas de protocolo, timeout y respuestas
+clean/infected/error.
 
-- `apps/api/src/database/database-options.factory.ts`
-- `apps/api/src/database/database.module.ts`
-- `apps/api/src/database/migrations/1787690600000-FiscalIngestionFoundation.ts`
-- `apps/api/src/database/migrations/1787690610000-FiscalRlsWorkerClaims.ts`
-- `apps/api/src/database/rls/fiscal-tenant-transaction.service.ts`
-- `apps/api/src/database/runtime-database-guard.service.ts`
-- `apps/api/src/database/scripts/preflight-fiscal-foundation.ts`
-- `apps/api/src/database/scripts/prepare-fiscal-test-database.ts`
-- `apps/api/src/database/scripts/provision-fiscal-runtime-logins.ts`
-- `apps/api/src/database/scripts/run-migrations.ts`
-- `apps/api/src/database/scripts/script-database-options.ts`
-- `apps/api/src/database/scripts/show-migrations.ts`
-- `apps/api/src/database/seeds/run-seeds.ts`
-- `apps/api/src/common/auth/permission-catalog.ts`
-- `apps/api/src/common/correlation/correlation-id.service.ts`
+## 12. Idempotencia, reconciliadores, lifecycle y auditoría
 
-### Plataforma fiscal
+Se validaron:
 
-- `apps/api/src/common/observability/*`
-- `apps/api/src/modules/fiscal-platform/*`
-- `apps/api/src/modules/health/*`
-- `apps/api/src/modules/ingestion/*`
-- `apps/api/src/modules/malware-scanner/*`
-- `apps/api/src/modules/object-storage/*`
-- `apps/api/src/modules/redis/redis-client-shutdown.ts`
-- `apps/api/src/modules/redis/redis-wakeup.service.ts`
-- `apps/api/src/modules/redis/redis.module.ts`
+- creación concurrente con la misma idempotency key y un solo resultado;
+- replay con mismo fingerprint y conflicto con fingerprint distinto;
+- uploads expirados;
+- objetos huérfanos;
+- objetos confirmados sin job y jobs sin root/upload viable;
+- lease vencido retryable, terminal o cancelado;
+- counters dirty y bytes redundantes;
+- elegibilidad de retención;
+- transiciones auditadas y segunda pasada idempotente con cero cambios.
 
-### Pruebas
+Los reconciliadores procesan lotes acotados y los planes `EXPLAIN` utilizan los
+índices previstos. La auditoría se corrigió para insertar sin `RETURNING` de
+entidad, conservando fail-closed y el `EntityManager` transaccional; así los
+LOGINs runtime no necesitan `SELECT` sobre `audit_events` ni una ampliación de
+ACL.
 
-- `apps/api/test/clamav-scanner.protocol.spec.ts`
-- `apps/api/test/development-bypass-scanner.spec.ts`
-- `apps/api/test/external/*`
-- `apps/api/test/fiscal-health-http.spec.ts`
-- `apps/api/test/fiscal-observability.spec.ts`
-- `apps/api/test/fiscal-platform-config.spec.ts`
-- `apps/api/test/fiscal-readiness.spec.ts`
-- `apps/api/test/ingestion-worker-runner.spec.ts`
-- `apps/api/test/instrumented-object-storage.spec.ts`
-- `apps/api/test/local-filesystem-object-storage.spec.ts`
-- `apps/api/test/opaque-object-key.factory.spec.ts`
-- `apps/api/test/redis-wakeup.spec.ts`
-- `apps/api/test/runtime-config-profiles.spec.ts`
-- `apps/api/test/runtime-database-guard.spec.ts`
-- `apps/api/test/s3-object-storage.contract.spec.ts`
-- `apps/api/test/validate-fiscal-foundation-runtime.ts`
-- `apps/api/test/validate-fiscal-foundation-transaction.ts`
-- `apps/api/test/validate-migration-lifecycle.ts`
-- ajustes de compatibilidad en tests existentes de configuración.
+## 13. Configuración, health, métricas y logs
 
-### Documentación e infraestructura
+La configuración validada cubre storage, S3/MinIO, ClamAV, worker, lease,
+heartbeat, retries, backoff, polling, Redis, concurrencia, retención, límites,
+RLS, health y métricas. Los defaults de desarrollo no se convierten en defaults
+inseguros de producción. `.env.example`, `.env.api.example` y
+`.env.worker.example` contienen únicamente nombres y placeholders, no secretos.
 
-- todos los documentos enumerados en la sección 4;
-- `infra/cfdi-phase0/.env.example`
-- `infra/cfdi-phase0/compose.yaml`
-- `infra/cfdi-phase0/minio/Dockerfile`
-- `infra/cfdi-phase0/minio/app-policy.json`
-- `infra/cfdi-phase0/postgres/001-extensions.sql`
-- `infra/cfdi-phase0/prepare-local-storage.ps1`
-- `docs/qa/CFDI_PHASE_0_VALIDATION_REPORT.md`
+Health/readiness implementado:
 
-## 21. Comandos principales ejecutados
+- API liveness y readiness;
+- worker liveness, readiness y estado del supervisor;
+- PostgreSQL, storage y scanner como dependencias requeridas;
+- Redis como dependencia observada pero no requerida;
+- probes requeridos con single-flight, caché TTL de hasta un segundo y timeout
+  acotado; el cleanup S3 también queda acotado de forma independiente.
+
+Observabilidad implementada:
+
+- logs JSON estructurados con correlation ID, job/object ID técnico, etapa,
+  duración y resultado;
+- redacción centralizada y catálogo allowlist de error codes;
+- métricas de jobs, items, queue age, leases/recovery, storage, scanner, Redis y
+  actividad del worker;
+- labels limitadas a valores acotados; ningún RFC, UUID fiscal, nombre, razón
+  social, dato personal, tenant, object key o ID de alta cardinalidad.
+
+La captura de logs de los entrypoints aislados pasó el escaneo de secretos.
+
+## 14. Infraestructura real y validación de runtimes
+
+Docker está disponible en el entorno de Codex:
 
 ```text
+Docker client/server: 29.7.2
+Docker Desktop: 4.89.0
+Docker Compose: 5.5.0
+Engine: Linux
+```
+
+`infra/cfdi-phase0/compose.yaml` levanta servicios efímeros aislados y
+versionados: PostgreSQL 16.15, Redis 7.4.10, MinIO desde el release upstream
+fijado, ClamAV 1.5.4, Vault 1.20.4 y runtimes Node.js 22.22.0. Los puertos se
+publican sólo en loopback, las imágenes/digests están fijadas y el bucket es
+privado.
+
+El host lanzador expone Node.js 20.15.1 y Bun 1.3.14 y no cuenta como evidencia
+del runtime fijado. Los gates autoritativos de CI/contenedores y el preflight
+del destino validan Node.js 22.22.0 y Bun 1.3.2.
+
+`infra/cfdi-phase0/validate-phase0-local.ps1`:
+
+- valida Docker/Compose y los controles de release;
+- genera credenciales efímeras sólo en memoria;
+- crea un proyecto Compose con nombre único;
+- espera healthchecks y prepara storage privado;
+- migra desde cero y ejecuta seeds dos veces;
+- configura Vault TLS KV v2 con AppRoles API/worker mínimos;
+- crea LOGINs PostgreSQL separados y prueba el caso negativo de migrator sin
+  autoridad;
+- ejecuta pruebas PostgreSQL, adapters externos y entrypoints compilados;
+- valida red, `.env` por perfil y mounts mínimos read-only;
+- ejecuta smoke real de autenticación/autorización/RLS en API y cola durable en
+  worker;
+- valida logs redactados, SIGTERM y Redis online/offline;
+- elimina sólo los contenedores, redes, volúmenes y directorios etiquetados como
+  propiedad de esa corrida; nunca usa prune ni toca `accounting_dev`.
+
+El ambiente aislado probó API y worker con identidades Vault y PostgreSQL
+distintas, `NOINHERIT`, `NOBYPASSRLS`, membresía única, storage privado y
+scanner real. La corrida Full final quedó registrada con su salida real:
+
+```text
+FINAL_FULL_VALIDATION: PASS
+FINAL_FULL_VALIDATION_REPORT: .local/cfdi-phase0-validation-reports/cfdi-phase0-full-final-20260903.json
+```
+
+## 15. Deploy, rollout y rollback
+
+La definición de despliegue de desarrollo fue endurecida y validada con lint y
+smokes locales:
+
+- gate reusable de Fase 0 antes del deploy;
+- actions fijadas por SHA y runner versionado;
+- release directory único por SHA/run/attempt;
+- dependencias instaladas antes de inyectar secretos;
+- symlinks externos rechazados antes de instalar y todos los enlaces revalidados
+  después de que Bun materializa dependencias;
+- release read-only y configuración externa separada para API, worker y
+  migrator; web no recibe archivo de secretos;
+- worker pausado antes de migrar;
+- credencial migrator efímera con owner/grupo dedicados y modo `0640`, eliminada antes de activar
+  runtimes;
+- wrappers `env -i`, UIDs runtime distintos, PM2 release-local y unidad systemd
+  root-owned;
+- persistencia PM2 semántica y atómica de `dump.pm2` y `dump.pm2.bak`, validada
+  contra PM2 real 7.0.4, incluida la detección de procesos homónimos fuera del
+  release;
+- limpieza fail-closed que exige lista de procesos y dumps vacíos, unidad
+  inactiva con código canónico y daemon sin PID;
+- `TimeoutStopSec=135s`, superior al `kill_timeout` de 125s del worker, y
+  allowlist sudoers exacta para la consulta de estado;
+- cadena remota de migración exclusivamente con Bun 1.3.2, con rechazo probado
+  de una dependencia transitiva de npm;
+- bootstrap legacy en dos pasos (`quiesce` → revocación PostgreSQL/Vault con
+  evidencia root-only → `finalize`) antes de aceptar la identidad
+  `balanz-deploy`;
+- cold-start de la API anterior, activación atómica, probes de API/worker y
+  primer cutover fail-closed sin reactivar el legacy: el candidato permanece
+  como `current`, con el control plane y ambos dumps vacíos para reintentar el
+  mismo candidato;
+- cleanup verificado de credenciales/releases inactivos.
+- imágenes locales de MinIO y deploy-smoke con tag/label/ID únicos por corrida y
+  cleanup exacto, sin `force` ni `prune`.
+
+El rollback usa un marcador ligado al hash y sólo cambia versiones de
+aplicación compatibles; no intenta revertir migraciones append-only. Se probó
+que no arranca un worker legacy y que se detiene ante marcador manipulado o
+probe fallido. Esto valida el mecanismo, no afirma un despliegue a un host
+externo durante esta ejecución.
+
+## 16. Matriz de pruebas
+
+| Área / gate                                         | Resultado                                                                             |
+| --------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| API ESLint sin autocorrección                       | PASS                                                                                  |
+| API TypeScript `--noEmit`                           | PASS                                                                                  |
+| API build                                           | PASS                                                                                  |
+| API Jest completa                                   | PASS — 52 suites, 370 tests                                                           |
+| Web ESLint                                          | PASS                                                                                  |
+| Web typecheck                                       | PASS                                                                                  |
+| Web build                                           | PASS                                                                                  |
+| Web tests                                           | PASS — 53 tests                                                                       |
+| `npm audit --audit-level=moderate`                  | PASS — 0 vulnerabilidades                                                             |
+| `npm audit --omit=dev --audit-level=moderate`       | PASS — 0 vulnerabilidades                                                             |
+| `git diff --check`                                  | PASS                                                                                  |
+| Secret/scope scan                                   | PASS — sin secretos ni endpoint, parser, persistencia o artefacto funcional de Fase 1 |
+| `migration:show` / preflight                        | PASS                                                                                  |
+| Migraciones 060–063 en `accounting_dev`             | PASS                                                                                  |
+| Seeds dobles en `accounting_dev`                    | PASS                                                                                  |
+| Schema, manifest y drift                            | PASS                                                                                  |
+| FKs compuestas y casos negativos                    | PASS                                                                                  |
+| RLS tenant A/B, GUC, owner, API y worker            | PASS                                                                                  |
+| Roles/ACL exactos y LOGIN hermano negativo          | PASS                                                                                  |
+| Claim concurrente, lease, heartbeat y recovery      | PASS                                                                                  |
+| Retry inicial + 3, backoff y shutdown               | PASS                                                                                  |
+| Idempotencia y fingerprint conflict                 | PASS                                                                                  |
+| Reconciliadores/lifecycle/auditoría                 | PASS                                                                                  |
+| Redis compartido desde Vault                        | PASS — 1 suite, 3 pruebas                                                             |
+| Redis aislado online/offline y polling fallback     | PASS                                                                                  |
+| Filesystem local real                               | PASS                                                                                  |
+| MinIO/S3 real                                       | PASS                                                                                  |
+| ClamAV real clean/EICAR y scanner caído             | PASS                                                                                  |
+| Vault aislado, AppRoles y negación cross-profile    | PASS                                                                                  |
+| API/worker aislados, health/readiness y RLS         | PASS                                                                                  |
+| Logs redactados y métricas sin PII                  | PASS                                                                                  |
+| Bash `-n`, ShellCheck 0.10.0 y actionlint 1.7.7     | PASS                                                                                  |
+| Persistencia PM2 real 7.0.4                         | PASS                                                                                  |
+| Runtime-isolation, rollback y legacy-cutover smokes | PASS — 3 escenarios Docker aislados; rollback incluye PM2 real 7.0.4                  |
+| Corrida local Full final                            | PASS — 410.962 s, `failedStep: null`, cleanup completo                                |
+| Secretos runtime API/worker en Vault compartido     | BLOCKED — ambos `NOT_FOUND`; write `ACCESS_DENIED`                                    |
+| LOGINs API/worker en base compartida                | BLOCKED — depende de los secretos anteriores                                          |
+
+## 17. Defectos encontrados y corregidos
+
+Todos estos hallazgos quedaron corregidos con regresión; no hay un defecto
+reproducible abierto:
+
+1. Las migraciones externas `030`/`050` aparecían como desconocidas: se integró
+   `origin/develop` y se hizo autoritativo el manifest real.
+2. Los runners permitían una autoridad insuficiente/inconsistente: preflight y
+   migrate exigen migrator cuando hay migraciones P0 pendientes y la credencial
+   no puede usarse como runtime.
+3. `attempt_count` mezclaba claims con presupuesto de fallos: se añadió
+   `automatic_retry_count`, inicial + 3 retries y backoff 10/30/120+jitter;
+   shutdown no consume retry y lease vencido sí.
+4. Los grants runtime no coincidían exactamente con las consultas actuales:
+   `063` concedió sólo columnas/funciones requeridas y revocó firmas legacy.
+5. El guard no rechazaba todas las rutas indirectas de privilegio: ahora
+   detecta ACL/ownership/default privileges, roles privilegiados y cualquier
+   LOGIN hermano en grupos API/worker.
+6. La auditoría de TypeORM emitía `INSERT ... RETURNING` y exigía `SELECT`:
+   ahora inserta sin rehidratar entidad y conserva la transacción fail-closed.
+7. Redis no exponía toda la señal de fallo/reconexión y su lifecycle podía
+   prolongarse offline: métricas, reconexión y shutdown quedaron acotados.
+8. Códigos de error operativos podían convertirse en labels libres: se añadió
+   una allowlist común y fallback acotado.
+9. Readiness podía duplicar probes lentos y acumular trabajo: se añadió
+   single-flight, TTL breve y límites temporales; el cleanup de health S3 ya no
+   depende de que la operación previa termine a tiempo.
+10. El repositorio de idempotencia conservaba locks/casts/normalización de
+    resultados incompatibles con privilegios mínimos o TypeORM: se corrigieron
+    el advisory-lock flow, casts y `UPDATE ... RETURNING`.
+11. Los perfiles API/worker compartían demasiado entorno: se separaron
+    contratos, secretos, archivos `.env` y validaciones fail-fast.
+12. El validador local tuvo incompatibilidades PowerShell/Windows y mounts
+    ambiguos: se corrigieron arrays ACL, stderr nativo, JSON PS5, normalización
+    de rutas y binds mínimos explícitos.
+13. El validador aceptaba señales de shutdown ambiguas: ahora sólo acepta exit
+    `0` o `143` dentro del límite y rechaza `137`, restart u OOM.
+14. Deploy/rollback permitía estados insuficientemente ligados al release: se
+    añadieron marker hash-bound, probes, aislamiento de credenciales y gates.
+15. El dump pre-062 se solicitó después de migrar: el incidente quedó
+    documentado, se generó evidencia post-062 y `063` sí tuvo dump pre/post con
+    hashes verificados.
+16. El primer pin de PM2 incorporó advisories transitivos: se actualizó el
+    runtime release-local a `7.0.4`, se regeneraron `package-lock.json` y
+    `bun.lock` con los toolchains fijados y ambos audits regresaron a cero.
+17. El timeout lógico de readiness podía soltar el gate mientras seguía un
+    probe físico de storage/scanner: ahora conserva un único AbortController y
+    no libera single-flight hasta que el adapter termina su cleanup real.
+18. El bootstrap/cutover podía quedar sin reentrada tras purgar la identidad o
+    crear `.pm2`: se añadió progreso root-only ligado a fingerprints,
+    reanudación estricta, failpoints y rechazo de estado parcial manipulado.
+19. La instalación remota ocurría antes de validar symlinks del artefacto: el
+    deploy ahora usa `--safe-links`, escanea antes de Bun y revalida después.
+20. Las imágenes locales MinIO/deploy-smoke usaban tags globales y podían dejar
+    residuo: ahora cada corrida verifica tag, label e ID propios y los elimina
+    de forma exacta sin prune/force.
+21. Un rollback de primer despliegue podía dejar activo el control plane PM2
+    sin un `current` válido: el cleanup fail-closed detiene unidad y daemon,
+    vacía `dump.pm2` y `dump.pm2.bak` y prueba un retry completo.
+22. PM2 7.0.4 podía devolver éxito aunque fallara el respaldo de `pm2 save`, y
+    validar sólo nombres aceptaba homónimos: ahora se verifican release, cwd,
+    entrypoint, intérprete y argumentos, y ambos dumps se reinstalan de forma
+    atómica, durable y semánticamente equivalente; el smoke usa PM2 real.
+23. El cleanup fail-closed podía dejar procesos, dumps, unidad o daemon en un
+    estado ambiguo: ahora elimina todo el control plane y exige lista vacía,
+    ambos dumps vacíos, PID ausente y `systemctl is-active` con código exacto 3;
+    se prueban fallas de delete, save, stop y códigos no canónicos.
+24. El timeout systemd y la allowlist sudoers no cubrían de forma demostrable el
+    shutdown completo del worker: se fijó `TimeoutStopSec=135s`, por encima de
+    `kill_timeout=125s`, y una regla exacta para `is-active --quiet`.
+25. Las migraciones remotas podían depender transitivamente de npm y del Node.js
+    del host: el flujo usa exclusivamente Bun 1.3.2 y tiene una prueba negativa
+    que rechaza la invocación de npm.
+26. El primer cutover legacy fallido podía intentar repuntar una identidad ya
+    revocada: ahora conserva el candidato como `current`, deja procesos y dumps
+    vacíos y sólo permite reintentar ese mismo candidato.
+
+```text
+KNOWN_DEFECTS: 0
+```
+
+## 18. Riesgos restantes y deuda técnica
+
+| ID       | Tipo                        | Estado | Evidencia / acción necesaria                                                                                                                                                                                                                                                                                       |
+| -------- | --------------------------- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `TD-004` | control externo obligatorio | OPEN   | En Vault compartido, `database/postgres-api` y `database/postgres-worker` están `NOT_FOUND`; el AppRole actual obtiene `ACCESS_DENIED` al escribir. Un administrador debe crear los dos secretos canónicos y ejecutar el provisionador aprobado; después se repiten guard, login y probes contra `accounting_dev`. |
+
+No se solicita ni se acepta que las contraseñas se peguen en chat. La operación
+administrativa debe generar credenciales fuertes, crear los LOGINs con
+`apps/api/src/database/scripts/provision-fiscal-runtime-logins.ts`, guardar sólo
+los secretos canónicos en Vault y registrar metadata/resultado, nunca valores.
+
+Riesgos operativos documentados que no son defectos ni capacidades incompletas
+de Fase 0:
+
+- el rollback conserva migraciones aditivas y requiere una versión de
+  aplicación compatible;
+- MinIO valida S3/SSE, no un KMS administrado de producción;
+- los pins de imágenes deben revisarse antes de cada piloto o despliegue
+  productivo;
+- el cutover no se ejecutó en el host destino; los smokes desechables simulan
+  systemd, sudo y Vault, aunque ejercitan PM2 7.0.4 real;
+- el Redis compartido no debe usarse para pruebas destructivas; la caída se
+  prueba sólo en infraestructura aislada.
+
+```text
+TECHNICAL_DEBT: 1
+KNOWN_DEFECTS: 0
+```
+
+## 19. Archivos modificados
+
+La implementación se distribuye en los siguientes grupos:
+
+- configuración/entrypoints: `apps/api/.env*.example`,
+  `apps/api/src/config/*`, `apps/api/src/main.ts`, `apps/api/src/worker.ts`,
+  `apps/api/src/worker.module.ts` y scripts de `apps/api/package.json`;
+- migraciones y seguridad DB:
+  `apps/api/src/database/migrations/1787690600000-FiscalIngestionFoundation.ts`,
+  `1787690610000-FiscalRlsWorkerClaims.ts`,
+  `1787690620000-IngestionAutomaticRetryBudget.ts`,
+  `1787690630000-PhaseZeroRuntimeCompatibility.ts`, RLS, guard, manifest,
+  preflight y provisionador runtime;
+- plataforma fiscal: `apps/api/src/modules/fiscal-platform/**`,
+  `ingestion/**`, `object-storage/**`, `malware-scanner/**`, `redis/**`,
+  `health/**`, `apps/api/src/common/observability/**` y auditoría;
+- pruebas: suites unitarias y archivos de `apps/api/test/external/**`,
+  validadores PostgreSQL, Vault, API/worker runtime, migration authority y
+  provisioning policy;
+- infraestructura/CI/deploy: `infra/cfdi-phase0/**`,
+  `.github/workflows/cfdi-phase0-validation.yml`,
+  `.github/workflows/deploy-dev.yml`, `ecosystem.config.cjs`, `.gitattributes`
+  y `scripts/deploy/**`;
+- toolchain y locks reproducibles: `package.json`, `package-lock.json` y
+  `bun.lock`;
+- alineación no funcional del orden del contrato de permisos web:
+  `apps/web/src/lib/accounting-types.ts`;
+- documentación: roadmap, cinco ADR, threat model, contrato, catálogo de
+  errores, runbook, matrices, arquitectura/modelo y este reporte.
+
+Los cambios web funcionales preexistentes quedaron en `4778f5e`; la corrección
+final de `accounting-types.ts` sólo alinea el orden del contrato de permisos, sin
+agregar UI ni capacidad de Fase 1. Los insumos previos quedaron en `63a6535`.
+`.local/**`, envs con credenciales, artifacts Docker y logs de reparación no
+forman parte del cambio versionado.
+
+## 20. Comandos principales ejecutados
+
+```text
+git fetch --all --prune
 git branch --show-current
 git rev-parse HEAD
 git status --short
 git diff --check
+git log --all -- apps/api/src/modules/redis apps/api/src/modules/secrets
 
-npm install --ignore-scripts
-bun install --lockfile-only --ignore-scripts
-bun install --ignore-scripts
+docker version
+docker compose version
+docker info
+docker compose --env-file infra/cfdi-phase0/.env \
+  -f infra/cfdi-phase0/compose.yaml config
+powershell -NoProfile -File infra/cfdi-phase0/validate-phase0-local.ps1 \
+  -ValidationMode Full \
+  -ProjectName cfdi-phase0-full-final-20260903
+
+npm --prefix apps/api run migration:show
+npm --prefix apps/api run migration:preflight
+npm --prefix apps/api run migration:run
+npm --prefix apps/api run seed:run
+npm --prefix apps/api run seed:run
+npm --prefix apps/api run qa:migrations
+npm --prefix apps/api run test:integration:fiscal
+npm --prefix apps/api run test:integration:fiscal:runtime
+npm --prefix apps/api run qa:cfdi:postgres
+npm --prefix apps/api run db:runtime:provision
+
+$env:RUN_REDIS_INTEGRATION='true'
+npm --prefix apps/api run test:external:redis:vault
+npm --prefix apps/api run test:external:fiscal
+
+cd apps/api && npm exec -- eslint 'src/**/*.ts' 'test/**/*.ts'
+npm exec tsc -- --noEmit -p apps/api/tsconfig.json
+npm --prefix apps/api test -- --runInBand
+npm --prefix apps/api run build
+npm --prefix apps/web run lint
+npm --prefix apps/web run typecheck
+npm --prefix apps/web run test
+npm --prefix apps/web run build
 npm audit --audit-level=moderate
+npm audit --omit=dev --audit-level=moderate
 
-bunx eslint "{src,apps,libs,test}/**/*.ts"
-bunx tsc --noEmit
-bun run build
-node.exe node_modules/jest/bin/jest.js --runInBand
-
-bun run lint                    # web
-bun run typecheck               # web
-bun run test                    # web
-bun run build                   # web
-
-bun run migration:show
-bun run migration:preflight
-bun run db:test:prepare
-bun run qa:cfdi:postgres        # base balanz_cfdi_phase0_test
-bun run migration:run           # accounting_dev
-bun run seed:run                # primera vez en accounting_dev
-bun run seed:run                # segunda vez en accounting_dev
-bun run qa:migrations           # transacción con rollback en accounting_dev
-bun run db:runtime:provision    # bloqueado: Vault secret not found
-
-jest local-storage.external.ts
-jest redis-wakeup.external.ts --testNamePattern offline
-jest malware-scanner.clamav.external.ts --testNamePattern "fails closed"
-
-wsl --status
-Get-Command docker,podman,nerdctl,redis-server,minio,clamd,pg_dump
-pruebas TCP a 56379, 59000, 53310 y 55432
+actionlint -no-color
+bash -n scripts/deploy/*.sh
+shellcheck scripts/deploy/*.sh
+node scripts/deploy/validate-ecosystem.cjs \
+  ecosystem.config.cjs apps/api current
+bash scripts/deploy/smoke-runtime-isolation.sh
+bash scripts/deploy/smoke-pm2-persistence.sh
+bash scripts/deploy/smoke-rollback.sh
+bash scripts/deploy/smoke-legacy-cutover.sh
 ```
 
-También se ejecutaron corridas focales durante la corrección de cada defecto;
-las cifras de la sección 17 corresponden a los gates finales.
+Las corridas destructivas se limitaron a bases, esquemas, contenedores y
+volúmenes inequívocamente aislados. `accounting_dev` sólo recibió migraciones
+append-only, seeds idempotentes, inspección y datos sintéticos autorizados.
 
-## 22. Estado final
+## 21. Estado final y condición de desbloqueo
 
 ```text
 RESULT: PHASE_0_BLOCKED
-TECHNICAL_DEBT: 4
+TECHNICAL_DEBT: 1
 KNOWN_DEFECTS: 0
 DEFERRED_PRODUCT_CAPABILITIES:
   - PHASE_1_XML
@@ -672,9 +769,11 @@ DEFERRED_PRODUCT_CAPABILITIES:
   - PHASE_6_EXPORT_AND_RETENTION
   - PHASE_7_GLOBAL_OPERATIONS
   - PHASE_8_HARDENING_AND_PILOT
+PHASE_1_XML: NOT_STARTED
 ```
 
-Se detiene el trabajo antes de Fase 1. Para reabrir el gate de Fase 0 se debe
-proveer el secreto Vault de runtime y un ambiente accesible con Redis, MinIO y
-ClamAV; después se ejecutan las suites externas ya incluidas y los probes reales
-de API/worker. No hace falta implementar carga XML para resolver estos bloqueos.
+Para cerrar `TD-004`, un administrador con autoridad sobre el Vault y
+PostgreSQL de desarrollo debe aprovisionar los dos secretos/login canónicos y
+volver a ejecutar los probes runtime contra `accounting_dev`. Hasta entonces,
+el PR sólo puede permanecer en borrador y `codex/cfdis` no debe fusionarse a
+`develop`. El trabajo se detiene antes de Fase 1.

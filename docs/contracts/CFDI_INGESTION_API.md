@@ -49,7 +49,9 @@ app.organization_id` y, cuando aplique, `SET LOCAL app.membership_id`, más
    FORCE RLS; contexto ausente o inválido falla cerrado.
 4. Los bytes confirmados son inmutables y su path/key es opaco.
 5. PostgreSQL es la única autoridad de jobs; Redis sólo despierta.
-6. Una transición terminal requiere lease vigente y versión esperada.
+6. Una transición terminal requiere el `lease_token` vigente; `worker_id`
+   conserva procedencia y `version` es una revisión observable, no el
+   credential de ownership.
 7. Logs/métricas nunca incluyen RFC, UUID fiscal, nombre, razón social, XML,
    filename, idempotency key completa, signed URL ni secretos.
 
@@ -57,11 +59,13 @@ app.organization_id` y, cuando aplique, `SET LOCAL app.membership_id`, más
 
 - IDs técnicos son UUID y se serializan en formato canónico minúsculo.
 - Timestamps son `timestamptz`/ISO-8601 UTC en límites de proceso.
-- `version` es un entero positivo incrementado en cada mutación protegida.
+- `version` es un entero positivo incrementado como revisión monotónica
+  observable en cada mutación protegida; no actúa como CAS de ownership.
 - `correlation_id` se propaga desde request/proceso o se genera en el primer
   boundary; no es una idempotency key.
-- Comandos mutables usan `expectedVersion` cuando pueden competir; un mismatch
-  produce `JOB_STATE_CONFLICT` o el código específico equivalente.
+- Los comandos del worker cercan ownership mediante job, organización, estado,
+  lease no vencido y el `lease_token` vigente. La cancelación es idempotente y
+  tenant-scoped; no recibe un `expectedVersion` del cliente.
 - Ningún caller puede suministrar `worker_id`, `attempt_count`, lease o estado
   terminal como datos de producto.
 
@@ -79,7 +83,8 @@ Fase 0 crea sólo estas tablas fiscales:
 Las columnas exactas viven en migraciones append-only, pero el contrato exige:
 scope completo, FKs compuestas, checks/uniques/índices, estado canónico,
 idempotency key/fingerprint donde corresponda, `worker_id`/`locked_by`,
-`lease_expires_at`, `heartbeat_at`, `attempt_count`, `next_attempt_at`,
+`lease_expires_at`, `heartbeat_at`, `attempt_count`, `automatic_retry_count`,
+`next_attempt_at`,
 `cancel_requested_at`, `started_at`, `completed_at`, `last_error_code`,
 `correlation_id`, versión y timestamps.
 
@@ -127,25 +132,24 @@ Etapas reservadas: `scanning`, `extracting`, `parsing`, `persisting`. En Fase 0
 sólo la plataforma y handlers de test pueden recorrerlas; no existe handler
 fiscal de producción.
 
-| Comando            | Precondición                                      | Efecto durable                                                                                                               |
-| ------------------ | ------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| enqueue            | objeto/intención confirmados y operación conocida | `queued`, intento disponible                                                                                                 |
-| claim              | claimable, `next_attempt_at <= now`, no cancelado | `processing`, worker, lease 90 s, intento                                                                                    |
-| heartbeat          | mismo worker/lease/version, no expirado           | `renewed` si extiende heartbeat/lease; `cancel_requested` si debe abortar cooperativamente; `lease_lost` si perdió autoridad |
-| complete           | mismo worker/lease/version                        | estado terminal, timestamps, resultado                                                                                       |
-| fail retryable     | mismo worker/lease/version e intentos disponibles | `failed_retryable`, error y backoff                                                                                          |
-| requeue            | retry vencido o lease recuperable                 | `queued`, ownership limpio                                                                                                   |
-| request cancel     | estado cancelable y versión válida                | `cancel_requested_at`, estado canónico                                                                                       |
-| acknowledge cancel | boundary seguro y lease válido                    | `cancelled`, ownership limpio                                                                                                |
+| Comando            | Precondición                                         | Efecto durable                                                                                                               |
+| ------------------ | ---------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| enqueue            | objeto/intención confirmados y operación conocida    | `queued`, intento disponible                                                                                                 |
+| claim              | claimable, `next_attempt_at <= now`, no cancelado    | `processing`, worker, lease 90 s, intento                                                                                    |
+| heartbeat          | mismo `lease_token`, estado y lease no expirado      | `renewed` si extiende heartbeat/lease; `cancel_requested` si debe abortar cooperativamente; `lease_lost` si perdió autoridad |
+| complete           | mismo `lease_token`, estado y lease vigente          | estado terminal, timestamps, resultado                                                                                       |
+| fail retryable     | mismo `lease_token`, lease y retries disponibles     | incrementa `automatic_retry_count`; `failed_retryable`, error y backoff                                                      |
+| requeue            | retry vencido o lease recuperable                    | `queued`, ownership limpio                                                                                                   |
+| request cancel     | tenant/scope válidos y estado cancelable/idempotente | `cancel_requested_at`, estado canónico                                                                                       |
+| acknowledge cancel | boundary seguro y lease válido                       | `cancelled`, ownership limpio                                                                                                |
 
-`WORKER_MAX_ATTEMPTS=3` representa como máximo tres **ejecuciones totales**,
-incluida la inicial. Los backoffs 10 y 30 segundos con jitter preceden a las
-ejecuciones 2 y 3. El valor 120 permanece reservado en la configuración por
-compatibilidad, pero no autoriza ni programa una cuarta reclamación. Tras fallar
-la ejecución 3 el error no vuelve a cola automáticamente. Esta decisión aplica
-la precedencia de la instrucción directa sobre la formulación ambigua del
-material maestro. Perder lease produce `JOB_LEASE_LOST` y prohíbe publicar
-resultado.
+`WORKER_MAX_RETRIES=3` permite tres reintentos además de la ejecución inicial;
+los backoffs 10, 30 y 120 segundos con jitter preceden cada reejecución. Tras
+fallar la cuarta ejecución el job queda `failed_final`. La terminalidad depende
+de `automatic_retry_count`, no de `attempt_count`: este último registra cada
+claim y puede superar 4 por shutdown/reclaim. El shutdown gracioso no consume
+retry; un lease vencido sí. Perder lease produce `JOB_LEASE_LOST` y prohíbe
+publicar resultado.
 
 ### 5.4 Item
 
@@ -237,9 +241,11 @@ La función SQL de claim es la única excepción cross-tenant de runtime. Su
 contrato observable:
 
 ```text
-claim_ingestion_job(worker_id, supported_source_types[])
+claim_ingestion_job(worker_id, lease_token, supported_source_types[],
+                    lease_seconds=90, max_attempts=4, max_retries=3,
+                    active_jobs_per_tenant=4)
   -> { job_id, organization_id, client_account_id, legal_entity_id,
-       source_type, version, correlation_id, attempt_count, recovered,
+       source_type, lease_token, version, correlation_id, attempt_count, recovered,
        requested_by_membership_id?, root_object_id?, upload_id? } | no row
 ```
 
@@ -252,8 +258,9 @@ fiscal. `PUBLIC` no tiene `EXECUTE`.
 
 El claim inserta su evento de auditoría en la misma transacción que adquiere el
 lease. Si falla la auditoría no existe claim; si no existe claim no se publica
-auditoría. El evento conserva IDs técnicos, worker, versión y transición, nunca
-payload fiscal.
+auditoría. El evento conserva IDs técnicos, transición y metadata acotada de
+intentos/recuperación, nunca payload fiscal. `worker_id` y `version` permanecen
+como procedencia y revisión durable en la fila del job.
 
 Tras claim, cada job se procesa dentro de una nueva transacción tenant-scoped
 con `SET LOCAL app.organization_id` y, cuando aplique,
@@ -293,7 +300,7 @@ Los handlers clasifican errores en:
 
 - terminal por contenido/política;
 - transitorio retryable dentro del presupuesto;
-- conflicto de lease/versión, que no se reintenta como si el dueño siguiera
+- conflicto de lease/ownership, que no se reintenta como si el dueño siguiera
   vigente;
 - bug interno, auditable y terminal al agotar intentos.
 

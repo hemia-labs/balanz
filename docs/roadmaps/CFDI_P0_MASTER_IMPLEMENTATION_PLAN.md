@@ -5,12 +5,12 @@
 | Campo               | Valor                                                                             |
 | ------------------- | --------------------------------------------------------------------------------- |
 | Programa            | Plataforma CFDI de Balanz                                                         |
-| Fecha de corte      | 2026-08-28 (`America/Mexico_City`)                                                |
+| Fecha de corte      | 2026-09-03 (`America/Mexico_City`)                                                |
 | Rama de trabajo     | `codex/cfdis`                                                                     |
-| SHA base            | `a53de839eddf7febbbd611c63f514e611a3cf8b6`                                        |
+| SHA base integrada  | `origin/develop` en `e3d4f432dca1df6bbd0877d86e60bd52d8c15325`                    |
 | Autoridad operativa | Este plan, subordinado al prompt maestro y al override de alcance de la ejecución |
 | Fase en ejecución   | `PHASE_0_SHARED_FISCAL_PLATFORM`                                                  |
-| Estado de Fase 0    | `BLOCKED`                                                                         |
+| Estado de Fase 0    | `PHASE_0_BLOCKED`                                                                 |
 | Estado de Fases 1–8 | `NOT_STARTED`                                                                     |
 | Regla de cierre     | No declarar `DONE` sin evidencia ejecutada de toda la Definition of Done          |
 
@@ -54,41 +54,39 @@ La seguridad futura del parser sí se decide documentalmente en
 
 ## 2. Decisiones bloqueadas
 
-| Tema              | Decisión                                                                                                                                                                                                         |
-| ----------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Topología         | Monolito modular NestJS; worker como proceso separado del mismo monorepo y release.                                                                                                                              |
-| Autoridad durable | PostgreSQL. Redis nunca contiene la verdad de un job.                                                                                                                                                            |
-| Claim             | Operación atómica con `FOR UPDATE SKIP LOCKED` encapsulada en una función `SECURITY DEFINER` mínima.                                                                                                             |
-| Lease             | 90 segundos; heartbeat cada 20 segundos.                                                                                                                                                                         |
-| Retry             | `WORKER_MAX_ATTEMPTS=3` limita a **tres ejecuciones totales**, incluida la inicial; backoff 10 y 30 segundos con jitter antes de los intentos 2 y 3. El valor 120 queda reservado y no autoriza un cuarto claim. |
-| Wakeup            | Redis pub/sub best-effort después del commit; polling PostgreSQL siempre activo.                                                                                                                                 |
-| Storage           | `ObjectStoragePort`, filesystem local privado sólo en desarrollo y adapter S3/MinIO privado para ambientes administrados.                                                                                        |
-| Cifrado           | Objetos fiscales S3 con SSE-KMS configurable; filesystem prohibido en producción.                                                                                                                                |
-| Malware           | `MalwareScannerPort` + ClamAV `INSTREAM`; producción fail-closed; bypass sólo en desarrollo y explícito.                                                                                                         |
-| RLS               | `ENABLE` + `FORCE` desde toda tabla fiscal fundacional; API/worker sin `BYPASSRLS`.                                                                                                                              |
-| Contexto RLS      | Únicamente `SET LOCAL app.organization_id` y, cuando aplique, `SET LOCAL app.membership_id` dentro de transacción; GUC ausente o inválida falla cerrado.                                                         |
-| Roles RLS         | Grupos `NOLOGIN` `balanz_api`/`balanz_worker`; LOGINs dedicados aprovisionados por despliegue, sin migrator/owner/BYPASSRLS.                                                                                     |
-| Integridad        | Scope completo y FKs compuestas `organization_id + client_account_id + legal_entity_id`.                                                                                                                         |
-| Idempotencia      | Específica por operación, con key, fingerprint y replay; no ledger genérico.                                                                                                                                     |
-| Progreso          | Polling en P0; Redis no es canal de datos ni mecanismo de progreso.                                                                                                                                              |
-| Estado            | Job con estado canónico grueso y `current_stage`; item con estado técnico y resultado separado.                                                                                                                  |
-| Original          | Los bytes confirmados son inmutables; keys opacas; sin RFC, nombre o filename en el path físico.                                                                                                                 |
-| Observabilidad    | IDs técnicos y resultados; nunca RFC, UUID fiscal, nombre, XML, URLs firmadas o secretos como logs/labels.                                                                                                       |
-| Parser            | Red, DTD y entidades externas prohibidas; límites y allowlist versionada antes de Fase 1.                                                                                                                        |
+| Tema              | Decisión                                                                                                                                                                                                                                                                       |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Topología         | Monolito modular NestJS; worker como proceso separado del mismo monorepo y release.                                                                                                                                                                                            |
+| Autoridad durable | PostgreSQL. Redis nunca contiene la verdad de un job.                                                                                                                                                                                                                          |
+| Claim             | Operación atómica con `FOR UPDATE SKIP LOCKED` encapsulada en una función `SECURITY DEFINER` mínima.                                                                                                                                                                           |
+| Lease             | 90 segundos; heartbeat cada 20 segundos.                                                                                                                                                                                                                                       |
+| Retry             | `WORKER_MAX_RETRIES=3` concede tres reintentos automáticos reales: ejecución inicial + tres reejecuciones. Backoff 10/30/120 s con jitter. `attempt_count` registra claims y puede superar 4 por liberaciones graciosas; sólo `automatic_retry_count` gobierna el presupuesto. |
+| Wakeup            | Redis pub/sub best-effort después del commit; polling PostgreSQL siempre activo.                                                                                                                                                                                               |
+| Storage           | `ObjectStoragePort`, filesystem local privado sólo en desarrollo y adapter S3/MinIO privado para ambientes administrados.                                                                                                                                                      |
+| Cifrado           | Objetos fiscales S3 con SSE-KMS configurable; filesystem prohibido en producción.                                                                                                                                                                                              |
+| Malware           | `MalwareScannerPort` + ClamAV `INSTREAM`; producción fail-closed; bypass sólo en desarrollo y explícito.                                                                                                                                                                       |
+| RLS               | `ENABLE` + `FORCE` desde toda tabla fiscal fundacional; API/worker sin `BYPASSRLS`.                                                                                                                                                                                            |
+| Contexto RLS      | Únicamente `SET LOCAL app.organization_id` y, cuando aplique, `SET LOCAL app.membership_id` dentro de transacción; GUC ausente o inválida falla cerrado.                                                                                                                       |
+| Roles RLS         | Grupos `NOLOGIN` `balanz_api`/`balanz_worker`; LOGINs dedicados aprovisionados por despliegue, sin migrator/owner/BYPASSRLS.                                                                                                                                                   |
+| Integridad        | Scope completo y FKs compuestas `organization_id + client_account_id + legal_entity_id`.                                                                                                                                                                                       |
+| Idempotencia      | Específica por operación, con key, fingerprint y replay; no ledger genérico.                                                                                                                                                                                                   |
+| Progreso          | Polling en P0; Redis no es canal de datos ni mecanismo de progreso.                                                                                                                                                                                                            |
+| Estado            | Job con estado canónico grueso y `current_stage`; item con estado técnico y resultado separado.                                                                                                                                                                                |
+| Original          | Los bytes confirmados son inmutables; keys opacas; sin RFC, nombre o filename en el path físico.                                                                                                                                                                               |
+| Observabilidad    | IDs técnicos y resultados; nunca RFC, UUID fiscal, nombre, XML, URLs firmadas o secretos como logs/labels.                                                                                                                                                                     |
+| Parser            | Red, DTD y entidades externas prohibidas; límites y allowlist versionada antes de Fase 1.                                                                                                                                                                                      |
 
 ### 2.1 Decisión sobre la semántica de intentos
 
-El material de entrada contiene dos formulaciones que aisladas pueden leerse de
-forma distinta: “máximo de tres intentos” y “tres intentos automáticos”. La
-instrucción directa de esta ejecución tiene precedencia y fija un máximo de
-**tres ejecuciones totales**, incluida la inicial. `WORKER_MAX_ATTEMPTS=3` es ese
-límite. El backoff de 10 segundos precede al intento 2 y el de 30 segundos al
-intento 3, ambos con jitter. El valor 120 se conserva en la lista configurada
-por compatibilidad con el contrato maestro, pero no se consume en Fase 0 y nunca
-autoriza un cuarto claim. Un fallo retryable en el intento 3 queda
-`failed_final`. Cambiar esta semántica exige una decisión posterior,
-migración/configuración compatible y pruebas de transición; no puede
-reinterpretarse silenciosamente por ambiente.
+El contrato exige **tres reintentos automáticos**, además de la ejecución
+inicial. `WORKER_MAX_ATTEMPTS=4` expresa las cuatro ejecuciones presupuestadas
+del ciclo normal y `WORKER_MAX_RETRIES=3` es la autoridad durable que decide la
+terminalidad. Los backoffs 10, 30 y 120 segundos, cada uno con jitter, preceden
+a los reintentos 1, 2 y 3. Un cuarto fallo retryable queda `failed_final`.
+`attempt_count` es evidencia monotónica de cada claim y puede superar 4 cuando
+un shutdown gracioso libera y vuelve a encolar trabajo; esas liberaciones no
+incrementan `automatic_retry_count`. Un lease vencido sí consume un reintento.
+Esta semántica no puede reinterpretarse por ambiente.
 
 ## 3. Arquitectura objetivo
 
@@ -183,11 +181,12 @@ stateDiagram-v2
   processing --> completed: handler termina
   processing --> completed_with_issues: items terminales con incidencias
   processing --> failed_retryable: error transitorio
-  failed_retryable --> queued: next_attempt_at + backoff/jitter
+  failed_retryable --> processing: next_attempt_at vencido + claim
   processing --> cancel_requested: solicitud durable
   cancel_requested --> cancelled: boundary seguro
-  processing --> queued: lease vencido + reconciliación
-  failed_retryable --> failed_final: tercera ejecución total agotada
+  processing --> failed_retryable: lease vencido + presupuesto disponible
+  processing --> queued: shutdown gracioso sin consumir retry
+  processing --> failed_final: cuarto fallo / retry agotado
 ```
 
 Invariantes:
@@ -199,7 +198,8 @@ Invariantes:
 - el procesamiento normal ocurre bajo RLS del tenant reclamado;
 - perder lease impide publicar un resultado y produce `JOB_LEASE_LOST`;
 - shutdown deja de reclamar, solicita cancelación de ejecución local, completa o
-  libera de forma segura y cierra dependencias;
+  libera de forma segura sin consumir el presupuesto automático y cierra
+  dependencias;
 - fairness evita que un tenant monopolice los slots disponibles;
 - reconciliadores son idempotentes y no convierten Redis en autoridad.
 
@@ -262,6 +262,20 @@ Secuencia obligatoria:
 8. Ejecutar la suite real aislada con PostgreSQL/Redis/MinIO/ClamAV.
 9. No usar `DROP DATABASE`, `TRUNCATE` general ni `migration:revert` sobre datos
    que deban preservarse.
+
+Mientras exista cualquier migración de Fase 0 pendiente, preflight y
+`migration:run` exigen la credencial **superuser/migrator efímera**. PostgreSQL
+16 requiere esa autoridad para crear los roles fijos, transferir ownership de
+funciones y retirar todas las membresías/`CREATE` dentro de la misma transacción
+`all`. La credencial sólo existe durante `release:prepare`, se elimina antes de
+activar runtimes y nunca puede reutilizarse por API o worker. Una vez aplicadas
+060/061/062/063, la inspección read-only no exige elevación.
+
+Al corte de este plan, la rama ya integra la base vigente de `origin/develop`.
+Las migraciones externas 030/050 quedaron reconciliadas mediante ese merge y
+las migraciones de plataforma fiscal 060/061/062/063 fueron aplicadas e
+inspeccionadas en desarrollo. No existe una divergencia pendiente de migración
+entre la base integrada y la secuencia append-only de Fase 0.
 
 Rollback preferido: volver a una versión de aplicación compatible y conservar
 las migraciones aditivas. Si no existe tráfico ni datos y el ambiente es una
@@ -332,22 +346,38 @@ Health:
 Las pruebas que dependen de semántica de infraestructura usan servicios reales,
 no mocks:
 
-| Área              | Evidencia obligatoria                                                                      |
-| ----------------- | ------------------------------------------------------------------------------------------ |
-| Migraciones/seeds | apply, inspección, seed doble idempotente                                                  |
-| Integridad        | FKs compuestas y constraints negativos                                                     |
-| RLS               | tenant A/B, sin GUC, GUC inválida, table owner, API, worker                                |
-| Claim             | dos workers concurrentes, un ganador, fairness y scope mínimo                              |
-| Lease             | heartbeat, vencimiento, recuperación, pérdida de lease                                     |
-| Retry             | máximo 3 ejecuciones; backoff 10/30+jitter; 120 reservado sin cuarto claim; error terminal |
-| Redis             | wakeup rápido con Redis y continuidad con Redis apagado                                    |
-| Local storage     | streaming, hash/tamaño, traversal, permisos y cleanup                                      |
-| S3                | MinIO real, bucket privado, stream, signed URL corta y SSE config                          |
-| Scanner           | limpio, EICAR controlado, timeout/no disponible y política por ambiente                    |
-| Idempotencia      | misma key concurrente y fingerprint distinto                                               |
-| Reconciliación    | uploads expirados, objetos/jobs huérfanos, lease y lifecycle                               |
-| Observabilidad    | logs redactados, métricas sin PII, probes y degradación Redis                              |
-| Shutdown          | SIGTERM durante idle y trabajo; no doble ejecución/pérdida                                 |
+| Área              | Evidencia obligatoria                                                                              |
+| ----------------- | -------------------------------------------------------------------------------------------------- |
+| Migraciones/seeds | apply, inspección, seed doble idempotente                                                          |
+| Integridad        | FKs compuestas y constraints negativos                                                             |
+| RLS               | tenant A/B, sin GUC, GUC inválida, table owner, API, worker                                        |
+| Claim             | dos workers concurrentes, un ganador, fairness y scope mínimo                                      |
+| Lease             | heartbeat, vencimiento, recuperación, pérdida de lease                                             |
+| Retry             | inicial + 3 reintentos; backoff 10/30/120+jitter; cuarto fallo terminal; shutdown no consume retry |
+| Redis             | wakeup rápido con Redis y continuidad con Redis apagado                                            |
+| Local storage     | streaming, hash/tamaño, traversal, permisos y cleanup                                              |
+| S3                | MinIO real, bucket privado, stream, signed URL corta y SSE config                                  |
+| Scanner           | limpio, EICAR controlado, timeout/no disponible y política por ambiente                            |
+| Idempotencia      | misma key concurrente y fingerprint distinto                                                       |
+| Reconciliación    | uploads expirados, objetos/jobs huérfanos, lease y lifecycle                                       |
+| Observabilidad    | logs redactados, métricas sin PII, probes y degradación Redis                                      |
+| Shutdown          | SIGTERM durante idle y trabajo; no doble ejecución/pérdida                                         |
+
+### Evidencia de infraestructura al corte
+
+Docker Desktop y Docker Compose están accesibles. Corridas aisladas previas de
+la validación E2E comprobaron con servicios reales PostgreSQL, Redis, MinIO,
+ClamAV y Vault; no se sustituyó su semántica por mocks. Redis compartido de
+desarrollo también fue encontrado en Vault y validado tanto en línea —incluido
+pub/sub— como con Redis apagado, manteniendo polling PostgreSQL como fallback.
+
+El único control externo pendiente es el aprovisionamiento de los secretos
+canónicos de runtime `database/postgres-api` y `database/postgres-worker` en
+Vault. Ambos están `NOT_FOUND` y el AppRole disponible responde
+`ACCESS_DENIED` para crearlos. Por ello no puede completarse todavía la prueba
+de login de API/worker contra la base compartida de desarrollo. La ejecución
+final de cierre no se declara `PASS` en este plan; su resultado y evidencia
+pertenecen al reporte QA.
 
 ## 12. Riesgos del programa
 
@@ -368,31 +398,31 @@ no mocks:
 
 ### Fase 0 — Plataforma fiscal compartida
 
-| Campo                | Definición                                                                                                                                                                                        |
-| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| ID                   | `PHASE_0_SHARED_FISCAL_PLATFORM`                                                                                                                                                                  |
-| Objetivo             | Proveer fundaciones durables y seguras reutilizables por XML, ZIP, SAT y exportaciones.                                                                                                           |
-| Valor de producto    | Los procesos fiscales futuros sobreviven reinicios, aíslan tenants y conservan originales sin rediseño.                                                                                           |
-| Dependencias         | Identidad, sesión, MFA, tenant, asignación, clientes/RFC, PostgreSQL, secretos y Redis opcional existentes.                                                                                       |
-| Alcance              | ADR, threat model, contratos, permisos, configuración, cuatro tablas, RLS, worker, storage local/S3, ClamAV, Redis wakeup, reconciliadores, lifecycle, health, métricas, infra y validación real. |
-| Fuera de alcance     | Toda capacidad listada en la sección 1; en especial upload XML, parser y dominio CFDI.                                                                                                            |
-| Tablas/migraciones   | `stored_objects`, `ingestion_uploads`, `ingestion_jobs`, `ingestion_items`, policies/functions/índices auxiliares.                                                                                |
-| Backend              | Ports/adapters, configuración, servicios de plataforma, health/métricas; sin controller de upload.                                                                                                |
-| Worker               | Entrypoint separado, claim/lease/heartbeat/retry/fairness/shutdown/reconciliación.                                                                                                                |
-| Frontend             | Sin cambios funcionales.                                                                                                                                                                          |
-| Seguridad            | FORCE RLS, función claim mínima, roles sin BYPASSRLS, storage privado, scanner fail-closed, redacción.                                                                                            |
-| Operación            | Compose reproducible para PostgreSQL, Redis, MinIO y ClamAV; runbook y probes.                                                                                                                    |
-| Configuración        | Matriz validada por ambiente, sin defaults inseguros en producción.                                                                                                                               |
-| Métricas             | Jobs, queue age, leases/recovery, storage, scanner, Redis y worker.                                                                                                                               |
-| Pruebas              | Toda la matriz de la sección 11 con infraestructura real cuando determina comportamiento.                                                                                                         |
-| Datos de QA          | Dos tenants sintéticos, cuentas/RFC/asignaciones sintéticas, jobs/objetos no fiscales y EICAR oficial de prueba.                                                                                  |
-| Entregables          | Código/migraciones/seeds/config/infra, este paquete documental y `docs/qa/CFDI_PHASE_0_VALIDATION_REPORT.md`.                                                                                     |
-| Criterios de entrada | Decisiones bloqueadas, base dev autorizada, servicios reproducibles y baseline Git registrado.                                                                                                    |
-| Criterios de salida  | Definition of Done completa, migraciones/seeds ejecutados, pruebas reales verdes, cero defectos/deuda y reporte con evidencia.                                                                    |
-| Riesgos              | R-001 a R-005, R-009 y R-010.                                                                                                                                                                     |
-| Rollback             | Aplicación compatible hacia atrás; conservar tablas aditivas; limpieza destructiva sólo en DB de QA inequívocamente aislada.                                                                      |
-| Estado               | `BLOCKED`                                                                                                                                                                                         |
-| Evidencia            | `docs/qa/CFDI_PHASE_0_VALIDATION_REPORT.md`: implementación y PostgreSQL reales verdes; bloquean Redis/MinIO/ClamAV arriba y secretos Vault de LOGINs runtime.                                    |
+| Campo                | Definición                                                                                                                                                                                                                                                                |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| ID                   | `PHASE_0_SHARED_FISCAL_PLATFORM`                                                                                                                                                                                                                                          |
+| Objetivo             | Proveer fundaciones durables y seguras reutilizables por XML, ZIP, SAT y exportaciones.                                                                                                                                                                                   |
+| Valor de producto    | Los procesos fiscales futuros sobreviven reinicios, aíslan tenants y conservan originales sin rediseño.                                                                                                                                                                   |
+| Dependencias         | Identidad, sesión, MFA, tenant, asignación, clientes/RFC, PostgreSQL, secretos y Redis opcional existentes.                                                                                                                                                               |
+| Alcance              | ADR, threat model, contratos, permisos, configuración, cuatro tablas, RLS, worker, storage local/S3, ClamAV, Redis wakeup, reconciliadores, lifecycle, health, métricas, infra y validación real.                                                                         |
+| Fuera de alcance     | Toda capacidad listada en la sección 1; en especial upload XML, parser y dominio CFDI.                                                                                                                                                                                    |
+| Tablas/migraciones   | `stored_objects`, `ingestion_uploads`, `ingestion_jobs`, `ingestion_items`, policies/functions/índices auxiliares.                                                                                                                                                        |
+| Backend              | Ports/adapters, configuración, servicios de plataforma, health/métricas; sin controller de upload.                                                                                                                                                                        |
+| Worker               | Entrypoint separado, claim/lease/heartbeat/retry/fairness/shutdown/reconciliación.                                                                                                                                                                                        |
+| Frontend             | Sin cambios funcionales.                                                                                                                                                                                                                                                  |
+| Seguridad            | FORCE RLS, función claim mínima, roles sin BYPASSRLS, storage privado, scanner fail-closed, redacción.                                                                                                                                                                    |
+| Operación            | Compose reproducible para PostgreSQL, Redis, MinIO y ClamAV; runbook y probes.                                                                                                                                                                                            |
+| Configuración        | Matriz validada por ambiente, sin defaults inseguros en producción.                                                                                                                                                                                                       |
+| Métricas             | Jobs, queue age, leases/recovery, storage, scanner, Redis y worker.                                                                                                                                                                                                       |
+| Pruebas              | Toda la matriz de la sección 11 con infraestructura real cuando determina comportamiento.                                                                                                                                                                                 |
+| Datos de QA          | Dos tenants sintéticos, cuentas/RFC/asignaciones sintéticas, jobs/objetos no fiscales y EICAR oficial de prueba.                                                                                                                                                          |
+| Entregables          | Código/migraciones/seeds/config/infra, este paquete documental y `docs/qa/CFDI_PHASE_0_VALIDATION_REPORT.md`.                                                                                                                                                             |
+| Criterios de entrada | Decisiones bloqueadas, base dev autorizada, servicios reproducibles y baseline Git registrado.                                                                                                                                                                            |
+| Criterios de salida  | Definition of Done completa, migraciones/seeds ejecutados, pruebas reales verdes, cero defectos/deuda y reporte con evidencia.                                                                                                                                            |
+| Riesgos              | R-001 a R-005, R-009 y R-010.                                                                                                                                                                                                                                             |
+| Rollback             | Aplicación compatible hacia atrás; conservar tablas aditivas; limpieza destructiva sólo en DB de QA inequívocamente aislada.                                                                                                                                              |
+| Estado               | `PHASE_0_BLOCKED`                                                                                                                                                                                                                                                         |
+| Evidencia            | `docs/qa/CFDI_PHASE_0_VALIDATION_REPORT.md`: migraciones 030/050 reconciliadas, 060/061/062/063 aplicadas, stack aislado real y Redis compartido validados; bloquean exclusivamente los secretos Vault canónicos y logins runtime de API/worker en desarrollo compartido. |
 
 ### Fase 1 — XML individual end-to-end
 
@@ -633,13 +663,17 @@ no mocks:
 
 ## 15. Registro de deuda y evidencia de cierre
 
-No se acepta deuda deliberada. Fase 0 cierra esta ejecución como `BLOCKED`: el
-registro detallado vive en el reporte QA y mantiene cuatro controles externos
-pendientes como deuda de validación. Para cambiar el estado a `DONE`, el reporte
+No se acepta deuda deliberada. Fase 0 cierra esta ejecución como
+`PHASE_0_BLOCKED`: el
+registro detallado vive en el reporte QA y mantiene un único control externo
+pendiente como deuda de validación: aprovisionar en Vault las credenciales
+canónicas de los LOGINs runtime de API y worker para validar ambos contra la
+base compartida de desarrollo. Para cambiar el estado a `DONE`, el reporte
 debe declarar con evidencia:
 
 El siguiente bloque no describe el estado actual; es el gate objetivo para una
-futura transición a `DONE`. El estado actual es `TECHNICAL_DEBT: 4`.
+futura transición a `DONE`. El estado actual es `TECHNICAL_DEBT: 1` y
+`KNOWN_DEFECTS: 0`.
 
 ```text
 TECHNICAL_DEBT: 0

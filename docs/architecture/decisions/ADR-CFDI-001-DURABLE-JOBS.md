@@ -24,25 +24,24 @@ Parámetros bloqueados:
 
 - lease de 90 segundos;
 - heartbeat cada 20 segundos;
-- `WORKER_MAX_ATTEMPTS=3` como límite de tres ejecuciones totales, incluida la
-  inicial;
-- backoff de 10 y 30 segundos más jitter antes de las ejecuciones 2 y 3; 120
-  segundos queda reservado por compatibilidad y no habilita una ejecución 4;
+- `WORKER_MAX_ATTEMPTS=4` como número de ejecuciones presupuestadas del ciclo
+  normal y `WORKER_MAX_RETRIES=3` como presupuesto durable de reintentos;
+- backoff de 10, 30 y 120 segundos más jitter antes de los tres reintentos;
 - concurrencia configurada y acotada;
 - selección con fairness entre organizaciones;
 - polling de PostgreSQL siempre activo;
 - Redis pub/sub sólo como señal best-effort posterior al commit;
 - shutdown: dejar de reclamar, terminar o abandonar en un límite seguro,
   detener heartbeat y cerrar dependencias sin publicar resultados con lease
-  perdido.
+  perdido; una liberación graciosa vuelve a `queued` sin consumir retry.
 
-Esta semántica resuelve por precedencia una ambigüedad del material de entrada
-entre “tres intentos” y “tres intentos automáticos”: la instrucción directa de
-la ejecución limita el job a tres ejecuciones totales. Diez segundos preceden
-al primer reintento (ejecución 2) y 30 al segundo (ejecución 3), ambos con
-jitter. El tercer valor configurado, 120, se conserva como reserva compatible,
-pero no se usa para programar ni justificar una cuarta ejecución. Si la tercera
-ejecución falla, el job queda `failed_final`.
+Tres reintentos automáticos significan una ejecución inicial y hasta tres
+reejecuciones. Diez, 30 y 120 segundos preceden respectivamente a esos
+reintentos, con jitter. Si la cuarta ejecución falla, el job queda
+`failed_final`. `automatic_retry_count` es el contador durable que gobierna
+esta decisión y sólo avanza después de un fallo retryable o un lease vencido.
+`attempt_count` conserva evidencia monotónica de claims y puede superar 4 por
+shutdown/reclaim; una liberación graciosa nunca agota el presupuesto.
 
 El job conserva un estado canónico grueso y `current_stage`; el item conserva
 estado técnico y resultado separados. Perder el lease invalida cualquier
@@ -53,8 +52,10 @@ prueba; Fase 0 no inventa un tipo de job de producción.
 Cada claim se audita dentro de la misma operación durable que asigna el lease.
 El heartbeat distingue `renewed`, `cancel_requested` y `lease_lost`: al observar
 cancelación, el runner aborta cooperativamente el handler y sólo confirma
-`cancelled` en un boundary seguro con lease y versión vigentes. El evento de
-auditoría contiene IDs técnicos/estado, nunca payload fiscal.
+`cancelled` en un boundary seguro con el `lease_token` vigente. El token es el
+fencing credential; `worker_id` conserva procedencia durable y `version` es una
+revisión monotónica observable, no un CAS de ownership. El evento de auditoría
+contiene IDs técnicos/estado, nunca payload fiscal.
 
 ## Alternativas rechazadas
 
@@ -83,7 +84,8 @@ aunque aumenta la latencia hasta el siguiente poll.
   y provoca aborto cooperativo/confirmación segura.
 - Lease vencido se recupera; lease perdido no puede completar.
 - Intentos/backoff/jitter y transición final se verifican con reloj controlado.
-- Reinicio y shutdown seguro no pierden autoridad.
+- Reinicio y shutdown seguro no pierden autoridad ni consumen retry; se prueba
+  que más de cuatro ciclos shutdown/reclaim siguen siendo reclamables.
 - Fairness evita monopolio por un tenant.
 - Redis disponible reduce latencia; Redis apagado conserva progreso.
 - Los reconciliadores convergen al ejecutarse repetidamente.

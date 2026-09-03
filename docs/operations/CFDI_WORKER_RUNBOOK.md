@@ -21,9 +21,10 @@ storage o memoria del worker. No uses `DROP DATABASE`, `TRUNCATE` general,
 ## 2. Invariantes operativas
 
 - Lease: 90 s; heartbeat: 20 s.
-- `WORKER_MAX_ATTEMPTS=3`: máximo tres ejecuciones totales, incluida la inicial;
-  backoff 10 y 30 s más jitter antes de las ejecuciones 2 y 3. El valor 120 queda
-  reservado y nunca habilita un cuarto claim.
+- `WORKER_MAX_ATTEMPTS=4`: cuatro ejecuciones presupuestadas en el ciclo normal;
+  `WORKER_MAX_RETRIES=3`: tres reintentos automáticos con backoff 10, 30 y 120 s
+  más jitter. `attempt_count` es evidencia de claims y puede superar 4 tras
+  shutdown/reclaim; `automatic_retry_count` es el presupuesto terminal.
 - Polling PostgreSQL permanece activo aun con Redis saludable.
 - Redis caído aumenta latencia, pero no falla readiness.
 - Scanner deshabilitado/no disponible en producción falla cerrado.
@@ -32,7 +33,8 @@ storage o memoria del worker. No uses `DROP DATABASE`, `TRUNCATE` general,
   `BYPASSRLS`.
 - Claim cross-tenant ocurre sólo en la función definer restringida.
 - El claim y su evento de auditoría se confirman atómicamente.
-- Completar exige worker/lease/version vigentes.
+- Completar exige el `lease_token` vigente; `worker_id` conserva procedencia y
+  `version` es una revisión monotónica observable, no un CAS de ownership.
 - Logs y métricas no contienen datos fiscales, object keys ni secretos.
 
 ## 3. Preparación de desarrollo
@@ -104,6 +106,12 @@ npm run qa:migrations
 npm run test:integration:fiscal
 ```
 
+Si cualquiera de las migraciones CFDI 060/061/062/063 está pendiente, tanto el
+preflight como `migration:run` exigen el superuser/migrator efímero dedicado.
+No sustituyas esa identidad con el LOGIN de API o worker ni conserves su env
+después de `release:prepare`. El runner usa `transaction: all`; cualquier error
+revierte DDL, memberships y privilegios transitorios.
+
 La segunda ejecución debe terminar sin duplicados/cambios inesperados. Después,
 inspecciona tablas, constraints, índices, policies, owners, grants, funciones y
 atributos de roles. Ejecuta esta validación con PostgreSQL real, no SQLite/mock.
@@ -114,7 +122,7 @@ ejecuta únicamente sobre una DB `test_*`/`*_test` con
 ### 3.4 LOGINs runtime de desarrollo
 
 Las migraciones crean únicamente los grupos `NOLOGIN` `balanz_api` y
-`balanz_worker`. Después de aplicar 060/061, aprovisiona los LOGINs dedicados
+`balanz_worker`. Después de aplicar 060/061/062/063, aprovisiona los LOGINs dedicados
 con el script dev-only e idempotente:
 
 ```powershell
@@ -129,14 +137,23 @@ Con Vault habilitado, el script lee `database/postgres-api` y
 `DB_WORKER_USERNAME/PASSWORD` desde el entorno local. Nunca imprime passwords.
 Exige credencial migrator/superuser de desarrollo, LOGINs distintos con mínimo
 16 caracteres, `NOINHERIT`, una sola membership directa con `ADMIN=false`,
-`INHERIT=false`, `SET=true`, y sin `BYPASSRLS`, owner, ACL fiscal directa,
+`INHERIT=false`, `SET=true`, y sin `BYPASSRLS`, owner, ACL directa sobre ningún
+objeto del schema `public`,
 `CREATE` de schema ni otros roles. Al final conecta con cada LOGIN y ejecuta el
 mismo guard de runtime/`SET LOCAL ROLE` que usan API y worker. La bandera no se
 acepta fuera de development/test ni con un scope Vault distinto de `dev`.
 El guard también rechaza `CREATE` sobre la base actual. No revoca `TEMP` a
 `PUBLIC` porque es un default de cluster compartido; en su lugar mantiene
-`search_path=public`, funciones definer con resolución fija y bloquea ACLs
-directas de tabla, columna, secuencia y función fiscal.
+`search_path=public`, funciones definer con resolución fija y bloquea cualquier
+ACL directa del `LOGIN` sobre objetos de `public` (schema, tablas, columnas,
+secuencias, funciones y tipos), además de privilegios por defecto.
+
+Cada conexión selecciona desde el startup PostgreSQL el único grupo fijo del
+perfil (`-c role=balanz_api|balanz_worker`); el guard exige `session_user` igual
+al LOGIN y `current_user` igual al grupo antes de aceptar tráfico. La migración
+063 retira `DELETE`, grants de secuencias y mutaciones no utilizadas sobre
+tablas de catálogo. Los GUCs fiscales siguen exclusivamente delimitados por
+`SET LOCAL` dentro de transacción.
 
 El provisioner es la única ejecución autorizada para resolver ambas credenciales
 runtime. Al terminar, retira su identidad y su ambiente del host. No arranques
@@ -207,13 +224,16 @@ Envía `SIGTERM`/señal del orquestador; no mates primero PostgreSQL. El worker:
 3. notifica `AbortSignal` a handlers activos;
 4. mantiene heartbeat sólo durante la ventana segura; si heartbeat devuelve
    `cancel_requested`, aborta cooperativamente y confirma `cancelled` sólo con
-   worker/lease/version vigentes;
-5. completa únicamente resultados con lease vigente o los abandona;
+   el `lease_token` vigente; `worker_id` y `version` conservan procedencia y
+   revisión observable;
+5. completa únicamente resultados con lease vigente o libera el lease y vuelve
+   a `queued` sin incrementar `automatic_retry_count`;
 6. cierra Redis, scanner/storage y pool DB;
 7. termina antes de `WORKER_SHUTDOWN_GRACE_MS`.
 
 Si el proceso es terminado forzosamente, espera al vencimiento de lease y deja
-que otro worker/reconciliador recupere. No edites `locked_by` manualmente.
+que otro worker/reconciliador recupere; un lease vencido sí consume un reintento
+automático. No edites `locked_by` manualmente.
 
 ## 5. Señales y diagnóstico
 
@@ -329,7 +349,9 @@ recupera mediante flujo normal, no por update manual.
 
 ### 6.6 Leases vencidos o doble ejecución aparente
 
-1. Identifica worker/lease/version y timestamps técnicos.
+1. Identifica `worker_id`, `lease_token`, `version` y timestamps técnicos;
+   recuerda que el token vigente cerca ownership y la versión sólo registra una
+   revisión monotónica.
 2. Confirma clock UTC y pausas/restarts del worker.
 3. Comprueba que sólo el owner vigente hizo heartbeat/completion.
 4. El worker stale debe registrar `JOB_LEASE_LOST` y abandonar resultado.
@@ -397,19 +419,107 @@ seguro.
 
 ## 9. Despliegue y rollback
 
+### 9.1 Bootstrap único de aislamiento en el host legacy
+
+El primer cutover desde el release legacy allowlisted requiere una ventana
+operativa y autoridad root fuera del workflow. El operador ejecuta únicamente
+el `bootstrap-runtime-isolation.sh` del artefacto revisado; el script acepta el
+deploy root exacto `/srv/apps/balanz`, el release legacy
+`e3d4f432dca1df6bbd0877d86e60bd52d8c15325` y el acknowledgement exacto que
+publica su mensaje de uso. La secuencia obligatoria es:
+
+1. Verificar backup/schema dump, ventana, Node `22.22.0`, Bun `1.3.2`, systemd y
+   el hash del ecosystem legacy mediante el propio preflight del script.
+2. Como root, ejecutar el modo `quiesce`. Éste crea identidades distintas
+   (`balanz-deploy`, `balanz-web`, `balanz-api`, `balanz-worker` y
+   `balanz-migrator`), grupos/ACL mínimos y sudoers acotado; detiene y deshabilita
+   el PM2 legacy, elimina procesos/listeners, transfiere la clave autorizada al
+   control plane, bloquea `deploy` y purga el env legacy local. No continuar si
+   no existe el sentinel root-only `.legacy-runtime-quiesced-v1`.
+3. Desde el plano administrativo de PostgreSQL/Vault, rotar o revocar la
+   credencial runtime legacy. Comprobar que ya no autentica. No reutilizarla ni
+   escribir su valor en consola, ticket, sentinel o reporte.
+4. Como root y sólo después de esa comprobación externa, crear
+   `.legacy-runtime-credentials-revoked-v1` como archivo regular
+   `root:root:0400` con exactamente tres líneas: el literal
+   `LEGACY_RUNTIME_CREDENTIALS_REVOKED_V1`, el SHA legacy anterior y un
+   identificador no secreto de la evidencia de revocación (por ejemplo, un ID
+   de cambio). El sentinel no sustituye la revocación real.
+5. Ejecutar el mismo bootstrap en modo `finalize`. Éste valida los dos
+   sentinels, ausencia de credenciales históricas, identidades/privilegios,
+   instala la unidad root-owned `balanz-pm2.service`, habilita boot recovery y
+   crea `.runtime-isolation-bootstrap-v1`. Sólo entonces se usa por SSH
+   `balanz-deploy`; la identidad `deploy` no se rehabilita.
+
+El modo `quiesce` deja el servicio intencionalmente fuera de línea. Antes de la
+primera mutación crea evidencia de progreso `root:root:0400` bajo el directorio
+`/var/lib/balanz-runtime-isolation` `0700`, ligada al release, hash del ecosystem
+y SHA-256 del `authorized_keys` original. Si falla después de purgar la identidad
+legacy, no reiniciar ese runtime: conservar evidencia, corregir exactamente la
+causa y repetir el mismo comando `quiesce`. La reentrada sólo acepta la clave ya
+transferida si coincide con el fingerprint root-only y no vuelve a operar el PM2
+legacy. Al completar, el sentinel de quiescencia sustituye el progreso. Si ya
+existe ese sentinel, no se repite la rotación: se comprueba la revocación, se
+instala la attestation y se ejecuta `finalize`. Si `finalize` falla después de
+crear `.pm2`, el mismo comando es reentrante sólo cuando el directorio sigue
+vacío, regular, `balanz-deploy:balanz-deploy:0700`; contenido inesperado falla
+cerrado. Se conservan ambos sentinels, no se crean secretos bajo el release y no
+se inicia el workflow hasta completar el bootstrap. Nunca se elimina un
+sentinel para simular un estado anterior.
+
+### 9.2 Despliegues normales
+
 1. Registrar rama/SHA/status y backup/schema dump.
-2. Validar config productiva sin mostrar secretos.
-3. Ejecutar `npm run release:prepare` como init/release job con la identidad de
-   migración, cerrar ese job y retirar su credencial del runtime.
-4. Desplegar código compatible; iniciar workers con concurrencia controlada.
-5. Verificar probes, RLS, claim, Redis fallback y adapters.
-6. Observar queue age, leases, errors y reconciliación.
+2. Validar configuración productiva sin mostrar secretos.
+3. Rechazar symlinks que salgan del release, instalar con Bun `1.3.2` y el PM2
+   `7.0.4` release-local fijado en ambos locks sin lifecycle scripts, y repetir
+   el escaneo antes de ejecutar cualquier artefacto remoto.
+4. Ejecutar `bun run release:prepare` como job efímero bajo `balanz-migrator`,
+   cerrar ese job y verificar que su credencial fue eliminada.
+5. Desplegar código compatible e iniciar web, API y worker bajo UIDs distintos.
+6. Verificar probes, RLS, claim, Redis fallback y adapters.
+7. Observar queue age, leases, errores y reconciliación.
 
 Rollback preferido: detener nuevo release y volver a binario compatible sin
 revertir migraciones aditivas. Si una migración necesita corrección, crear una
 nueva migración forward. Nunca borrar tablas/objetos como rollback rutinario.
 `start:api:prod` y `start:worker:prod` nunca reciben ni ejecutan la credencial de
 migración; sólo usan sus LOGINs runtime separados y `NOBYPASSRLS`.
+
+En el despliegue inicial de Fase 0, las firmas legacy del worker permanecen
+revocadas. Antes de ejecutar las migraciones forward, el despliegue elimina
+`balanz-worker-dev` de PM2 y persiste esa ausencia. PostgreSQL conserva los jobs
+como autoridad durable; no se reclaman trabajos mientras no exista un worker
+compatible y los leases vencidos se recuperan cuando éste vuelve a operar.
+
+Tras migrar, el release anterior sólo queda habilitado como rollback si su API
+se reinicia en frío y supera el probe contra el esquema forward. La evidencia
+queda ligada por hash al binario y a `ecosystem.config.cjs`. Un rollback
+automático restaura únicamente `balanz-web-dev` y `balanz-api-dev`; nunca inicia
+un worker legacy. Si la evidencia falta, cambia o el API anterior no arranca,
+el despliegue falla cerrado y deja los procesos administrados detenidos para
+intervención del operador. La misma detención ocurre si el reinicio en frío que
+genera la evidencia no supera su probe después de migrar.
+
+El ecosystem se evalúa desde la raíz read-only del release y sólo invoca
+`scripts/deploy/run-isolated-runtime.sh`. El wrapper usa `env -i`, cambia al cwd
+de cada aplicación y ejecuta `/usr/local/bin/node` como `balanz-web`,
+`balanz-api` o `balanz-worker` mediante sudo no interactivo. Web no tiene archivo
+de secretos. API y worker reciben exclusivamente
+`/srv/apps/balanz/runtime-config/<release>/<perfil>/runtime.env`, archivos
+regulares externos al release, owner `balanz-deploy`, grupo de perfil y modo
+`0640`. El migrator recibe su propio `runtime.env` `0640` sólo durante el job y
+los traps/cleanup verifican su eliminación. Producción ignora `.env*` del
+repositorio y todos los scripts de build/migración rechazan que aparezcan en el
+release. El ecosystem no usa `node_args`, `env_file` ni contiene secretos.
+
+`balanz-pm2.service` usa el PM2 fijado en el release activo y el PM2 home privado
+de `balanz-deploy`. En el primer cutover, cualquier fallo de readiness detiene
+la unidad, elimina todo proceso del control plane y deja vacíos tanto
+`dump.pm2` como `dump.pm2.bak`; `current` permanece en el candidato validado y
+nunca vuelve a apuntar ni arrancar el legacy quiescido. Corregida la causa, el
+mismo candidato puede reintentarse y sólo queda activo después de que API y
+worker superen sus probes.
 
 ## 10. Evidencia y cierre del incidente
 
