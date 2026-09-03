@@ -52,9 +52,9 @@ MERGE_STATUS: NOT_MERGED
 Evidencia final de cierre:
 
 ```text
-FINAL_IMPLEMENTATION_SHA: 92cd036b754ec2ab9277603f6ece080882a141da
+FINAL_IMPLEMENTATION_SHA: 97592ad8243c31107d09663486a5e8ce144030e5
 FINAL_FULL_VALIDATION: PASS
-FINAL_FULL_VALIDATION_REPORT: .local/cfdi-phase0-validation-reports/cfdi-phase0-full-final-20260903.json
+FINAL_FULL_VALIDATION_REPORT: .local/cfdi-phase0-validation-reports/cfdi-phase0-full-final2-20260903.json
 FINAL_API_JEST_COUNTS: PASS - 52 suites, 370 tests
 FINAL_WEB_TEST_COUNTS: PASS - 53 tests
 ```
@@ -65,7 +65,7 @@ FINAL_WEB_TEST_COUNTS: PASS - 53 tests
 | --------------------- | ------------------------------------------------------------------- |
 | Rama                  | `codex/cfdis`                                                       |
 | Base integrada        | `origin/develop` en `e3d4f432dca1df6bbd0877d86e60bd52d8c15325`      |
-| SHA de implementación | `92cd036b754ec2ab9277603f6ece080882a141da`                          |
+| SHA de implementación | `97592ad8243c31107d09663486a5e8ce144030e5`                          |
 | Fecha de corte        | 2026-09-03, `America/Mexico_City`                                   |
 | Resultado de Fase 0   | `PHASE_0_BLOCKED`                                                   |
 | Estado de Fase 1      | `NOT_STARTED`                                                       |
@@ -89,7 +89,7 @@ la implementación de plataforma:
   commits `01933b5`, `0c1d50f`, `189e0ef` y `1de79c3`;
 - integración de `origin/develop`: commit `9a8a769`;
 - correcciones finales de implementación: reflejadas en
-  `92cd036b754ec2ab9277603f6ece080882a141da`.
+  `97592ad8243c31107d09663486a5e8ce144030e5`.
 
 El estado inicial incluía cuatro componentes web modificados y cuatro
 documentos de arquitectura/entrada sin rastrear. No se descartaron, mezclaron
@@ -459,7 +459,7 @@ scanner real. La corrida Full final quedó registrada con su salida real:
 
 ```text
 FINAL_FULL_VALIDATION: PASS
-FINAL_FULL_VALIDATION_REPORT: .local/cfdi-phase0-validation-reports/cfdi-phase0-full-final-20260903.json
+FINAL_FULL_VALIDATION_REPORT: .local/cfdi-phase0-validation-reports/cfdi-phase0-full-final2-20260903.json
 ```
 
 ## 15. Deploy, rollout y rollback
@@ -544,7 +544,7 @@ externo durante esta ejecución.
 | Bash `-n`, ShellCheck 0.10.0 y actionlint 1.7.7     | PASS                                                                                  |
 | Persistencia PM2 real 7.0.4                         | PASS                                                                                  |
 | Runtime-isolation, rollback y legacy-cutover smokes | PASS — 3 escenarios Docker aislados; rollback incluye PM2 real 7.0.4                  |
-| Corrida local Full final                            | PASS — 410.962 s, `failedStep: null`, cleanup completo                                |
+| Corrida local Full final                            | PASS — 400.977 s, `failedStep: null`, cleanup completo                                |
 | Secretos runtime API/worker en Vault compartido     | BLOCKED — ambos `NOT_FOUND`; write `ACCESS_DENIED`                                    |
 | LOGINs API/worker en base compartida                | BLOCKED — depende de los secretos anteriores                                          |
 
@@ -624,6 +624,11 @@ reproducible abierto:
 26. El primer cutover legacy fallido podía intentar repuntar una identidad ya
     revocada: ahora conserva el candidato como `current`, deja procesos y dumps
     vacíos y sólo permite reintentar ese mismo candidato.
+27. El primer CI Linux rechazó la propiedad de imágenes porque el validador
+    dependía de labels implícitos que varían entre versiones de Compose: MinIO
+    y deploy-smoke ahora reciben labels explícitos de corrida/servicio, usados
+    tanto para validar como para eliminar por identidad. La regresión Full local
+    terminó `PASS` con cleanup total.
 
 ```text
 KNOWN_DEFECTS: 0
@@ -711,7 +716,7 @@ docker compose --env-file infra/cfdi-phase0/.env \
   -f infra/cfdi-phase0/compose.yaml config
 powershell -NoProfile -File infra/cfdi-phase0/validate-phase0-local.ps1 \
   -ValidationMode Full \
-  -ProjectName cfdi-phase0-full-final-20260903
+  -ProjectName cfdi-phase0-full-final2-20260903
 
 npm --prefix apps/api run migration:show
 npm --prefix apps/api run migration:preflight
