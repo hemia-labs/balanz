@@ -333,7 +333,8 @@ const baseEnvVarsSchema = Joi.object({
   WORKER_CONCURRENCY: Joi.number().integer().min(1).max(32).default(4),
   WORKER_LEASE_SECONDS: Joi.number().integer().valid(90).default(90),
   WORKER_HEARTBEAT_SECONDS: Joi.number().integer().valid(20).default(20),
-  WORKER_MAX_ATTEMPTS: Joi.number().integer().valid(3).default(3),
+  WORKER_MAX_ATTEMPTS: Joi.number().integer().valid(4).default(4),
+  WORKER_MAX_RETRIES: Joi.number().integer().valid(3).default(3),
   WORKER_BACKOFF_SECONDS: Joi.string().valid('10,30,120').default('10,30,120'),
   WORKER_BACKOFF_JITTER_PERCENT: Joi.number()
     .integer()
@@ -631,6 +632,7 @@ const baseEnvVarsSchema = Joi.object({
   const nodeEnv = value.NODE_ENV ?? 'development';
   const secretsEnabled = value.SECRETS_ENABLED === true;
   const secretsEnvironment = value.SECRETS_ENVIRONMENT ?? 'dev';
+  const databaseLogging = value.DB_LOGGING === true;
   const storageDriver = value.OBJECT_STORAGE_DRIVER ?? 'local';
   const scannerMode = value.MALWARE_SCANNER_MODE ?? 'clamav';
   const s3Endpoint = (value.S3_ENDPOINT ?? '').trim();
@@ -648,6 +650,12 @@ const baseEnvVarsSchema = Joi.object({
     return helpers.message({
       custom:
         'Production with SECRETS_ENABLED=true requires SECRETS_ENVIRONMENT=prod',
+    });
+  }
+
+  if (nodeEnv === 'production' && databaseLogging) {
+    return helpers.message({
+      custom: 'Production API/worker runtimes require DB_LOGGING=false',
     });
   }
 

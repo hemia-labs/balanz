@@ -38,13 +38,14 @@
     "qa:migrations": "ts-node --transpile-only test/validate-migration-lifecycle.ts",
     "test:integration:fiscal": "ts-node --transpile-only test/validate-fiscal-foundation-transaction.ts",
     "test:integration:fiscal:runtime": "ts-node --transpile-only test/validate-fiscal-foundation-runtime.ts",
-    "test:external:fiscal": "jest --testRegex=\"test/external/.*\\.external\\.ts$\" --runInBand",
+    "test:external:fiscal": "jest --testRegex=\"test/external/.*\\.external\\.ts$\" --runInBand --detectOpenHandles",
+    "test:external:redis:vault": "jest --testRegex=\"test/external/redis-wakeup\\.external\\.ts$\" --runInBand --detectOpenHandles",
     "db:test:prepare": "ts-node --transpile-only src/database/scripts/prepare-fiscal-test-database.ts",
     "db:runtime:provision": "ts-node --transpile-only src/database/scripts/provision-fiscal-runtime-logins.ts",
     "qa:cfdi:postgres": "npm run migration:show && npm run migration:preflight && npm run migration:run && npm run seed:run && npm run seed:run && npm run qa:migrations && npm run test:integration:fiscal && npm run test:integration:fiscal:runtime",
     "maintenance:auth-cleanup": "ts-node --transpile-only src/database/maintenance/cleanup-auth-data.ts",
-    "db:prepare": "npm run migration:preflight && npm run migration:run && npm run seed:run",
-    "release:prepare": "npm run db:prepare"
+    "db:prepare": "bun run migration:preflight && bun run migration:run && bun run seed:run",
+    "release:prepare": "bun run db:prepare"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "3.1116.0",

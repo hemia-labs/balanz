@@ -38,9 +38,18 @@ describe('RedisWakeupService', () => {
     };
     const publisher = {
       isReady: true,
+      options: {
+        socket: {
+          host: 'redis.internal',
+          port: 6379,
+          connectTimeout: 500,
+        },
+      },
       publish: jest.fn().mockResolvedValue(1),
       withAbortSignal: jest.fn().mockReturnThis(),
       duplicate: jest.fn().mockReturnValue(subscriber),
+      on: jest.fn(),
+      off: jest.fn(),
     } as unknown as RedisClient;
     const service = new RedisWakeupService(
       publisher,
@@ -60,6 +69,14 @@ describe('RedisWakeupService', () => {
     subscription?.('not-a-wakeup');
     subscription?.('1');
     expect(listener).toHaveBeenCalledTimes(1);
+    expect(publisher.duplicate).toHaveBeenCalledWith({
+      socket: {
+        host: 'redis.internal',
+        port: 6379,
+        connectTimeout: 500,
+        reconnectStrategy: false,
+      },
+    });
     await service.onApplicationShutdown();
     expect(subscriber.close).toHaveBeenCalled();
   });
@@ -75,8 +92,10 @@ describe('RedisWakeupService', () => {
       destroy: jest.fn(),
     };
     const publisher = {
-      isReady: false,
+      isReady: true,
       duplicate: jest.fn().mockReturnValue(subscriber),
+      on: jest.fn(),
+      off: jest.fn(),
     } as unknown as RedisClient;
     const service = new RedisWakeupService(
       publisher,
@@ -109,6 +128,8 @@ describe('RedisWakeupService', () => {
     const publisher = {
       isReady: true,
       duplicate: jest.fn(),
+      on: jest.fn(),
+      off: jest.fn(),
       withAbortSignal: jest.fn().mockImplementation((signal: AbortSignal) => ({
         publish: jest.fn().mockImplementation(
           () =>
@@ -160,6 +181,8 @@ describe('RedisWakeupService', () => {
     const publisher = {
       isReady: true,
       duplicate: jest.fn().mockReturnValue(subscriber),
+      on: jest.fn(),
+      off: jest.fn(),
     } as unknown as RedisClient;
     const service = new RedisWakeupService(
       publisher,
@@ -173,6 +196,130 @@ describe('RedisWakeupService', () => {
 
     expect(service.status()).toMatchObject({ subscriberReady: false });
     expect(subscriber.close).toHaveBeenCalledTimes(1);
+    await service.onApplicationShutdown();
+  });
+
+  it('does not create a retrying subscriber while the publisher is unavailable', async () => {
+    jest.useFakeTimers();
+    const publisher = {
+      isReady: false,
+      duplicate: jest.fn(),
+      on: jest.fn(),
+      off: jest.fn(),
+    } as unknown as RedisClient;
+    const service = new RedisWakeupService(
+      publisher,
+      config(),
+      new FiscalMetricsService(),
+    );
+
+    service.subscribe(jest.fn());
+    expect(publisher.duplicate).not.toHaveBeenCalled();
+    await jest.advanceTimersByTimeAsync(6_000);
+    expect(publisher.duplicate).not.toHaveBeenCalled();
+
+    await service.onApplicationShutdown();
+    jest.useRealTimers();
+  });
+
+  it('starts the subscriber immediately when the publisher recovers', async () => {
+    let readyListener: (() => void) | undefined;
+    let publisherReady = false;
+    const subscriber = {
+      isReady: true,
+      isOpen: true,
+      on: jest.fn(),
+      connect: jest.fn().mockResolvedValue(undefined),
+      subscribe: jest.fn().mockResolvedValue(undefined),
+      close: jest.fn().mockResolvedValue(undefined),
+      destroy: jest.fn(),
+    };
+    const publisher = {
+      get isReady() {
+        return publisherReady;
+      },
+      on: jest
+        .fn()
+        .mockImplementation((event: string, listener: () => void) => {
+          if (event === 'ready') readyListener = listener;
+        }),
+      off: jest.fn(),
+      duplicate: jest.fn().mockReturnValue(subscriber),
+    } as unknown as RedisClient;
+    const service = new RedisWakeupService(
+      publisher,
+      config(),
+      new FiscalMetricsService(),
+    );
+
+    service.subscribe(jest.fn());
+    expect(publisher.duplicate).not.toHaveBeenCalled();
+    publisherReady = true;
+    readyListener?.();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(publisher.duplicate).toHaveBeenCalledTimes(1);
+    expect(service.status().subscriberReady).toBe(true);
+    await service.onApplicationShutdown();
+    expect(publisher.off).toHaveBeenCalledWith('ready', readyListener);
+  });
+
+  it('recovers a connected subscriber after a terminal socket error', async () => {
+    jest.useFakeTimers();
+    jest.spyOn(Math, 'random').mockReturnValue(0);
+    let errorListener: (() => void) | undefined;
+    const firstSubscriber = {
+      isReady: true,
+      isOpen: false,
+      on: jest
+        .fn()
+        .mockImplementation((event: string, listener: () => void) => {
+          if (event === 'error') errorListener = listener;
+        }),
+      connect: jest.fn().mockResolvedValue(undefined),
+      subscribe: jest.fn().mockResolvedValue(undefined),
+      close: jest.fn(),
+      destroy: jest.fn(),
+    };
+    const recoveredSubscriber = {
+      isReady: true,
+      isOpen: true,
+      on: jest.fn(),
+      connect: jest.fn().mockResolvedValue(undefined),
+      subscribe: jest.fn().mockResolvedValue(undefined),
+      close: jest.fn().mockResolvedValue(undefined),
+      destroy: jest.fn(),
+    };
+    const publisher = {
+      isReady: true,
+      on: jest.fn(),
+      off: jest.fn(),
+      duplicate: jest
+        .fn()
+        .mockReturnValueOnce(firstSubscriber)
+        .mockReturnValueOnce(recoveredSubscriber),
+    } as unknown as RedisClient;
+    const service = new RedisWakeupService(
+      publisher,
+      config(),
+      new FiscalMetricsService(),
+    );
+
+    service.subscribe(jest.fn());
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(service.status().subscriberReady).toBe(true);
+
+    errorListener?.();
+    await Promise.resolve();
+    expect(service.status().subscriberReady).toBe(false);
+    await jest.advanceTimersByTimeAsync(5_000);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(publisher.duplicate).toHaveBeenCalledTimes(2);
+    expect(service.status().subscriberReady).toBe(true);
     await service.onApplicationShutdown();
   });
 });

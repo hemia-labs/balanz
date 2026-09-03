@@ -4,6 +4,7 @@ import {
   Logger,
   Module,
   OnApplicationShutdown,
+  OnModuleInit,
 } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { SecretsService } from '@hemia/secrets/nestjs';
@@ -17,12 +18,20 @@ import { RedisWakeupService } from './redis-wakeup.service';
 import { ObservabilityModule } from '../../common/observability/observability.module';
 import type { FiscalPlatformConfig } from '../../config/fiscal-platform.config';
 import { shutdownRedisClient } from './redis-client-shutdown';
+import { redisReconnectDelayMs } from './redis-reconnect-policy';
 
 export type RedisClient = RedisClientType;
 
 @Injectable()
-export class RedisLifecycle implements OnApplicationShutdown {
+export class RedisLifecycle implements OnModuleInit, OnApplicationShutdown {
   private readonly shutdownTimeoutMs: number;
+  private retryTimer?: NodeJS.Timeout;
+  private retryAttempt = 0;
+  private connecting = false;
+  private shuttingDown = false;
+  private readonly onClientUnavailable = (): void => {
+    if (!this.shuttingDown) this.scheduleRetry();
+  };
 
   constructor(
     @Inject(REDIS_CLIENT) private readonly client: RedisClient | null,
@@ -32,12 +41,57 @@ export class RedisLifecycle implements OnApplicationShutdown {
       config.getOrThrow<FiscalPlatformConfig>(
         'fiscalPlatform',
       ).redisWakeup.timeoutMs;
+    this.client?.on('error', this.onClientUnavailable);
+    this.client?.on('end', this.onClientUnavailable);
+  }
+
+  onModuleInit(): void {
+    this.ensureConnected();
   }
 
   async onApplicationShutdown(): Promise<void> {
+    this.shuttingDown = true;
+    if (this.retryTimer) clearTimeout(this.retryTimer);
+    this.retryTimer = undefined;
+    this.client?.off('error', this.onClientUnavailable);
+    this.client?.off('end', this.onClientUnavailable);
     if (this.client) {
       await shutdownRedisClient(this.client, this.shutdownTimeoutMs);
     }
+  }
+
+  private ensureConnected(): void {
+    if (
+      !this.client ||
+      this.shuttingDown ||
+      this.connecting ||
+      this.client.isOpen
+    ) {
+      return;
+    }
+    this.connecting = true;
+    void this.client
+      .connect()
+      .then(() => {
+        this.retryAttempt = 0;
+      })
+      .catch(() => {
+        if (!this.shuttingDown) this.scheduleRetry();
+      })
+      .finally(() => {
+        this.connecting = false;
+      });
+  }
+
+  private scheduleRetry(): void {
+    if (this.shuttingDown || this.retryTimer || !this.client) return;
+    const delayMs = redisReconnectDelayMs(this.retryAttempt);
+    this.retryAttempt = Math.min(this.retryAttempt + 1, 5);
+    this.retryTimer = setTimeout(() => {
+      this.retryTimer = undefined;
+      this.ensureConnected();
+    }, delayMs);
+    this.retryTimer.unref();
   }
 }
 
@@ -104,17 +158,13 @@ export class RedisLifecycle implements OnApplicationShutdown {
             host: connection.host,
             port: connection.port,
             connectTimeout: configured.connectTimeoutMs,
+            reconnectStrategy: false,
           },
           password: connection.password,
           database: connection.database,
         });
         client.on('error', () => {
           logger.warn('Redis unavailable; PostgreSQL remains authoritative');
-        });
-        void client.connect().catch(() => {
-          logger.warn(
-            'Redis connection failed; PostgreSQL remains authoritative',
-          );
         });
         return client;
       },

@@ -62,7 +62,7 @@ export type IngestionItemResult =
   "product_result IS NULL OR product_result IN ('incorporated','duplicate','foreign','invalid','unsupported','internal_error')",
 )
 @Check('ck_ingestion_items_hash', "sha256 IS NULL OR sha256 ~ '^[0-9a-f]{64}$'")
-@Check('ck_ingestion_items_attempt_count', 'attempt_count BETWEEN 0 AND 3')
+@Check('ck_ingestion_items_attempt_count', 'attempt_count BETWEEN 0 AND 4')
 @Check(
   'ck_ingestion_items_terminal_state',
   "(technical_status = 'terminal' AND product_result IS NOT NULL AND processed_at IS NOT NULL) OR (technical_status <> 'terminal' AND product_result IS NULL AND processed_at IS NULL)",

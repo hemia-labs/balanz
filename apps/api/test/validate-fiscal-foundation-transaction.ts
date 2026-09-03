@@ -53,10 +53,10 @@ async function validateFiscalFoundationTransaction(): Promise<void> {
       SELECT
         to_regclass('public.stored_objects') IS NOT NULL AS foundation,
         to_regprocedure(
-          'public.claim_ingestion_job(text,text,text[],integer,integer,integer)'
+          'public.claim_ingestion_job(text,text,text[],integer,integer,integer,integer)'
         ) IS NOT NULL AS claim_function,
         to_regprocedure(
-          'public.reconcile_fiscal_ingestion_foundation(integer,integer,integer,integer,integer[],integer,integer)'
+          'public.reconcile_fiscal_ingestion_foundation(integer,integer,integer,integer,integer[],integer,integer,integer)'
         ) IS NOT NULL AS reconcile_function,
         (SELECT rolsuper FROM pg_roles WHERE rolname = current_user)
           AS migrator_superuser
@@ -72,7 +72,7 @@ async function validateFiscalFoundationTransaction(): Promise<void> {
       !capabilities[0]?.reconcile_function
     ) {
       throw new Error(
-        'Phase 0 migrations 060/061 must be committed before transactional validation',
+        'Phase 0 migrations 060/061/062/063 must be committed before transactional validation',
       );
     }
     if (!capabilities[0]?.migrator_superuser) {
@@ -358,8 +358,8 @@ async function validateFiscalFoundationTransaction(): Promise<void> {
     });
     await queryRunner.query(`SET LOCAL ROLE balanz_worker`);
     const queueAgeRows = (await queryRunner.query(
-      `SELECT * FROM ingestion_queue_ages($1::text[], $2)`,
-      [['manual_xml'], 3],
+      `SELECT * FROM ingestion_queue_ages($1::text[], $2, $3)`,
+      [['manual_xml'], 4, 3],
     )) as Array<{ source_type: string; queue_age_seconds: number }>;
     await queryRunner.query(`RESET ROLE`);
     assertEqual(queueAgeRows[0]?.source_type, 'manual_xml', 'queue age source');
@@ -370,11 +370,11 @@ async function validateFiscalFoundationTransaction(): Promise<void> {
     const retryDelays: number[] = [];
     const queueAges: number[] = [];
 
-    for (let claimNumber = 1; claimNumber <= 3; claimNumber += 1) {
+    for (let claimNumber = 1; claimNumber <= 4; claimNumber += 1) {
       await queryRunner.query(`SET LOCAL ROLE balanz_worker`);
       const claims = (await queryRunner.query(
-        `SELECT * FROM claim_ingestion_job($1, $2, $3::text[], $4, $5, $6)`,
-        [`qa-worker-${claimNumber}`, randomUUID(), ['manual_xml'], 90, 3, 4],
+        `SELECT * FROM claim_ingestion_job($1, $2, $3::text[], $4, $5, $6, $7)`,
+        [`qa-worker-${claimNumber}`, randomUUID(), ['manual_xml'], 90, 4, 3, 4],
       )) as ClaimRow[];
       await queryRunner.query(`RESET ROLE`);
       const claim = claims[0];
@@ -420,27 +420,37 @@ async function validateFiscalFoundationTransaction(): Promise<void> {
       await queryRunner.query(`SET LOCAL ROLE balanz_worker`);
       const reconciled = (await queryRunner.query(
         `SELECT *
-           FROM reconcile_fiscal_ingestion_foundation($1, $2, $3, $4, $5::integer[], $6, $7)`,
-        [100, 60, 24, 7, [10, 30, 120], 0, 3],
+           FROM reconcile_fiscal_ingestion_foundation($1, $2, $3, $4, $5::integer[], $6, $7, $8)`,
+        [100, 60, 24, 7, [10, 30, 120], 0, 4, 3],
       )) as Array<Record<string, number>>;
       await queryRunner.query(`RESET ROLE`);
       const jobState = (await queryRunner.query(
         `SELECT
            status,
+           automatic_retry_count,
            CASE WHEN next_attempt_at IS NULL THEN NULL
              ELSE round(extract(epoch FROM next_attempt_at - updated_at))::integer
            END AS delay_seconds
          FROM ingestion_jobs
          WHERE id = $1`,
         [retryJobId],
-      )) as Array<{ status: string; delay_seconds: number | null }>;
-      if (claimNumber < 3) {
+      )) as Array<{
+        status: string;
+        automatic_retry_count: number;
+        delay_seconds: number | null;
+      }>;
+      if (claimNumber <= 3) {
         assertEqual(
           Number(reconciled[0]?.lease_retryable_count),
           1,
           'retryable lease recovery',
         );
         retryDelays.push(Number(jobState[0]?.delay_seconds));
+        assertEqual(
+          Number(jobState[0]?.automatic_retry_count),
+          claimNumber,
+          'automatic retry budget',
+        );
         await queryRunner.query(
           `UPDATE ingestion_jobs
               SET next_attempt_at = clock_timestamp()
@@ -451,12 +461,90 @@ async function validateFiscalFoundationTransaction(): Promise<void> {
         assertEqual(
           Number(reconciled[0]?.lease_final_count),
           1,
-          'third claim terminal recovery',
+          'fourth claim terminal recovery',
         );
         assertEqual(jobState[0]?.status, 'failed_final', 'terminal job status');
+        assertEqual(
+          Number(jobState[0]?.automatic_retry_count),
+          3,
+          'exhausted automatic retry budget',
+        );
       }
     }
-    assertEqual(retryDelays.join(','), '10,30', 'retry schedule');
+    assertEqual(retryDelays.join(','), '10,30,120', 'retry schedule');
+
+    const jitterJobId = randomUUID();
+    await insertManualXmlJob(queryRunner, scope, jitterJobId, {
+      pendingItems: 0,
+      totalItems: 0,
+    });
+    const jitterBases = [10, 30, 120] as const;
+    const jitterDelays: number[] = [];
+    for (let retryIndex = 0; retryIndex < jitterBases.length; retryIndex += 1) {
+      await queryRunner.query(`SET LOCAL ROLE balanz_worker`);
+      const [jitterClaim] = (await queryRunner.query(
+        `SELECT *
+           FROM claim_ingestion_job($1, $2, $3::text[], $4, $5, $6, $7)`,
+        [
+          `qa-jitter-${retryIndex + 1}`,
+          randomUUID(),
+          ['manual_xml'],
+          90,
+          4,
+          3,
+          4,
+        ],
+      )) as ClaimRow[];
+      await queryRunner.query(`RESET ROLE`);
+      assertEqual(jitterClaim?.job_id, jitterJobId, 'jitter claim job');
+
+      await queryRunner.query(
+        `UPDATE ingestion_jobs
+            SET lease_expires_at = clock_timestamp() - interval '1 second'
+          WHERE id = $1`,
+        [jitterJobId],
+      );
+      await queryRunner.query(`SET LOCAL ROLE balanz_worker`);
+      await queryRunner.query(
+        `SELECT *
+           FROM reconcile_fiscal_ingestion_foundation(
+             $1, $2, $3, $4, $5::integer[], $6, $7, $8
+           )`,
+        [100, 60, 24, 7, [10, 30, 120], 20, 4, 3],
+      );
+      await queryRunner.query(`RESET ROLE`);
+
+      const [jitterState] = (await queryRunner.query(
+        `SELECT
+           automatic_retry_count,
+           round(extract(epoch FROM next_attempt_at - updated_at))::integer
+             AS delay_seconds
+         FROM ingestion_jobs
+         WHERE id = $1`,
+        [jitterJobId],
+      )) as Array<{
+        automatic_retry_count: number;
+        delay_seconds: number;
+      }>;
+      const delaySeconds = Number(jitterState?.delay_seconds);
+      const baseSeconds = jitterBases[retryIndex];
+      assert(
+        delaySeconds >= baseSeconds &&
+          delaySeconds <= baseSeconds + Math.floor(baseSeconds * 0.2),
+        `retry ${retryIndex + 1} jitter must remain within the configured range`,
+      );
+      assertEqual(
+        Number(jitterState?.automatic_retry_count),
+        retryIndex + 1,
+        'jitter retry budget',
+      );
+      jitterDelays.push(delaySeconds);
+      await queryRunner.query(
+        `UPDATE ingestion_jobs SET next_attempt_at = clock_timestamp() WHERE id = $1`,
+        [jitterJobId],
+      );
+    }
+    report.retryJitterDelays = jitterDelays;
 
     const reconciliation = await createReconciliationFixtures(
       queryRunner,
@@ -508,13 +596,13 @@ async function validateFiscalFoundationTransaction(): Promise<void> {
     await queryRunner.query(`SET LOCAL ROLE balanz_worker`);
     const foundationResult = (await queryRunner.query(
       `SELECT *
-         FROM reconcile_fiscal_ingestion_foundation($1, $2, $3, $4, $5::integer[], $6, $7)`,
-      [100, 60, 24, 7, [10, 30, 120], 0, 3],
+         FROM reconcile_fiscal_ingestion_foundation($1, $2, $3, $4, $5::integer[], $6, $7, $8)`,
+      [100, 60, 24, 7, [10, 30, 120], 0, 4, 3],
     )) as Array<Record<string, number>>;
     const idempotentResult = (await queryRunner.query(
       `SELECT *
-         FROM reconcile_fiscal_ingestion_foundation($1, $2, $3, $4, $5::integer[], $6, $7)`,
-      [100, 60, 24, 7, [10, 30, 120], 0, 3],
+         FROM reconcile_fiscal_ingestion_foundation($1, $2, $3, $4, $5::integer[], $6, $7, $8)`,
+      [100, 60, 24, 7, [10, 30, 120], 0, 4, 3],
     )) as Array<Record<string, number>>;
     await queryRunner.query(`RESET ROLE`);
 
@@ -746,23 +834,19 @@ async function createSyntheticTenantFixtures(
   queryRunner: QueryRunner,
   suffix: string,
 ): Promise<SyntheticTenantFixtures> {
-  const roleId = randomUUID();
+  const [accountantRole] = (await queryRunner.query(
+    `SELECT id FROM roles WHERE key = 'accountant'`,
+  )) as Array<{ id: string }>;
+  if (!accountantRole) {
+    throw new Error('The canonical accountant role must be seeded before QA');
+  }
+  const roleId = accountantRole.id;
   const userIds = [randomUUID(), randomUUID(), randomUUID()];
   const organizationIds = [randomUUID(), randomUUID()];
   const membershipIds = [randomUUID(), randomUUID(), randomUUID()];
   const clientAccountIds = [randomUUID(), randomUUID()];
   const legalEntityIds = [randomUUID(), randomUUID()];
 
-  await queryRunner.query(
-    `INSERT INTO roles (id, key, name, description, scope)
-     VALUES ($1, $2, $3, $4, 'organization')`,
-    [
-      roleId,
-      `qa_fiscal_${suffix}`,
-      `QA fiscal ${suffix}`,
-      'Synthetic role owned by the CFDI Phase 0 transactional validator.',
-    ],
-  );
   await queryRunner.query(
     `INSERT INTO users (
        id, first_name, last_name, email, status, password_hash
@@ -873,9 +957,9 @@ async function validateLockedSecurityDefinerParameters(
   report: Record<string, unknown>,
 ): Promise<void> {
   const claimSql =
-    'SELECT * FROM claim_ingestion_job($1,$2,$3::text[],$4,$5,$6)';
+    'SELECT * FROM claim_ingestion_job($1,$2,$3::text[],$4,$5,$6,$7)';
   const reconcileSql =
-    'SELECT * FROM reconcile_fiscal_ingestion_foundation($1,$2,$3,$4,$5::integer[],$6,$7)';
+    'SELECT * FROM reconcile_fiscal_ingestion_foundation($1,$2,$3,$4,$5::integer[],$6,$7,$8)';
   const cases: Array<{
     label: string;
     sql: string;
@@ -884,47 +968,62 @@ async function validateLockedSecurityDefinerParameters(
     {
       label: 'claim_max_attempts',
       sql: claimSql,
-      parameters: ['qa-policy', randomUUID(), ['manual_xml'], 90, 2, 4],
+      parameters: ['qa-policy', randomUUID(), ['manual_xml'], 90, 3, 3, 4],
+    },
+    {
+      label: 'claim_max_retries',
+      sql: claimSql,
+      parameters: ['qa-policy', randomUUID(), ['manual_xml'], 90, 4, 2, 4],
     },
     {
       label: 'claim_tenant_cap',
       sql: claimSql,
-      parameters: ['qa-policy', randomUUID(), ['manual_xml'], 90, 3, 3],
+      parameters: ['qa-policy', randomUUID(), ['manual_xml'], 90, 4, 3, 3],
     },
     {
       label: 'queue_age_max_attempts',
-      sql: 'SELECT * FROM ingestion_queue_ages($1::text[],$2)',
-      parameters: [['manual_xml'], 2],
+      sql: 'SELECT * FROM ingestion_queue_ages($1::text[],$2,$3)',
+      parameters: [['manual_xml'], 3, 3],
+    },
+    {
+      label: 'queue_age_max_retries',
+      sql: 'SELECT * FROM ingestion_queue_ages($1::text[],$2,$3)',
+      parameters: [['manual_xml'], 4, 2],
     },
     {
       label: 'reconcile_limit',
       sql: reconcileSql,
-      parameters: [99, 60, 24, 7, [10, 30, 120], 20, 3],
+      parameters: [99, 60, 24, 7, [10, 30, 120], 20, 4, 3],
     },
     {
       label: 'reconcile_orphan_grace',
       sql: reconcileSql,
-      parameters: [100, 5, 24, 7, [10, 30, 120], 20, 3],
+      parameters: [100, 5, 24, 7, [10, 30, 120], 20, 4, 3],
     },
     {
       label: 'reconcile_duplicate_grace',
       sql: reconcileSql,
-      parameters: [100, 60, 23, 7, [10, 30, 120], 20, 3],
+      parameters: [100, 60, 23, 7, [10, 30, 120], 20, 4, 3],
     },
     {
       label: 'reconcile_invalid_retention',
       sql: reconcileSql,
-      parameters: [100, 60, 24, 30, [10, 30, 120], 20, 3],
+      parameters: [100, 60, 24, 30, [10, 30, 120], 20, 4, 3],
     },
     {
       label: 'reconcile_backoff',
       sql: reconcileSql,
-      parameters: [100, 60, 24, 7, [1, 2, 3], 20, 3],
+      parameters: [100, 60, 24, 7, [1, 2, 3], 20, 4, 3],
     },
     {
       label: 'reconcile_max_attempts',
       sql: reconcileSql,
-      parameters: [100, 60, 24, 7, [10, 30, 120], 20, 2],
+      parameters: [100, 60, 24, 7, [10, 30, 120], 20, 3, 3],
+    },
+    {
+      label: 'reconcile_max_retries',
+      sql: reconcileSql,
+      parameters: [100, 60, 24, 7, [10, 30, 120], 20, 4, 2],
     },
   ];
   const results: Record<string, string> = {};

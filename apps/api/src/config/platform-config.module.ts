@@ -20,6 +20,12 @@ export function runtimeEnvFilePaths(profile: RuntimeConfigProfile): string[] {
   return [`.env.${profile}.local`, `.env.${profile}`, '.env.local', '.env'];
 }
 
+export function ignoreRuntimeEnvFiles(
+  environment = process.env.NODE_ENV,
+): boolean {
+  return environment === 'production';
+}
+
 export function runtimeConfigFactories(profile: RuntimeConfigProfile) {
   const sharedFactories = [
     databaseConfigForRuntime(profile),
@@ -45,6 +51,7 @@ export class PlatformConfigModule {
         ConfigModule.forRoot({
           isGlobal: true,
           envFilePath: runtimeEnvFilePaths(profile),
+          ignoreEnvFile: ignoreRuntimeEnvFiles(),
           load: runtimeConfigFactories(profile),
           validationSchema: envVarsSchemaForRuntime(profile),
           validationOptions: { allowUnknown: true, abortEarly: true },

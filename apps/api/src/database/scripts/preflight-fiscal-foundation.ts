@@ -3,6 +3,7 @@ import {
   ALLOWED_SHARED_MIGRATION_TIMESTAMPS,
   EXPECTED_MIGRATION_IDENTITIES,
   EXPECTED_MIGRATION_NAMES,
+  PHASE_ZERO_MIGRATION_NAMES,
 } from './migration-manifest';
 import { resolveScriptDatabaseOptions } from './script-database-options';
 
@@ -19,10 +20,17 @@ const FOUNDATION_RELATIONS = [
   'ingestion_jobs',
   'ingestion_items',
 ] as const;
-const PHASE_ZERO_MIGRATION_NAMES = new Set([
-  'FiscalIngestionFoundation1787690600000',
-  'FiscalRlsWorkerClaims1787690610000',
-]);
+const PHASE_ZERO_MIGRATION_NAME_SET: ReadonlySet<string> = new Set(
+  PHASE_ZERO_MIGRATION_NAMES,
+);
+
+interface RetryBudgetBackfillInspection {
+  mode: 'NOT_APPLICABLE' | 'PENDING_BACKFILL' | 'ALREADY_APPLIED';
+  retryableJobsWithoutAuditableRetryCount: number;
+  inferredRetryCountExceedsAttemptCount: number;
+  safeToApply: boolean;
+  redacted: true;
+}
 
 interface DatabaseIdentityRow {
   database: string;
@@ -150,6 +158,10 @@ async function preflightFiscalFoundation(): Promise<void> {
           `SELECT timestamp::text, name FROM public.migrations ORDER BY id`,
         )
       : [];
+    const retryBudgetBackfill = await inspectRetryBudgetBackfill(
+      dataSource,
+      relations,
+    );
 
     const failures: string[] = [];
     const configuredMigrationNames = dataSource.migrations
@@ -181,23 +193,21 @@ async function preflightFiscalFoundation(): Promise<void> {
     if (foundationCount > 0 && foundationCount < FOUNDATION_RELATIONS.length) {
       failures.push('partial_fiscal_foundation_schema');
     }
+    if (retryBudgetBackfill.retryableJobsWithoutAuditableRetryCount > 0) {
+      failures.push('retry_budget_backfill_unverifiable_retryable_jobs');
+    }
+    if (retryBudgetBackfill.inferredRetryCountExceedsAttemptCount > 0) {
+      failures.push('retry_budget_backfill_exceeds_attempt_history');
+    }
     const phaseZeroLogged = new Set(
       appliedMigrations
         .map(({ name }) => name)
-        .filter((name) => PHASE_ZERO_MIGRATION_NAMES.has(name)),
+        .filter((name) => PHASE_ZERO_MIGRATION_NAME_SET.has(name)),
     );
-    const nonSuperMigratorReady =
-      identity.createRole &&
-      identity.ownsCurrentDatabase &&
-      identity.ownsPublicSchema &&
-      identity.ownsRequiredRelations &&
-      identity.existingFiscalOwnerRoles === 0;
-    if (
-      phaseZeroLogged.size < PHASE_ZERO_MIGRATION_NAMES.size &&
-      !identity.superuser &&
-      !nonSuperMigratorReady
-    ) {
-      failures.push('insufficient_fiscal_migrator_authority');
+    const phaseZeroPending =
+      phaseZeroLogged.size < PHASE_ZERO_MIGRATION_NAMES.length;
+    if (phaseZeroPending && !identity.superuser) {
+      failures.push('phase_zero_pending_requires_superuser');
     }
     if (
       foundationCount === FOUNDATION_RELATIONS.length &&
@@ -214,6 +224,7 @@ async function preflightFiscalFoundation(): Promise<void> {
       catalog,
       requiredBaseRelations,
       foundationRelations,
+      retryBudgetBackfill,
       legalEntityTenantAccountOrphans: legalEntityOrphans,
       appliedMigrations,
       migrationManifest: {
@@ -230,12 +241,14 @@ async function preflightFiscalFoundation(): Promise<void> {
           .map(({ timestamp, name }) => ({ timestamp, name })),
       },
       migratorAuthority: {
-        sufficient: identity.superuser || nonSuperMigratorReady,
+        sufficient: !phaseZeroPending || identity.superuser,
+        phaseZeroPending,
+        requiredMode: phaseZeroPending ? 'SUPERUSER' : 'READ_ONLY_INSPECTION',
         mode: identity.superuser
           ? 'SUPERUSER'
-          : nonSuperMigratorReady
-            ? 'CONSTRAINED_OWNER'
-            : 'INSUFFICIENT',
+          : phaseZeroPending
+            ? 'INSUFFICIENT'
+            : 'POST_PHASE_ZERO_INSPECTION',
       },
       failures,
     };
@@ -248,6 +261,125 @@ async function preflightFiscalFoundation(): Promise<void> {
   } finally {
     if (dataSource.isInitialized) await dataSource.destroy();
   }
+}
+
+async function inspectRetryBudgetBackfill(
+  dataSource: DataSource,
+  relations: Record<string, boolean>,
+): Promise<RetryBudgetBackfillInspection> {
+  if (!relations.ingestion_jobs || !relations.audit_events) {
+    return {
+      mode: 'NOT_APPLICABLE',
+      retryableJobsWithoutAuditableRetryCount: 0,
+      inferredRetryCountExceedsAttemptCount: 0,
+      safeToApply: true,
+      redacted: true,
+    };
+  }
+
+  const [column] = await dataSource.query<Array<{ present: boolean }>>(`
+    SELECT EXISTS (
+      SELECT 1
+      FROM information_schema.columns
+      WHERE table_schema = 'public'
+        AND table_name = 'ingestion_jobs'
+        AND column_name = 'automatic_retry_count'
+    ) AS present
+  `);
+
+  if (column?.present) {
+    const [state] = await dataSource.query<
+      Array<{
+        retryableWithoutAudit: number;
+        retriesExceedAttempts: number;
+      }>
+    >(`
+      SELECT
+        count(*) FILTER (
+          WHERE status = 'failed_retryable'
+            AND automatic_retry_count = 0
+        )::integer AS "retryableWithoutAudit",
+        count(*) FILTER (
+          WHERE automatic_retry_count > attempt_count
+        )::integer AS "retriesExceedAttempts"
+      FROM public.ingestion_jobs
+    `);
+    const retryableJobsWithoutAuditableRetryCount = Number(
+      state?.retryableWithoutAudit ?? 0,
+    );
+    const inferredRetryCountExceedsAttemptCount = Number(
+      state?.retriesExceedAttempts ?? 0,
+    );
+    return {
+      mode: 'ALREADY_APPLIED',
+      retryableJobsWithoutAuditableRetryCount,
+      inferredRetryCountExceedsAttemptCount,
+      safeToApply:
+        retryableJobsWithoutAuditableRetryCount === 0 &&
+        inferredRetryCountExceedsAttemptCount === 0,
+      redacted: true,
+    };
+  }
+
+  const [state] = await dataSource.query<
+    Array<{
+      retryableWithoutAudit: number;
+      retriesExceedAttempts: number;
+    }>
+  >(`
+    WITH retry_audits AS (
+      SELECT
+        event.object_id AS job_id,
+        count(*) FILTER (
+          WHERE (
+            event.action = 'ingestion.job.retry_scheduled'
+            AND event.metadata ->> 'status' = 'failed_retryable'
+          ) OR (
+            event.action = 'ingestion.job.lease_reconciled'
+            AND event.metadata ->> 'result_status' = 'failed_retryable'
+          )
+        )::integer AS retry_count
+      FROM public.audit_events AS event
+      WHERE event.object_type = 'ingestion_job'
+        AND event.action IN (
+          'ingestion.job.retry_scheduled',
+          'ingestion.job.lease_reconciled'
+        )
+      GROUP BY event.object_id
+    ), inferred AS (
+      SELECT
+        job.status,
+        job.attempt_count,
+        least(3, greatest(0, COALESCE(retry_audits.retry_count, 0)))
+          AS automatic_retry_count
+      FROM public.ingestion_jobs AS job
+      LEFT JOIN retry_audits ON retry_audits.job_id = job.id
+    )
+    SELECT
+      count(*) FILTER (
+        WHERE status = 'failed_retryable'
+          AND automatic_retry_count = 0
+      )::integer AS "retryableWithoutAudit",
+      count(*) FILTER (
+        WHERE automatic_retry_count > attempt_count
+      )::integer AS "retriesExceedAttempts"
+    FROM inferred
+  `);
+  const retryableJobsWithoutAuditableRetryCount = Number(
+    state?.retryableWithoutAudit ?? 0,
+  );
+  const inferredRetryCountExceedsAttemptCount = Number(
+    state?.retriesExceedAttempts ?? 0,
+  );
+  return {
+    mode: 'PENDING_BACKFILL',
+    retryableJobsWithoutAuditableRetryCount,
+    inferredRetryCountExceedsAttemptCount,
+    safeToApply:
+      retryableJobsWithoutAuditableRetryCount === 0 &&
+      inferredRetryCountExceedsAttemptCount === 0,
+    redacted: true,
+  };
 }
 
 function validateConfiguredMigrationManifest(
@@ -286,7 +418,7 @@ function validateAppliedMigrationLedger(
   applied: Array<{ timestamp: string; name: string }>,
   failures: string[],
 ): void {
-  const expectedByName = new Map(
+  const expectedByName = new Map<string, string>(
     EXPECTED_MIGRATION_IDENTITIES.map(({ name, timestamp }) => [
       name,
       String(timestamp),
@@ -333,7 +465,9 @@ function sameStringSet(
   left: ReadonlySet<string>,
   right: ReadonlySet<string>,
 ): boolean {
-  return left.size === right.size && [...left].every((value) => right.has(value));
+  return (
+    left.size === right.size && [...left].every((value) => right.has(value))
+  );
 }
 
 async function relationState(

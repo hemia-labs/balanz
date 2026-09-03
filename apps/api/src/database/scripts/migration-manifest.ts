@@ -24,11 +24,25 @@ export const EXPECTED_MIGRATION_IDENTITIES = [
     timestamp: 1787690600000,
   },
   { name: 'FiscalRlsWorkerClaims1787690610000', timestamp: 1787690610000 },
+  {
+    name: 'IngestionAutomaticRetryBudget1787690620000',
+    timestamp: 1787690620000,
+  },
+  {
+    name: 'PhaseZeroRuntimeCompatibility1787690630000',
+    timestamp: 1787690630000,
+  },
 ] as const;
 
-export const EXPECTED_MIGRATION_NAMES = EXPECTED_MIGRATION_IDENTITIES.map(
-  ({ name }) => name,
-);
+export const EXPECTED_MIGRATION_NAMES: readonly string[] =
+  EXPECTED_MIGRATION_IDENTITIES.map(({ name }) => name);
+
+export const PHASE_ZERO_MIGRATION_NAMES = [
+  'FiscalIngestionFoundation1787690600000',
+  'FiscalRlsWorkerClaims1787690610000',
+  'IngestionAutomaticRetryBudget1787690620000',
+  'PhaseZeroRuntimeCompatibility1787690630000',
+] as const;
 
 export const ALLOWED_SHARED_MIGRATION_TIMESTAMPS = new Map<
   number,

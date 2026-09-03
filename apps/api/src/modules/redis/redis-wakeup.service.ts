@@ -10,6 +10,7 @@ import { FiscalMetricsService } from '../../common/observability/fiscal-metrics.
 import { REDIS_CLIENT } from './redis.tokens';
 import type { RedisClient } from './redis.module';
 import { shutdownRedisClient } from './redis-client-shutdown';
+import { redisReconnectDelayMs } from './redis-reconnect-policy';
 
 const WAKEUP_PAYLOAD = '1';
 
@@ -44,6 +45,13 @@ export class RedisWakeupService implements OnApplicationShutdown {
   private publishFailures = 0;
   private subscriptionFailures = 0;
   private lastFailureAt?: string;
+  private readonly onPublisherReady = (): void => {
+    if (this.shuttingDown) return;
+    if (this.subscriberRetryTimer) clearTimeout(this.subscriberRetryTimer);
+    this.subscriberRetryTimer = undefined;
+    this.subscriberRetryAttempt = 0;
+    this.ensureSubscriberStarted();
+  };
 
   constructor(
     @Inject(REDIS_CLIENT) private readonly publisher: RedisClient | null,
@@ -54,6 +62,7 @@ export class RedisWakeupService implements OnApplicationShutdown {
     this.enabled = fiscal.redisWakeup.enabled;
     this.channel = fiscal.redisWakeup.channel;
     this.timeoutMs = fiscal.redisWakeup.timeoutMs;
+    this.publisher?.on('ready', this.onPublisherReady);
   }
 
   /** Call only after the transaction that made work visible has committed. */
@@ -77,6 +86,7 @@ export class RedisWakeupService implements OnApplicationShutdown {
       await this.publisher
         .withAbortSignal(controller.signal)
         .publish(this.channel, WAKEUP_PAYLOAD);
+      this.metrics.increment('redis_wakeup_published_total', {});
       return true;
     } catch {
       this.metrics.increment('redis_wakeup_failures_total', {
@@ -110,6 +120,7 @@ export class RedisWakeupService implements OnApplicationShutdown {
   async onApplicationShutdown(): Promise<void> {
     this.shuttingDown = true;
     if (this.subscriberRetryTimer) clearTimeout(this.subscriberRetryTimer);
+    this.publisher?.off('ready', this.onPublisherReady);
     const subscriber = this.subscriber;
     this.subscriber = null;
     this.subscriberSubscribed = false;
@@ -124,27 +135,56 @@ export class RedisWakeupService implements OnApplicationShutdown {
       !this.enabled ||
       this.shuttingDown ||
       !this.publisher ||
+      this.listeners.size === 0 ||
       this.subscriber ||
       this.subscriberStarting
     ) {
       return;
     }
 
+    if (!this.publisher.isReady) {
+      this.scheduleSubscriberRetry();
+      return;
+    }
+
     this.subscriberStarting = true;
-    const subscriber = this.publisher.duplicate();
+    const publisherSocket = this.publisher.options?.socket;
+    const subscriber = this.publisher.duplicate({
+      socket: {
+        ...(publisherSocket ?? {}),
+        reconnectStrategy: false,
+      },
+    });
     this.subscriber = subscriber;
-    subscriber.on('error', () => {
+    let terminalFailureHandled = false;
+    const handleTerminalFailure = (): void => {
+      if (
+        terminalFailureHandled ||
+        this.shuttingDown ||
+        this.subscriber !== subscriber
+      ) {
+        return;
+      }
+      terminalFailureHandled = true;
+      this.subscriber = null;
+      this.subscriberSubscribed = false;
       this.recordFailure(
         'Redis wakeup subscriber unavailable; polling remains active',
         true,
       );
-    });
+      void shutdownRedisClient(subscriber, this.timeoutMs).finally(() =>
+        this.scheduleSubscriberRetry(),
+      );
+    };
+    subscriber.on('error', handleTerminalFailure);
+    subscriber.on('end', handleTerminalFailure);
 
     void subscriber
       .connect()
       .then(async () => {
         await subscriber.subscribe(this.channel, (message) => {
           if (message !== WAKEUP_PAYLOAD) return;
+          this.metrics.increment('redis_wakeup_received_total', {});
           for (const listener of this.listeners) {
             try {
               listener();
@@ -158,15 +198,8 @@ export class RedisWakeupService implements OnApplicationShutdown {
           this.subscriberRetryAttempt = 0;
         }
       })
-      .catch(async () => {
-        this.subscriberSubscribed = false;
-        this.recordFailure(
-          'Redis wakeup subscription failed; polling remains active',
-          true,
-        );
-        if (this.subscriber === subscriber) this.subscriber = null;
-        await shutdownRedisClient(subscriber, this.timeoutMs);
-        this.scheduleSubscriberRetry();
+      .catch(() => {
+        handleTerminalFailure();
       })
       .finally(() => {
         this.subscriberStarting = false;
@@ -181,10 +214,7 @@ export class RedisWakeupService implements OnApplicationShutdown {
     ) {
       return;
     }
-    const retryDelayMs = Math.min(
-      30_000,
-      Math.max(this.timeoutMs, 1_000) * 2 ** this.subscriberRetryAttempt,
-    );
+    const retryDelayMs = redisReconnectDelayMs(this.subscriberRetryAttempt);
     this.subscriberRetryAttempt = Math.min(this.subscriberRetryAttempt + 1, 5);
     this.subscriberRetryTimer = setTimeout(() => {
       this.subscriberRetryTimer = undefined;

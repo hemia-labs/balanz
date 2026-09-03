@@ -119,6 +119,16 @@ const DEFINITIONS = {
     kind: 'counter',
     labels: ['stage'],
   },
+  redis_wakeup_published_total: {
+    help: 'Best-effort Redis wakeup signals published successfully.',
+    kind: 'counter',
+    labels: [],
+  },
+  redis_wakeup_received_total: {
+    help: 'Valid best-effort Redis wakeup signals received.',
+    kind: 'counter',
+    labels: [],
+  },
   ingestion_reconciliations_total: {
     help: 'Idempotent reconciliation actions by stage and outcome.',
     kind: 'counter',

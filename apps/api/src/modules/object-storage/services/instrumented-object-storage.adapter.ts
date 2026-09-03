@@ -11,12 +11,7 @@ import type {
 } from '../ports/object-storage.port';
 
 type StorageStage =
-  | 'put'
-  | 'read'
-  | 'head'
-  | 'delete'
-  | 'signed_url'
-  | 'health';
+  'put' | 'read' | 'head' | 'delete' | 'signed_url' | 'health';
 
 export class InstrumentedObjectStorageAdapter implements ObjectStoragePort {
   constructor(

@@ -9,6 +9,11 @@ import { CorrelationIdService } from '../src/common/correlation/correlation-id.s
 import type { FiscalEventLogger } from '../src/common/observability/fiscal-event-logger.service';
 import { FiscalMetricsService } from '../src/common/observability/fiscal-metrics.service';
 import type { FiscalPlatformConfig } from '../src/config/fiscal-platform.config';
+import { withRuntimeDatabaseRole } from '../src/config/database.config';
+import {
+  resolveRuntimeDatabaseCredential,
+  type RuntimeDatabaseCredential,
+} from '../src/database/database-options.factory';
 import { RuntimeDatabaseGuard } from '../src/database/runtime-database-guard.service';
 import { FiscalTenantTransactionService } from '../src/database/rls/fiscal-tenant-transaction.service';
 import { resolveScriptDatabaseOptions } from '../src/database/scripts/script-database-options';
@@ -80,6 +85,11 @@ async function validateFiscalFoundationRuntime(): Promise<void> {
   if (options.type !== 'postgres') {
     throw new Error('Runtime validation requires PostgreSQL');
   }
+  const [apiCredential, workerCredential] = await Promise.all([
+    resolveRuntimeDatabaseCredential('api'),
+    resolveRuntimeDatabaseCredential('worker'),
+  ]);
+  assertRuntimeCredentialTargets(options, [apiCredential, workerCredential]);
 
   const admin = new DataSource({ ...options, logging: false });
   let api: DataSource | undefined;
@@ -91,15 +101,19 @@ async function validateFiscalFoundationRuntime(): Promise<void> {
   let onlineWakeup: RedisWakeupService | undefined;
   let tenantFixtures: TenantFixtures | undefined;
   const suffix = randomBytes(6).toString('hex');
-  const apiRole = `balanz_api_qa_${suffix}`;
-  const workerRole = `balanz_worker_qa_${suffix}`;
-  const apiPassword = randomBytes(24).toString('hex');
-  const workerPassword = randomBytes(24).toString('hex');
+  const apiRole = apiCredential.username;
+  const workerRole = workerCredential.username;
+  const apiPassword = apiCredential.password;
+  const workerPassword = workerCredential.password;
+  const rogueRole = `balanz_api_rogue_${suffix}`;
+  const roguePassword = randomBytes(24).toString('hex');
+  const runtimeOwnedFunction = `balanz_runtime_owned_${suffix}`;
   const correlations: string[] = [];
-  let apiRoleCreated = false;
-  let workerRoleCreated = false;
+  let rogueRoleCreated = false;
+  let rogueMembershipGranted = false;
   let apiDirectAclGranted = false;
   let workerDirectAclGranted = false;
+  let runtimeOwnedFunctionCreated = false;
   let advisoryLocked = false;
   let validationError: unknown;
   const cleanupErrors: Error[] = [];
@@ -158,24 +172,13 @@ async function validateFiscalFoundationRuntime(): Promise<void> {
 
     assertRoleName(apiRole);
     assertRoleName(workerRole);
-    await admin.query(
-      `CREATE ROLE ${quoteIdentifier(apiRole)} LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT PASSWORD '${apiPassword}'`,
-    );
-    apiRoleCreated = true;
-    await admin.query(
-      `CREATE ROLE ${quoteIdentifier(workerRole)} LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT PASSWORD '${workerPassword}'`,
-    );
-    workerRoleCreated = true;
-    await admin.query(
-      `GRANT balanz_api TO ${quoteIdentifier(apiRole)} WITH ADMIN FALSE, INHERIT FALSE, SET TRUE`,
-    );
-    await admin.query(
-      `GRANT balanz_worker TO ${quoteIdentifier(workerRole)} WITH ADMIN FALSE, INHERIT FALSE, SET TRUE`,
-    );
+    assertRoleName(rogueRole);
 
-    api = new DataSource(runtimeOptions(options, apiRole, apiPassword));
+    api = new DataSource(
+      runtimeOptions(options, apiRole, apiPassword, 'balanz_api'),
+    );
     worker = new DataSource(
-      runtimeOptions(options, workerRole, workerPassword),
+      runtimeOptions(options, workerRole, workerPassword, 'balanz_worker'),
     );
     await Promise.all([api.initialize(), worker.initialize()]);
 
@@ -196,12 +199,12 @@ async function validateFiscalFoundationRuntime(): Promise<void> {
     }
     assert(
       apiDirectAclRejected,
-      'runtime API login with a direct fiscal column ACL must fail guard',
+      'runtime API login with a direct public column ACL must fail guard',
     );
 
     let workerDirectAclRejected = false;
     await admin.query(
-      `GRANT EXECUTE ON FUNCTION claim_ingestion_job(text, text, text[], integer, integer, integer) TO ${quoteIdentifier(workerRole)}`,
+      `GRANT EXECUTE ON FUNCTION claim_ingestion_job(text, text, text[], integer, integer, integer, integer) TO ${quoteIdentifier(workerRole)}`,
     );
     workerDirectAclGranted = true;
     try {
@@ -210,21 +213,140 @@ async function validateFiscalFoundationRuntime(): Promise<void> {
       workerDirectAclRejected = true;
     } finally {
       await admin.query(
-        `REVOKE EXECUTE ON FUNCTION claim_ingestion_job(text, text, text[], integer, integer, integer) FROM ${quoteIdentifier(workerRole)}`,
+        `REVOKE EXECUTE ON FUNCTION claim_ingestion_job(text, text, text[], integer, integer, integer, integer) FROM ${quoteIdentifier(workerRole)}`,
       );
       workerDirectAclGranted = false;
     }
     assert(
       workerDirectAclRejected,
-      'runtime worker login with a direct fiscal function ACL must fail guard',
+      'runtime worker login with a direct public function ACL must fail guard',
+    );
+
+    await admin.query(
+      `CREATE FUNCTION public.${quoteIdentifier(runtimeOwnedFunction)}() RETURNS integer LANGUAGE sql IMMUTABLE AS 'SELECT 1'`,
+    );
+    runtimeOwnedFunctionCreated = true;
+    await admin.query(
+      `ALTER FUNCTION public.${quoteIdentifier(runtimeOwnedFunction)}() OWNER TO ${quoteIdentifier(apiRole)}`,
+    );
+    let runtimeOwnershipRejected = false;
+    try {
+      await new RuntimeDatabaseGuard(api, 'api').onApplicationBootstrap();
+    } catch (error) {
+      runtimeOwnershipRejected =
+        error instanceof Error && error.message.includes('public_object_owner');
+    } finally {
+      await admin.query(
+        `DROP FUNCTION public.${quoteIdentifier(runtimeOwnedFunction)}()`,
+      );
+      runtimeOwnedFunctionCreated = false;
+    }
+    assert(
+      runtimeOwnershipRejected,
+      'runtime API login that owns a public function must fail guard',
+    );
+
+    await new RuntimeDatabaseGuard(api, 'api').onApplicationBootstrap();
+    await admin.query(
+      `CREATE ROLE ${quoteIdentifier(rogueRole)} LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT PASSWORD '${roguePassword}'`,
+    );
+    rogueRoleCreated = true;
+    await admin.query(
+      `GRANT balanz_api TO ${quoteIdentifier(rogueRole)} WITH ADMIN FALSE, INHERIT FALSE, SET TRUE`,
+    );
+    rogueMembershipGranted = true;
+    let siblingMembershipRejected = false;
+    try {
+      await new RuntimeDatabaseGuard(api, 'api').onApplicationBootstrap();
+    } catch (error) {
+      siblingMembershipRejected =
+        error instanceof Error &&
+        error.message.includes('unexpected_runtime_group_member');
+    } finally {
+      await admin.query(`REVOKE balanz_api FROM ${quoteIdentifier(rogueRole)}`);
+      rogueMembershipGranted = false;
+      await admin.query(`DROP ROLE ${quoteIdentifier(rogueRole)}`);
+      rogueRoleCreated = false;
+    }
+    assert(
+      siblingMembershipRejected,
+      'runtime API group with a SET-only sibling member must fail guard',
     );
 
     await new RuntimeDatabaseGuard(api, 'api').onApplicationBootstrap();
     await new RuntimeDatabaseGuard(worker, 'worker').onApplicationBootstrap();
+    const [selectedApiCapabilities] = await api.query<
+      Array<{ ready: boolean }>
+    >(`
+      SELECT COALESCE(bool_and(
+        has_table_privilege(current_user, format('public.%I', relation_name), 'SELECT') = can_select
+        AND has_table_privilege(current_user, format('public.%I', relation_name), 'INSERT') = can_insert
+        AND has_table_privilege(current_user, format('public.%I', relation_name), 'UPDATE') = can_update
+        AND has_table_privilege(current_user, format('public.%I', relation_name), 'DELETE') = can_delete
+      ), false) AS ready
+      FROM (VALUES
+        ('auth_factors', true, true, true, false),
+        ('auth_rate_limits', true, true, true, false),
+        ('email_verification_tokens', true, true, true, false),
+        ('roles', true, false, false, false),
+        ('memberships', true, true, true, false),
+        ('organizations', true, true, false, false),
+        ('permissions', true, false, false, false),
+        ('role_permissions', true, false, false, false),
+        ('auth_sessions', true, true, true, false),
+        ('subscriptions', true, true, true, false),
+        ('users', true, true, true, false),
+        ('client_accounts', true, true, true, false),
+        ('legal_entities', true, true, true, false),
+        ('account_assignments', true, true, true, false),
+        ('fiscal_years', true, true, false, false),
+        ('periods', true, true, true, false),
+        ('password_reset_tokens', true, true, true, false),
+        ('membership_permissions', true, true, true, false),
+        ('fiscal_operations', true, true, true, false),
+        ('object_access_grants', true, true, true, false),
+        ('private_objects', true, false, false, false),
+        ('audit_events', false, true, false, false)
+      ) AS requirement(
+        relation_name, can_select, can_insert, can_update, can_delete
+      )
+    `);
+    const [selectedWorkerCapabilities] = await worker.query<
+      Array<{ ready: boolean }>
+    >(`
+      SELECT
+        has_function_privilege(
+          current_user,
+          'public.claim_ingestion_job(text,text,text[],integer,integer,integer,integer)',
+          'EXECUTE'
+        )
+        AND has_function_privilege(
+          current_user,
+          'public.ingestion_queue_ages(text[],integer,integer)',
+          'EXECUTE'
+        )
+        AND has_function_privilege(
+          current_user,
+          'public.reconcile_fiscal_ingestion_foundation(integer,integer,integer,integer,integer[],integer,integer,integer)',
+          'EXECUTE'
+        ) AS ready
+    `);
+    assert(
+      selectedApiCapabilities?.ready,
+      'API runtime connection must select the complete application-table ACL',
+    );
+    assert(
+      selectedWorkerCapabilities?.ready,
+      'worker runtime connection must select only the current durable-job functions',
+    );
     report.runtimeGuards = {
       safePrincipals: 'PASSED',
+      selectedApiGroupCapabilities: 'PASSED',
+      selectedWorkerGroupCapabilities: 'PASSED',
       apiDirectColumnAclRejected: apiDirectAclRejected,
       workerDirectFunctionAclRejected: workerDirectAclRejected,
+      runtimePublicFunctionOwnershipRejected: runtimeOwnershipRejected,
+      setOnlySiblingMembershipRejected: siblingMembershipRejected,
     };
 
     const apiTransactions = new FiscalTenantTransactionService(api);
@@ -773,7 +895,7 @@ async function validateFiscalFoundationRuntime(): Promise<void> {
       `qa-shutdown-${suffix}`,
       '3',
     );
-    for (let attempt = 1; attempt <= 3; attempt += 1) {
+    for (let attempt = 1; attempt <= 6; attempt += 1) {
       const shutdownClaim = await jobs.claimNext(
         `qa-worker-shutdown-${suffix}`,
         [IngestionJobSourceType.MANUAL_XML],
@@ -787,27 +909,146 @@ async function validateFiscalFoundationRuntime(): Promise<void> {
       if (!shutdownClaim) throw new Error('Expected shutdown claim');
       assert(await jobs.releaseForShutdown(shutdownClaim), 'shutdown release');
     }
+    const releasedShutdownState = await admin.query<
+      Array<{
+        status: string;
+        attempt_count: number;
+        automatic_retry_count: number;
+      }>
+    >(
+      `SELECT status, attempt_count, automatic_retry_count
+         FROM ingestion_jobs WHERE id = $1`,
+      [shutdownJob.value.jobId],
+    );
     assertEqual(
-      await jobs.claimNext(`qa-worker-shutdown-${suffix}`, [
+      releasedShutdownState[0]?.status,
+      IngestionJobStatus.QUEUED,
+      'repeated shutdown remains claimable',
+    );
+    assertEqual(
+      releasedShutdownState[0]?.attempt_count,
+      6,
+      'shutdown claims remain monotonic evidence',
+    );
+    assertEqual(
+      releasedShutdownState[0]?.automatic_retry_count,
+      0,
+      'shutdown does not consume automatic retries',
+    );
+
+    const failureRetryDelays: number[] = [];
+    for (let failure = 1; failure <= 4; failure += 1) {
+      const failureClaim = await jobs.claimNext(`qa-worker-failure-${suffix}`, [
         IngestionJobSourceType.MANUAL_XML,
-      ]),
-      null,
-      'fourth execution must not be claimable',
+      ]);
+      assertEqual(
+        failureClaim?.jobId,
+        shutdownJob.value.jobId,
+        `retryable failure claim ${failure}`,
+      );
+      if (!failureClaim) throw new Error('Expected retryable failure claim');
+      const retry = await jobs.scheduleRetry(
+        failureClaim,
+        'MALWARE_SCANNER_UNAVAILABLE',
+      );
+      assert(retry !== null, 'retryable failure must retain its lease CAS');
+      if (failure <= 3) {
+        assertEqual(
+          retry?.status,
+          IngestionJobStatus.FAILED_RETRYABLE,
+          `retry ${failure} status`,
+        );
+        assertEqual(
+          retry?.automaticRetryCount,
+          failure,
+          `retry ${failure} durable budget`,
+        );
+        const [delayState] = await admin.query<
+          Array<{ delay_seconds: number }>
+        >(
+          `SELECT round(
+             extract(epoch FROM next_attempt_at - updated_at)
+           )::integer AS delay_seconds
+           FROM ingestion_jobs WHERE id = $1`,
+          [shutdownJob.value.jobId],
+        );
+        failureRetryDelays.push(Number(delayState?.delay_seconds));
+        await admin.query(
+          `UPDATE ingestion_jobs
+              SET next_attempt_at = clock_timestamp()
+            WHERE id = $1`,
+          [shutdownJob.value.jobId],
+        );
+      } else {
+        assertEqual(
+          retry?.status,
+          IngestionJobStatus.FAILED_FINAL,
+          'fourth retryable failure is terminal',
+        );
+        assertEqual(
+          retry?.automaticRetryCount,
+          3,
+          'terminal failure does not exceed retry budget',
+        );
+      }
+    }
+    assertEqual(
+      failureRetryDelays.join(','),
+      '10,30,120',
+      'normal failure retry schedule',
     );
     const shutdownState = await admin.query<
       Array<{
         status: string;
         attempt_count: number;
+        automatic_retry_count: number;
       }>
-    >(`SELECT status, attempt_count FROM ingestion_jobs WHERE id = $1`, [
-      shutdownJob.value.jobId,
-    ]);
+    >(
+      `SELECT status, attempt_count, automatic_retry_count
+         FROM ingestion_jobs WHERE id = $1`,
+      [shutdownJob.value.jobId],
+    );
     assertEqual(
       shutdownState[0]?.status,
       IngestionJobStatus.FAILED_FINAL,
-      'third shutdown is terminal',
+      'retry budget exhaustion is terminal',
     );
-    assertEqual(shutdownState[0]?.attempt_count, 3, 'attempt budget preserved');
+    assertEqual(
+      shutdownState[0]?.attempt_count,
+      10,
+      'shutdown claims do not block four budgeted executions',
+    );
+    assertEqual(
+      shutdownState[0]?.automatic_retry_count,
+      3,
+      'automatic retry budget is capped at three',
+    );
+    const retryAudits = await admin.query<
+      Array<{ action: string; count: number }>
+    >(
+      `SELECT action, count(*)::integer AS count
+         FROM audit_events
+        WHERE object_id = $1
+          AND action IN (
+            'ingestion.job.retry_scheduled',
+            'ingestion.job.retry_exhausted'
+          )
+        GROUP BY action`,
+      [shutdownJob.value.jobId],
+    );
+    const retryAuditCounts = new Map(
+      retryAudits.map((row) => [row.action, Number(row.count)]),
+    );
+    assertEqual(
+      retryAuditCounts.get('ingestion.job.retry_scheduled'),
+      3,
+      'retry scheduled audits',
+    );
+    assertEqual(
+      retryAuditCounts.get('ingestion.job.retry_exhausted'),
+      1,
+      'retry exhausted audit',
+    );
 
     const handler: IngestionJobHandler = {
       source: IngestionJobSourceType.MANUAL_XML,
@@ -862,10 +1103,16 @@ async function validateFiscalFoundationRuntime(): Promise<void> {
       );
       return rows[0]?.status === IngestionJobStatus.COMPLETED;
     });
-    await eventually(
-      () => (offlineWakeup?.status().subscriptionFailures ?? 0) > 0,
-    );
     const offlineRedisStatus = offlineWakeup.status();
+    assertEqual(
+      offlineRedisStatus.subscriptionFailures,
+      0,
+      'subscriber attempts while the publisher is unavailable',
+    );
+    assert(
+      !offlineRedisStatus.publisherReady && !offlineRedisStatus.subscriberReady,
+      'offline Redis must leave both wakeup clients unavailable',
+    );
     await runtimeRunner.onApplicationShutdown();
     runtimeRunner = undefined;
     await offlineWakeup.onApplicationShutdown();
@@ -978,8 +1225,7 @@ async function validateFiscalFoundationRuntime(): Promise<void> {
       '7',
     );
     let shutdownRunnerLease:
-      | Parameters<IngestionJobHandler['handle']>[0]
-      | null = null;
+      Parameters<IngestionJobHandler['handle']>[0] | null = null;
     const blockingHandler: IngestionJobHandler = {
       source: IngestionJobSourceType.MANUAL_XML,
       handle: (handlerClaim, signal) => {
@@ -1020,11 +1266,12 @@ async function validateFiscalFoundationRuntime(): Promise<void> {
     const shutdownRunnerState = await admin.query<
       Array<{
         attempt_count: number;
+        automatic_retry_count: number;
         locked_by: string | null;
         status: string;
       }>
     >(
-      `SELECT status, attempt_count, locked_by
+      `SELECT status, attempt_count, automatic_retry_count, locked_by
          FROM ingestion_jobs
         WHERE id = $1`,
       [shutdownRunnerJob.value.jobId],
@@ -1040,6 +1287,11 @@ async function validateFiscalFoundationRuntime(): Promise<void> {
       'real runner shutdown preserves attempt count',
     );
     assertEqual(
+      shutdownRunnerState[0]?.automatic_retry_count,
+      0,
+      'real runner shutdown preserves automatic retry budget',
+    );
+    assertEqual(
       shutdownRunnerState[0]?.locked_by,
       null,
       'real runner shutdown clears lease token',
@@ -1048,6 +1300,25 @@ async function validateFiscalFoundationRuntime(): Promise<void> {
     assert(
       !(await jobs.complete(shutdownRunnerLease, IngestionJobStatus.COMPLETED)),
       'stale shutdown handler cannot complete a released lease',
+    );
+    const postShutdownClaim = await jobs.claimNext(
+      `qa-worker-after-shutdown-${suffix}`,
+      [IngestionJobSourceType.MANUAL_XML],
+    );
+    assertEqual(
+      postShutdownClaim?.jobId,
+      shutdownRunnerJob.value.jobId,
+      'real shutdown release remains claimable',
+    );
+    assertEqual(
+      postShutdownClaim?.attemptCount,
+      2,
+      'post-shutdown claim keeps monotonic claim evidence',
+    );
+    if (!postShutdownClaim) throw new Error('Expected post-shutdown claim');
+    assert(
+      await jobs.complete(postShutdownClaim, IngestionJobStatus.COMPLETED),
+      'post-shutdown execution can complete normally',
     );
     const shutdownReleaseAudits = await admin.query<Array<{ count: number }>>(
       `SELECT count(*)::integer AS count
@@ -1159,39 +1430,35 @@ async function validateFiscalFoundationRuntime(): Promise<void> {
           cleanupTenantFixtures(admin, tenantFixtures!.ids),
         );
       }
-      if (apiRoleCreated) {
-        if (apiDirectAclGranted) {
-          await captureCleanup(cleanupErrors, 'API direct ACL revoke', () =>
-            admin.query(
-              `REVOKE SELECT (id) ON TABLE ingestion_jobs FROM ${quoteIdentifier(apiRole)}`,
-            ),
-          );
-        }
-        await captureCleanup(cleanupErrors, 'API role membership revoke', () =>
-          admin.query(`REVOKE balanz_api FROM ${quoteIdentifier(apiRole)}`),
-        );
-        await captureCleanup(cleanupErrors, 'API QA role drop', () =>
-          admin.query(`DROP ROLE IF EXISTS ${quoteIdentifier(apiRole)}`),
+      if (apiDirectAclGranted) {
+        await captureCleanup(cleanupErrors, 'API direct ACL revoke', () =>
+          admin.query(
+            `REVOKE SELECT (id) ON TABLE ingestion_jobs FROM ${quoteIdentifier(apiRole)}`,
+          ),
         );
       }
-      if (workerRoleCreated) {
-        if (workerDirectAclGranted) {
-          await captureCleanup(cleanupErrors, 'worker direct ACL revoke', () =>
-            admin.query(
-              `REVOKE EXECUTE ON FUNCTION claim_ingestion_job(text, text, text[], integer, integer, integer) FROM ${quoteIdentifier(workerRole)}`,
-            ),
-          );
-        }
-        await captureCleanup(
-          cleanupErrors,
-          'worker role membership revoke',
-          () =>
-            admin.query(
-              `REVOKE balanz_worker FROM ${quoteIdentifier(workerRole)}`,
-            ),
+      if (workerDirectAclGranted) {
+        await captureCleanup(cleanupErrors, 'worker direct ACL revoke', () =>
+          admin.query(
+            `REVOKE EXECUTE ON FUNCTION claim_ingestion_job(text, text, text[], integer, integer, integer, integer) FROM ${quoteIdentifier(workerRole)}`,
+          ),
         );
-        await captureCleanup(cleanupErrors, 'worker QA role drop', () =>
-          admin.query(`DROP ROLE IF EXISTS ${quoteIdentifier(workerRole)}`),
+      }
+      if (runtimeOwnedFunctionCreated) {
+        await captureCleanup(cleanupErrors, 'runtime-owned function drop', () =>
+          admin.query(
+            `DROP FUNCTION IF EXISTS public.${quoteIdentifier(runtimeOwnedFunction)}()`,
+          ),
+        );
+      }
+      if (rogueMembershipGranted) {
+        await captureCleanup(cleanupErrors, 'rogue membership revoke', () =>
+          admin.query(`REVOKE balanz_api FROM ${quoteIdentifier(rogueRole)}`),
+        );
+      }
+      if (rogueRoleCreated) {
+        await captureCleanup(cleanupErrors, 'rogue role drop', () =>
+          admin.query(`DROP ROLE IF EXISTS ${quoteIdentifier(rogueRole)}`),
         );
       }
       if (advisoryLocked) {
@@ -1206,7 +1473,7 @@ async function validateFiscalFoundationRuntime(): Promise<void> {
           admin,
           correlations,
           objectIds,
-          [apiRole, workerRole],
+          [rogueRole],
           tenantFixtures?.ids,
         ),
       );
@@ -1227,20 +1494,45 @@ async function validateFiscalFoundationRuntime(): Promise<void> {
   console.log(JSON.stringify({ ...report, cleanedUp: true }, null, 2));
 }
 
+function assertRuntimeCredentialTargets(
+  options: { database?: string; host?: string; port?: number },
+  credentials: readonly RuntimeDatabaseCredential[],
+): void {
+  for (const credential of credentials) {
+    assertRoleName(credential.username);
+    if (
+      credential.database !== options.database ||
+      credential.host !== options.host ||
+      Number(credential.port) !== Number(options.port)
+    ) {
+      throw new Error(
+        'Runtime credentials and validator must target the same PostgreSQL database',
+      );
+    }
+  }
+  if (credentials[0]?.username === credentials[1]?.username) {
+    throw new Error('API and worker runtime credentials must be distinct');
+  }
+}
+
 function runtimeOptions(
   options: DataSourceOptions,
   username: string,
   password: string,
+  role: 'balanz_api' | 'balanz_worker',
 ): DataSourceOptions {
-  return {
-    ...options,
-    username,
-    password,
-    logging: false,
-    synchronize: false,
-    entities: [],
-    migrations: [],
-  } as DataSourceOptions;
+  return withRuntimeDatabaseRole(
+    {
+      ...options,
+      username,
+      password,
+      logging: false,
+      synchronize: false,
+      entities: [],
+      migrations: [],
+    } as DataSourceOptions,
+    role,
+  );
 }
 
 function runtimeConfig(
@@ -1251,7 +1543,8 @@ function runtimeConfig(
       concurrency: 2,
       leaseSeconds: 90,
       heartbeatSeconds: 20,
-      maxAttempts: 3,
+      maxAttempts: 4,
+      maxRetries: 3,
       backoffSeconds: [10, 30, 120],
       backoffJitterPercent: 0,
       pollIntervalMs: overrides.pollIntervalMs ?? 1_000,
@@ -1415,7 +1708,13 @@ async function createTenantFixtures(
   admin: DataSource,
   suffix: string,
 ): Promise<TenantFixtures> {
-  const roleId = randomUUID();
+  const [accountantRole] = await admin.query<Array<{ id: string }>>(
+    `SELECT id FROM roles WHERE key = 'accountant'`,
+  );
+  if (!accountantRole) {
+    throw new Error('The canonical accountant role must be seeded before QA');
+  }
+  const roleId = accountantRole.id;
   const userIds = [randomUUID(), randomUUID(), randomUUID()];
   const organizationIds = [randomUUID(), randomUUID()];
   const membershipIds = [randomUUID(), randomUUID(), randomUUID()];
@@ -1423,16 +1722,6 @@ async function createTenantFixtures(
   const legalEntityIds = [randomUUID(), randomUUID()];
 
   await admin.transaction(async (manager) => {
-    await manager.query(
-      `INSERT INTO roles (id, key, name, description, scope)
-       VALUES ($1, $2, $3, $4, 'organization')`,
-      [
-        roleId,
-        `qa_fiscal_${suffix}`,
-        `QA fiscal ${suffix}`,
-        'Synthetic role owned by the isolated CFDI Phase 0 runtime validator.',
-      ],
-    );
     await manager.query(
       `INSERT INTO users (
          id, first_name, last_name, email, status, password_hash
@@ -1624,7 +1913,6 @@ async function cleanupTenantFixtures(
     await manager.query(`DELETE FROM users WHERE id = ANY($1::uuid[])`, [
       ids.userIds,
     ]);
-    await manager.query(`DELETE FROM roles WHERE id = $1`, [ids.roleId]);
   });
 }
 
@@ -1653,18 +1941,16 @@ async function verifyCleanup(
        (SELECT count(*)::integer FROM stored_objects WHERE id = ANY($2::uuid[])) AS object_count,
        (SELECT count(*)::integer FROM pg_roles WHERE rolname = ANY($3::text[])) AS role_count,
        (
-         (SELECT count(*) FROM roles WHERE id = $4::uuid)
-         + (SELECT count(*) FROM users WHERE id = ANY($5::uuid[]))
-         + (SELECT count(*) FROM organizations WHERE id = ANY($6::uuid[]))
-         + (SELECT count(*) FROM memberships WHERE id = ANY($7::uuid[]))
-         + (SELECT count(*) FROM client_accounts WHERE id = ANY($8::uuid[]))
-         + (SELECT count(*) FROM legal_entities WHERE id = ANY($9::uuid[]))
+         (SELECT count(*) FROM users WHERE id = ANY($4::uuid[]))
+         + (SELECT count(*) FROM organizations WHERE id = ANY($5::uuid[]))
+         + (SELECT count(*) FROM memberships WHERE id = ANY($6::uuid[]))
+         + (SELECT count(*) FROM client_accounts WHERE id = ANY($7::uuid[]))
+         + (SELECT count(*) FROM legal_entities WHERE id = ANY($8::uuid[]))
        )::integer AS tenant_fixture_count`,
     [
       correlations,
       objectIds,
       roleNames,
-      tenantIds?.roleId ?? null,
       tenantIds?.userIds ?? emptyIds,
       tenantIds?.organizationIds ?? emptyIds,
       tenantIds?.membershipIds ?? emptyIds,

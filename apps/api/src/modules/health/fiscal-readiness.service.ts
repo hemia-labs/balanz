@@ -26,6 +26,19 @@ interface DependencyHealth {
   errorCode?: string;
 }
 
+interface RequiredDependencyHealth {
+  postgres: DependencyHealth;
+  storage: ObjectStorageHealth;
+  scanner: MalwareScannerHealth;
+}
+
+interface AbortablePhysicalProbe<T> {
+  controller: AbortController;
+  promise: Promise<T>;
+}
+
+const MAX_REQUIRED_DEPENDENCY_CACHE_TTL_MS = 1_000;
+
 export interface FiscalReadinessResult {
   status: 'up' | 'degraded' | 'down';
   process: FiscalProcessName;
@@ -63,8 +76,17 @@ export interface WorkerSupervisorHealth {
 @Injectable()
 export class FiscalReadinessService {
   private readonly timeoutMs: number;
+  private readonly requiredDependencyCacheTtlMs: number;
   private readonly supervisorStaleAfterMs: number;
   private readonly storageProvider: 'local' | 's3';
+  private requiredDependencyProbe?: Promise<RequiredDependencyHealth>;
+  private postgresPhysicalProbe?: Promise<Array<{ foundation_ready: boolean }>>;
+  private storagePhysicalProbe?: AbortablePhysicalProbe<ObjectStorageHealth>;
+  private scannerPhysicalProbe?: AbortablePhysicalProbe<MalwareScannerHealth>;
+  private requiredDependencyCache?: {
+    expiresAt: number;
+    value: RequiredDependencyHealth;
+  };
 
   constructor(
     private readonly dataSource: DataSource,
@@ -77,6 +99,10 @@ export class FiscalReadinessService {
   ) {
     const fiscal = config.getOrThrow<FiscalPlatformConfig>('fiscalPlatform');
     this.timeoutMs = fiscal.health.timeoutMs;
+    this.requiredDependencyCacheTtlMs = Math.min(
+      this.timeoutMs,
+      MAX_REQUIRED_DEPENDENCY_CACHE_TTL_MS,
+    );
     this.storageProvider = fiscal.storage.driver;
     this.supervisorStaleAfterMs = Math.max(
       fiscal.worker.pollIntervalMs * 3,
@@ -95,21 +121,8 @@ export class FiscalReadinessService {
   }
 
   async check(process: FiscalProcessName): Promise<FiscalReadinessResult> {
-    const [postgres, storage, scanner] = await Promise.all([
-      this.postgresHealth(),
-      this.withAbortTimeout((signal) => this.storage.health(signal), {
-        status: 'down',
-        provider: this.storageProvider,
-        durationMs: this.timeoutMs,
-        errorCode: 'OBJECT_STORAGE_HEALTH_TIMEOUT',
-      }),
-      this.withAbortTimeout((signal) => this.scanner.health(signal), {
-        status: 'down',
-        scanner: 'clamav',
-        durationMs: this.timeoutMs,
-        errorCode: 'MALWARE_SCANNER_HEALTH_TIMEOUT',
-      }),
-    ]);
+    const { postgres, storage, scanner } =
+      await this.requiredDependenciesHealth();
     const redis = this.redisWakeup.status();
     const redisReady =
       process === 'api'
@@ -143,6 +156,49 @@ export class FiscalReadinessService {
         ...(workerSupervisor ? { workerSupervisor } : {}),
       },
     };
+  }
+
+  private requiredDependenciesHealth(): Promise<RequiredDependencyHealth> {
+    const cached = this.requiredDependencyCache;
+    if (cached && cached.expiresAt > Date.now()) {
+      return Promise.resolve(cached.value);
+    }
+    if (this.requiredDependencyProbe) return this.requiredDependencyProbe;
+
+    const probe = this.probeRequiredDependencies()
+      .then((value) => {
+        this.requiredDependencyCache = {
+          expiresAt: Date.now() + this.requiredDependencyCacheTtlMs,
+          value,
+        };
+        return value;
+      })
+      .finally(() => {
+        if (this.requiredDependencyProbe === probe) {
+          this.requiredDependencyProbe = undefined;
+        }
+      });
+    this.requiredDependencyProbe = probe;
+    return probe;
+  }
+
+  private async probeRequiredDependencies(): Promise<RequiredDependencyHealth> {
+    const [postgres, storage, scanner] = await Promise.all([
+      this.postgresHealth(),
+      this.withAbortTimeout(this.storagePhysicalHealthProbe(), {
+        status: 'down',
+        provider: this.storageProvider,
+        durationMs: this.timeoutMs,
+        errorCode: 'OBJECT_STORAGE_HEALTH_TIMEOUT',
+      }),
+      this.withAbortTimeout(this.scannerPhysicalHealthProbe(), {
+        status: 'down',
+        scanner: 'clamav',
+        durationMs: this.timeoutMs,
+        errorCode: 'MALWARE_SCANNER_HEALTH_TIMEOUT',
+      }),
+    ]);
+    return { postgres, storage, scanner };
   }
 
   private workerSupervisorHealth(): WorkerSupervisorHealth {
@@ -188,11 +244,11 @@ export class FiscalReadinessService {
     const startedAt = Date.now();
     try {
       if (!this.dataSource.isInitialized) throw new Error('not initialized');
-      const deadlineAt = Date.now() + this.timeoutMs;
       const rows = await this.withTimeout(
-        this.postgresFoundationProbe(deadlineAt),
+        this.postgresPhysicalHealthProbe(),
         null,
       );
+      if (rows === null) throw new Error('PostgreSQL readiness timed out');
       if (!rows?.[0]?.foundation_ready) {
         return {
           status: 'down',
@@ -208,6 +264,59 @@ export class FiscalReadinessService {
         errorCode: 'POSTGRES_UNAVAILABLE',
       };
     }
+  }
+
+  /**
+   * A timed-out HTTP readiness response must not detach a still-pending pool
+   * connect/BEGIN and allow the next cache window to start another one.
+   */
+  private postgresPhysicalHealthProbe(): Promise<
+    Array<{ foundation_ready: boolean }>
+  > {
+    if (this.postgresPhysicalProbe) return this.postgresPhysicalProbe;
+    const probe = this.postgresFoundationProbe(
+      Date.now() + this.timeoutMs,
+    ).finally(() => {
+      if (this.postgresPhysicalProbe === probe) {
+        this.postgresPhysicalProbe = undefined;
+      }
+    });
+    this.postgresPhysicalProbe = probe;
+    return probe;
+  }
+
+  private storagePhysicalHealthProbe(): AbortablePhysicalProbe<ObjectStorageHealth> {
+    if (this.storagePhysicalProbe) return this.storagePhysicalProbe;
+    const controller = new AbortController();
+    const probe: AbortablePhysicalProbe<ObjectStorageHealth> = {
+      controller,
+      promise: Promise.resolve()
+        .then(() => this.storage.health(controller.signal))
+        .finally(() => {
+          if (this.storagePhysicalProbe === probe) {
+            this.storagePhysicalProbe = undefined;
+          }
+        }),
+    };
+    this.storagePhysicalProbe = probe;
+    return probe;
+  }
+
+  private scannerPhysicalHealthProbe(): AbortablePhysicalProbe<MalwareScannerHealth> {
+    if (this.scannerPhysicalProbe) return this.scannerPhysicalProbe;
+    const controller = new AbortController();
+    const probe: AbortablePhysicalProbe<MalwareScannerHealth> = {
+      controller,
+      promise: Promise.resolve()
+        .then(() => this.scanner.health(controller.signal))
+        .finally(() => {
+          if (this.scannerPhysicalProbe === probe) {
+            this.scannerPhysicalProbe = undefined;
+          }
+        }),
+    };
+    this.scannerPhysicalProbe = probe;
+    return probe;
   }
 
   /**
@@ -232,10 +341,13 @@ export class FiscalReadinessService {
            AND to_regclass('public.ingestion_jobs') IS NOT NULL
            AND to_regclass('public.ingestion_items') IS NOT NULL
            AND to_regprocedure(
-             'public.claim_ingestion_job(text,text,text[],integer,integer,integer)'
+             'public.claim_ingestion_job(text,text,text[],integer,integer,integer,integer)'
            ) IS NOT NULL
            AND to_regprocedure(
-             'public.reconcile_fiscal_ingestion_foundation(integer,integer,integer,integer,integer[],integer,integer)'
+             'public.ingestion_queue_ages(text[],integer,integer)'
+           ) IS NOT NULL
+           AND to_regprocedure(
+             'public.reconcile_fiscal_ingestion_foundation(integer,integer,integer,integer,integer[],integer,integer,integer)'
            ) IS NOT NULL AS foundation_ready`,
       )) as Array<{ foundation_ready: boolean }>;
     } finally {
@@ -260,20 +372,19 @@ export class FiscalReadinessService {
   }
 
   private async withAbortTimeout<T>(
-    work: (signal: AbortSignal) => Promise<T>,
+    physicalProbe: AbortablePhysicalProbe<T>,
     timeoutValue: T,
   ): Promise<T> {
-    const controller = new AbortController();
     let timeout: NodeJS.Timeout | undefined;
     const expired = new Promise<T>((resolve) => {
       timeout = setTimeout(() => {
-        controller.abort();
+        physicalProbe.controller.abort();
         resolve(timeoutValue);
       }, this.timeoutMs);
       timeout.unref();
     });
     try {
-      return await Promise.race([work(controller.signal), expired]);
+      return await Promise.race([physicalProbe.promise, expired]);
     } finally {
       if (timeout) clearTimeout(timeout);
     }

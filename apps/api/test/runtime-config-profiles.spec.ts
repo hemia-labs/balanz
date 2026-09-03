@@ -7,6 +7,7 @@ import {
   type DatabaseConfig,
 } from '../src/config/database.config';
 import {
+  ignoreRuntimeEnvFiles,
   runtimeConfigFactories,
   runtimeEnvFilePaths,
 } from '../src/config/platform-config.module';
@@ -35,6 +36,23 @@ const workerEnvironment = {
   DB_WORKER_PASSWORD: 'worker-runtime-password-for-tests',
 };
 
+function getPostgresStartupOptions(options: unknown): string {
+  if (
+    typeof options !== 'object' ||
+    options === null ||
+    !('extra' in options)
+  ) {
+    return '';
+  }
+
+  const { extra } = options;
+  if (typeof extra !== 'object' || extra === null || !('options' in extra)) {
+    return '';
+  }
+
+  return typeof extra.options === 'string' ? extra.options : '';
+}
+
 describe('runtime configuration profiles', () => {
   it('accepts API configuration without a worker credential', () => {
     const result = apiEnvVarsSchema.validate(apiEnvironment);
@@ -55,6 +73,30 @@ describe('runtime configuration profiles', () => {
     expect(value).not.toHaveProperty('MFA_ENCRYPTION_KEY');
     expect(value).not.toHaveProperty('EMAIL_FROM_AUTH');
   });
+
+  it.each([
+    ['api', apiEnvVarsSchema, apiEnvironment],
+    ['worker', workerEnvVarsSchema, workerEnvironment],
+  ] as const)(
+    'rejects DB_LOGGING=true while validating the production %s profile',
+    (_profile, schema, environment) => {
+      const result = schema.validate({
+        ...environment,
+        NODE_ENV: 'production',
+        DB_LOGGING: true,
+        ...(_profile === 'api'
+          ? {
+              APP_CORS_ORIGINS: 'https://app.example.test',
+              COOKIE_SECURE: true,
+              EMAIL_APP_URL: 'https://app.example.test',
+              EMAIL_COMPANY_ADDRESS: 'Example address',
+            }
+          : {}),
+      });
+
+      expect(result.error?.message).toContain('DB_LOGGING=false');
+    },
+  );
 
   it.each([
     ['DB_WORKER_USERNAME', 'must-not-reach-api'],
@@ -142,6 +184,12 @@ describe('runtime configuration profiles', () => {
     expect(runtimeEnvFilePaths('worker')[0]).toBe('.env.worker.local');
   });
 
+  it('never reads repository environment files in production runtimes', () => {
+    expect(ignoreRuntimeEnvFiles('production')).toBe(true);
+    expect(ignoreRuntimeEnvFiles('development')).toBe(false);
+    expect(ignoreRuntimeEnvFiles('test')).toBe(false);
+  });
+
   it('materializes only the selected runtime database credential', () => {
     const env = {
       ...process.env,
@@ -219,6 +267,33 @@ describe('runtime configuration profiles', () => {
     expect(getRequired).toHaveBeenCalledTimes(1);
     expect(getRequired).toHaveBeenCalledWith('database/postgres-worker');
     expect(options).toMatchObject({ username: 'balanz_worker_login' });
+    const workerStartupOptions = getPostgresStartupOptions(options);
+    expect(workerStartupOptions).toContain('-c role=balanz_worker');
+    expect(workerStartupOptions).not.toContain('balanz_api');
+  });
+
+  it('selects the fixed API group on every non-Vault runtime connection', async () => {
+    const database: DatabaseConfig = {
+      host: 'database.internal',
+      port: 5432,
+      name: 'balanz',
+      logging: false,
+      connectionTimeoutMs: 2_000,
+      apiUsername: 'balanz_api_login',
+      apiPassword: 'api-runtime-password',
+    };
+    const options = await resolveRuntimeDatabaseOptions(
+      database,
+      false,
+      { getRequired: jest.fn() },
+      'api',
+      'api',
+    );
+
+    expect(options).toMatchObject({ username: 'balanz_api_login' });
+    const apiStartupOptions = getPostgresStartupOptions(options);
+    expect(apiStartupOptions).toContain('-c role=balanz_api');
+    expect(apiStartupOptions).not.toContain('balanz_worker');
   });
 
   it('rejects a mismatched module/profile before reading Vault', async () => {
@@ -240,4 +315,70 @@ describe('runtime configuration profiles', () => {
     ).rejects.toThrow('cannot initialize worker');
     expect(getRequired).not.toHaveBeenCalled();
   });
+
+  it.each(['api', 'worker'] as const)(
+    'rejects DB_LOGGING=true from the %s production environment profile',
+    async (principal) => {
+      const database: DatabaseConfig = {
+        host: 'database.internal',
+        port: 5432,
+        name: 'balanz',
+        logging: true,
+        connectionTimeoutMs: 2_000,
+        ...(principal === 'api'
+          ? {
+              apiUsername: 'balanz_api_login',
+              apiPassword: 'api-runtime-password',
+            }
+          : {
+              workerUsername: 'balanz_worker_login',
+              workerPassword: 'worker-runtime-password',
+            }),
+      };
+
+      await expect(
+        resolveRuntimeDatabaseOptions(
+          database,
+          false,
+          { getRequired: jest.fn() },
+          principal,
+          principal,
+          'production',
+        ),
+      ).rejects.toThrow('logging must be disabled');
+    },
+  );
+
+  it.each(['api', 'worker'] as const)(
+    'rejects db_logging=true from the %s production Vault secret',
+    async (principal) => {
+      const getRequired = jest.fn().mockResolvedValue({
+        db_host: 'database.internal',
+        db_port: 5432,
+        db_username: `balanz_${principal}_login`,
+        db_password: `${principal}-runtime-password`,
+        db_database: 'balanz',
+        db_logging: true,
+      });
+      const database: DatabaseConfig = {
+        port: 5432,
+        logging: false,
+        connectionTimeoutMs: 2_000,
+      };
+
+      await expect(
+        resolveRuntimeDatabaseOptions(
+          database,
+          true,
+          { getRequired },
+          principal,
+          principal,
+          'production',
+        ),
+      ).rejects.toThrow('logging must be disabled');
+      expect(getRequired).toHaveBeenCalledWith(
+        `database/postgres-${principal}`,
+      );
+    },
+  );
 });

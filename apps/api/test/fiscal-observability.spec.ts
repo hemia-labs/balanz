@@ -44,6 +44,8 @@ describe('Fiscal Phase 0 observability', () => {
     'worker_lease_reclaims_total',
     'object_storage_failures_total',
     'redis_wakeup_failures_total',
+    'redis_wakeup_published_total',
+    'redis_wakeup_received_total',
   ])('exports canonical metric %s', (name) => {
     expect(new FiscalMetricsService().render()).toContain(`# HELP ${name} `);
   });
@@ -90,12 +92,36 @@ describe('Fiscal Phase 0 observability', () => {
     ).toThrow('event must be a safe structured-log token');
   });
 
+  it('emits a canonical durable handler error code without a secondary logging failure', () => {
+    const emitted: string[] = [];
+    jest.spyOn(Logger.prototype, 'error').mockImplementation((message) => {
+      emitted.push(String(message));
+    });
+    const logger = new FiscalEventLogger();
+
+    expect(() =>
+      logger.write('error', {
+        event: 'ingestion_job_finished',
+        service: 'worker',
+        stage: 'handler',
+        result: 'failed_final',
+        errorCode: 'MALWARE_DETECTED',
+      }),
+    ).not.toThrow();
+
+    expect(emitted).toHaveLength(1);
+    expect(JSON.parse(emitted[0])).toMatchObject({
+      event: 'ingestion_job_finished',
+      error_code: 'MALWARE_DETECTED',
+    });
+  });
+
   it.each([
     ['event', { event: 'eyJhbGciOiJIUzI1NiJ9' }],
     ['stage', { event: 'ingestion_job_started', stage: 'XAXX010101000' }],
     [
       'error code',
-      { event: 'ingestion_job_finished', errorCode: 'SUPERSECRET123' },
+      { event: 'ingestion_job_finished', errorCode: 'SUPER_SECRET_123' },
     ],
     ['identifier', { event: 'ingestion_job_started', jobId: 'XAXX010101000' }],
   ])('rejects token-shaped business/secret data in %s', (_field, override) => {

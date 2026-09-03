@@ -109,7 +109,7 @@ solo para cookies cross-site y siempre junto con `COOKIE_SECURE=true`. CORS usa
 `credentials: true`; el frontend debe enviar las peticiones con
 `credentials: 'include'`.
 
-`APP_PORT` es opcional (default `3001`). Los archivos `.env*.local` están en
+`APP_PORT` es opcional (default `3021`). Los archivos `.env*.local` están en
 `.gitignore`. API y worker rechazan la credencial migrator y la del otro
 runtime. El worker también rechaza/no registra configuración JWT, MFA, email,
 cookies o auth. Sólo el provisioner efímero con doble gate puede resolver ambas
@@ -163,6 +163,12 @@ bun run --cwd apps/api migration:run
 bun run --cwd apps/api seed:run
 bun run --cwd apps/api seed:run
 ```
+
+Las migraciones CFDI 060/061/062/063 usan owners `NOLOGIN` restringidos. Mientras
+alguna esté pendiente, preflight y el runner requieren el
+superuser/migrator efímero dedicado para transferir ownership y retirar después
+todos los privilegios transitorios en una sola transacción. Esa credencial no
+es un fallback de API/worker y debe eliminarse antes de arrancarlos.
 
 La segunda ejecución de seeds debe ser idempotente. No uses `synchronize=true`,
 `DROP DATABASE`, `TRUNCATE` general ni `migration:revert` sobre datos que deban

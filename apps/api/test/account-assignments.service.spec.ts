@@ -15,10 +15,12 @@ const tenant: SessionAuthorizationContext = {
   assignedAccountIds: [],
   accountAccessMode: 'tenant',
   mfaVerifiedAt: new Date(),
+  reauthenticatedAt: null,
   requiresMfa: true,
   mfaStatus: 'active',
   expiresAt: new Date(Date.now() + 60_000),
   tenantActive: true,
+  reauthenticationRequiredActions: [],
 };
 
 describe('AccountAssignmentsService invariants', () => {

@@ -30,9 +30,7 @@ const KEY_PATTERN = /^[\x21-\x7e]{1,128}$/;
 const SHA256_PATTERN = /^[0-9a-f]{64}$/;
 
 export type IdempotencyOperation =
-  | 'upload_init'
-  | 'upload_confirm'
-  | 'job_create';
+  'upload_init' | 'upload_confirm' | 'job_create';
 
 export interface FiscalIngestionScope extends FiscalTenantScope {
   clientAccountId: string;

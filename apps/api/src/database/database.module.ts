@@ -5,6 +5,7 @@ import { SecretsService } from '@hemia/secrets/nestjs';
 import {
   type DatabaseConfig,
   getDatabaseOptions,
+  withRuntimeDatabaseRole,
 } from '../config/database.config';
 import { SecretsModule } from '../modules/secrets/secrets.module';
 import { isDatabaseSecret, type DatabaseSecret } from './types/database.types';
@@ -41,6 +42,7 @@ export async function resolveRuntimeDatabaseOptions(
   secrets: RequiredDatabaseSecretReader,
   principal: DatabaseRuntimePrincipal,
   configuredProfile: DatabaseRuntimePrincipal,
+  nodeEnvironment = process.env.NODE_ENV ?? 'development',
 ) {
   if (configuredProfile !== principal) {
     throw new Error(
@@ -48,7 +50,11 @@ export async function resolveRuntimeDatabaseOptions(
     );
   }
   if (!secretsEnabled) {
-    return getDatabaseOptions(runtimeEnvironmentConfig(database, principal));
+    assertProductionRuntimeLoggingDisabled(database, nodeEnvironment);
+    return withRuntimeDatabaseRole(
+      getDatabaseOptions(runtimeEnvironmentConfig(database, principal)),
+      principal === 'api' ? 'balanz_api' : 'balanz_worker',
+    );
   }
 
   const secret = await secrets.getRequired<DatabaseSecret>(
@@ -62,15 +68,33 @@ export async function resolveRuntimeDatabaseOptions(
   if (secret.db_username === database.username) {
     throw new Error('The PostgreSQL migrator login cannot be reused');
   }
-  return getDatabaseOptions({
-    ...database,
-    host: secret.db_host,
-    port: secret.db_port,
-    username: secret.db_username,
-    password: secret.db_password,
-    name: secret.db_database,
-    logging: secret.db_logging,
-  });
+  assertProductionRuntimeLoggingDisabled(
+    { ...database, logging: secret.db_logging },
+    nodeEnvironment,
+  );
+  return withRuntimeDatabaseRole(
+    getDatabaseOptions({
+      ...database,
+      host: secret.db_host,
+      port: secret.db_port,
+      username: secret.db_username,
+      password: secret.db_password,
+      name: secret.db_database,
+      logging: secret.db_logging,
+    }),
+    principal === 'api' ? 'balanz_api' : 'balanz_worker',
+  );
+}
+
+function assertProductionRuntimeLoggingDisabled(
+  database: Pick<DatabaseConfig, 'logging'>,
+  nodeEnvironment: string,
+): void {
+  if (nodeEnvironment === 'production' && database.logging) {
+    throw new Error(
+      'Database query logging must be disabled for production API/worker runtimes',
+    );
+  }
 }
 
 @Module({})
@@ -96,6 +120,7 @@ export class DatabaseModule {
               config.getOrThrow<DatabaseRuntimePrincipal>(
                 'secrets.runtimeProfile',
               ),
+              config.getOrThrow<string>('NODE_ENV'),
             );
           },
         }),

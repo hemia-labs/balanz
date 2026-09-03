@@ -18,6 +18,7 @@ const production = {
   NODE_ENV: 'production',
   APP_CORS_ORIGINS: 'https://app.example.test',
   EMAIL_APP_URL: 'https://app.example.test',
+  EMAIL_COMPANY_ADDRESS: 'Example street 1, Mexico City',
   COOKIE_SECURE: true,
   OBJECT_STORAGE_DRIVER: 's3',
   S3_BUCKET: 'balanz-production-private',
@@ -76,7 +77,8 @@ describe('CFDI Phase 0 environment policy', () => {
   it.each([
     ['WORKER_LEASE_SECONDS', 89],
     ['WORKER_HEARTBEAT_SECONDS', 21],
-    ['WORKER_MAX_ATTEMPTS', 4],
+    ['WORKER_MAX_ATTEMPTS', 3],
+    ['WORKER_MAX_RETRIES', 2],
     ['WORKER_BACKOFF_SECONDS', '10,30'],
     ['INGESTION_XML_MAX_BYTES', 6 * 1024 * 1024],
     ['INGESTION_ZIP_MAX_ENTRIES', 2_001],

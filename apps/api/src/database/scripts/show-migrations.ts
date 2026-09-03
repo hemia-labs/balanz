@@ -30,7 +30,7 @@ async function showMigrations(): Promise<void> {
       status: executedNames.has(name) ? 'executed' : 'pending',
     }));
     const expectedNames = new Set<string>(EXPECTED_MIGRATION_NAMES);
-    const expectedTimestamps = new Map(
+    const expectedTimestamps = new Map<string, string>(
       EXPECTED_MIGRATION_IDENTITIES.map(({ name, timestamp }) => [
         name,
         String(timestamp),

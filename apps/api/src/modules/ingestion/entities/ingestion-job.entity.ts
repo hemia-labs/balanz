@@ -115,11 +115,10 @@ export type IngestionStage =
   'ck_ingestion_jobs_response_status',
   'response_status IS NULL OR response_status BETWEEN 100 AND 599',
 )
+@Check('ck_ingestion_jobs_attempt_count', 'attempt_count >= 0')
 @Check(
-  'ck_ingestion_jobs_attempt_count',
-  // attempt_count includes the initial execution; at most three total
-  // executions are allowed by the locked Phase 0 policy.
-  'attempt_count BETWEEN 0 AND 3',
+  'ck_ingestion_jobs_automatic_retry_count',
+  'automatic_retry_count BETWEEN 0 AND 3 AND automatic_retry_count <= attempt_count',
 )
 @Check(
   'ck_ingestion_jobs_worker_ids',
@@ -283,6 +282,15 @@ export class IngestionJob {
 
   @Column({ name: 'attempt_count', type: 'integer', default: 0 })
   attemptCount: number;
+
+  @Column({
+    name: 'automatic_retry_count',
+    type: 'integer',
+    default: 0,
+    comment:
+      'Automatic retries already granted after retryable execution failures; graceful shutdown does not increment it.',
+  })
+  automaticRetryCount: number;
 
   @Column({ name: 'next_attempt_at', type: 'timestamptz', nullable: true })
   nextAttemptAt?: Date | null;

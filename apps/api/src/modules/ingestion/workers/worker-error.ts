@@ -1,4 +1,4 @@
-const SAFE_ERROR_CODE = /^[A-Z][A-Z0-9_]{2,63}$/;
+import { assertCanonicalFiscalErrorCode } from '../../../common/observability/fiscal-error-code';
 
 export class DurableWorkerError extends Error {
   readonly code: string;
@@ -9,11 +9,7 @@ export class DurableWorkerError extends Error {
     code: string,
     options: { retryable?: boolean; safeDetail?: string } = {},
   ) {
-    if (!SAFE_ERROR_CODE.test(code)) {
-      throw new Error(
-        'Worker error code must be canonical and safe to persist',
-      );
-    }
+    assertCanonicalFiscalErrorCode(code);
     if (
       options.safeDetail !== undefined &&
       (options.safeDetail.length > 500 ||

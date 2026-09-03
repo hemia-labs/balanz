@@ -19,12 +19,13 @@ interface PrincipalRow {
   expected_direct_admin_option: boolean;
   expected_direct_inherit_option: boolean;
   expected_direct_set_option: boolean;
+  unexpected_expected_group_member: boolean;
   unexpected_role_count: number;
   reachable_privileged_role: boolean;
   reachable_admin_option: boolean;
   owns_current_database: boolean;
-  owns_fiscal_relation: boolean;
-  direct_fiscal_acl: boolean;
+  owns_public_object: boolean;
+  direct_public_acl: boolean;
   can_create_current_database: boolean;
   safe_search_path: boolean;
   unsafe_schema_create: boolean;
@@ -98,6 +99,14 @@ export class RuntimeDatabaseGuard implements OnApplicationBootstrap {
            WHERE direct_membership.member = login.oid
              AND granted_role.rolname = $1
          ), false) AS expected_direct_set_option,
+         EXISTS (
+           SELECT 1
+           FROM pg_auth_members AS group_membership
+           INNER JOIN pg_roles AS granted_group
+             ON granted_group.oid = group_membership.roleid
+           WHERE granted_group.rolname = $1
+             AND group_membership.member <> login.oid
+         ) AS unexpected_expected_group_member,
           (
             SELECT count(*)::integer
             FROM reachable
@@ -122,17 +131,38 @@ export class RuntimeDatabaseGuard implements OnApplicationBootstrap {
            WHERE datname = current_database()
              AND datdba IN (SELECT oid FROM reachable)
          ) AS owns_current_database,
-         EXISTS (
-           SELECT 1
-           FROM pg_class AS relation
-           JOIN pg_namespace AS namespace ON namespace.oid = relation.relnamespace
-           JOIN reachable ON reachable.oid = relation.relowner
-           WHERE namespace.nspname = 'public'
-             AND relation.relname IN (
-               'stored_objects', 'ingestion_uploads',
-               'ingestion_jobs', 'ingestion_items'
-             )
-         ) AS owns_fiscal_relation,
+          (
+            EXISTS (
+              SELECT 1
+              FROM pg_class AS relation
+              JOIN pg_namespace AS namespace
+                ON namespace.oid = relation.relnamespace
+              WHERE namespace.nspname = 'public'
+                AND relation.relowner IN (SELECT oid FROM reachable)
+            )
+            OR EXISTS (
+              SELECT 1
+              FROM pg_proc AS procedure
+              JOIN pg_namespace AS namespace
+                ON namespace.oid = procedure.pronamespace
+              WHERE namespace.nspname = 'public'
+                AND procedure.proowner IN (SELECT oid FROM reachable)
+            )
+            OR EXISTS (
+              SELECT 1
+              FROM pg_type AS type
+              JOIN pg_namespace AS namespace
+                ON namespace.oid = type.typnamespace
+              WHERE namespace.nspname = 'public'
+                AND type.typowner IN (SELECT oid FROM reachable)
+            )
+            OR EXISTS (
+              SELECT 1
+              FROM pg_namespace AS namespace
+              WHERE namespace.nspname = 'public'
+                AND namespace.nspowner IN (SELECT oid FROM reachable)
+            )
+          ) AS owns_public_object,
          (
            EXISTS (
              SELECT 1
@@ -142,16 +172,6 @@ export class RuntimeDatabaseGuard implements OnApplicationBootstrap {
               CROSS JOIN LATERAL aclexplode(relation.relacl) AS access
              WHERE namespace.nspname = 'public'
                AND access.grantee = login.oid
-               AND (
-                 relation.relname IN (
-                   'stored_objects', 'ingestion_uploads',
-                   'ingestion_jobs', 'ingestion_items', 'audit_events'
-                 )
-                 OR (
-                   relation.relkind = 'S'
-                   AND relation.relname ~ '^(stored_objects|ingestion_|audit_events)'
-                 )
-               )
            )
            OR EXISTS (
              SELECT 1
@@ -165,10 +185,6 @@ export class RuntimeDatabaseGuard implements OnApplicationBootstrap {
                AND access.grantee = login.oid
                AND attribute.attnum > 0
                AND NOT attribute.attisdropped
-               AND relation.relname IN (
-                 'stored_objects', 'ingestion_uploads',
-                 'ingestion_jobs', 'ingestion_items', 'audit_events'
-               )
            )
            OR EXISTS (
              SELECT 1
@@ -178,31 +194,38 @@ export class RuntimeDatabaseGuard implements OnApplicationBootstrap {
               CROSS JOIN LATERAL aclexplode(procedure.proacl) AS access
              WHERE namespace.nspname = 'public'
                AND access.grantee = login.oid
-               AND procedure.proname IN (
-                 'enforce_stored_object_immutability',
-                 'mark_ingestion_job_counters_dirty',
-                 'claim_ingestion_job',
-                 'ingestion_queue_ages',
-                 'request_ingestion_job_cancellation',
-                 'reconcile_fiscal_ingestion_foundation'
-               )
+           )
+           OR EXISTS (
+             SELECT 1
+             FROM pg_type AS type
+             JOIN pg_namespace AS namespace
+               ON namespace.oid = type.typnamespace
+             CROSS JOIN LATERAL aclexplode(type.typacl) AS access
+             WHERE namespace.nspname = 'public'
+               AND access.grantee = login.oid
+           )
+           OR EXISTS (
+             SELECT 1
+             FROM pg_namespace AS namespace
+             CROSS JOIN LATERAL aclexplode(namespace.nspacl) AS access
+             WHERE namespace.nspname = 'public'
+               AND access.grantee = login.oid
            )
            OR EXISTS (
              SELECT 1
              FROM pg_default_acl AS defaults
              CROSS JOIN LATERAL aclexplode(defaults.defaclacl) AS access
              WHERE access.grantee = login.oid
-               AND defaults.defaclobjtype IN ('r','S','f')
                AND (
                  defaults.defaclnamespace = 0::oid
                  OR defaults.defaclnamespace = 'public'::regnamespace
                )
            )
-         ) AS direct_fiscal_acl,
+         ) AS direct_public_acl,
          -- CREATE enables attacker-controlled schemas and is never needed by
          -- runtime. TEMP remains PostgreSQL's default PUBLIC capability; do
          -- not mutate that cluster-wide ACL here. Fixed search_path plus the
-         -- direct fiscal ACL checks above keep it outside fiscal resolution.
+         -- direct public-object ACL checks above keep it outside resolution.
          has_database_privilege(
            session_user,
            current_database(),
@@ -237,6 +260,13 @@ export class RuntimeDatabaseGuard implements OnApplicationBootstrap {
           throw new Error('SET LOCAL ROLE did not select the expected group');
         }
         await manager.query(`RESET ROLE`);
+        const resetVerification =
+          await manager.query<Array<{ current_user: string }>>(
+            `SELECT current_user`,
+          );
+        if (resetVerification[0]?.current_user !== expected) {
+          throw new Error('RESET ROLE escaped the configured runtime group');
+        }
       });
     } catch {
       throw this.unsafePrincipal(expected);
@@ -247,7 +277,11 @@ export class RuntimeDatabaseGuard implements OnApplicationBootstrap {
     if (!row) return ['principal_not_found'];
 
     return [
-      [row.current_user !== row.session_user, 'set_role_session'],
+      [
+        row.current_user !==
+          (this.principal === 'api' ? 'balanz_api' : 'balanz_worker'),
+        'runtime_group_not_selected',
+      ],
       [row.rolsuper, 'superuser'],
       [row.rolbypassrls, 'bypass_rls'],
       [!row.rolcanlogin, 'no_login'],
@@ -260,12 +294,13 @@ export class RuntimeDatabaseGuard implements OnApplicationBootstrap {
       [row.expected_direct_admin_option, 'membership_admin_option'],
       [row.expected_direct_inherit_option, 'membership_inherit_option'],
       [!row.expected_direct_set_option, 'missing_membership_set_option'],
+      [row.unexpected_expected_group_member, 'unexpected_runtime_group_member'],
       [row.unexpected_role_count > 0, 'unexpected_reachable_role'],
       [row.reachable_privileged_role, 'reachable_privileged_role'],
       [row.reachable_admin_option, 'reachable_admin_option'],
       [row.owns_current_database, 'database_owner'],
-      [row.owns_fiscal_relation, 'fiscal_relation_owner'],
-      [row.direct_fiscal_acl, 'direct_fiscal_acl'],
+      [row.owns_public_object, 'public_object_owner'],
+      [row.direct_public_acl, 'direct_public_acl'],
       [row.can_create_current_database, 'database_create'],
       [!row.safe_search_path, 'unsafe_search_path'],
       [row.unsafe_schema_create, 'schema_create'],
@@ -278,7 +313,7 @@ export class RuntimeDatabaseGuard implements OnApplicationBootstrap {
     const suffix =
       violations.length > 0 ? `; violations=${violations.join(',')}` : '';
     return new Error(
-      `Unsafe ${this.principal} PostgreSQL runtime principal; a dedicated LOGIN NOINHERIT NOSUPERUSER NOBYPASSRLS role with one exclusive ${expected} membership (ADMIN false, INHERIT false, SET true) is required${suffix}`,
+      `Unsafe ${this.principal} PostgreSQL runtime principal; a dedicated LOGIN NOINHERIT NOSUPERUSER NOBYPASSRLS role with one exclusive ${expected} membership (ADMIN false, INHERIT false, SET true) and startup role selection is required${suffix}`,
     );
   }
 }

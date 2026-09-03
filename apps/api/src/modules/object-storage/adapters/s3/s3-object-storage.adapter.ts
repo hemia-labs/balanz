@@ -33,6 +33,7 @@ import {
 
 const MAX_SIGNED_URL_TTL_SECONDS = 300;
 const MIN_MULTIPART_PART_SIZE_BYTES = 5 * 1024 * 1024;
+const MAX_HEALTH_CLEANUP_TIMEOUT_MS = 1_000;
 
 export interface S3ObjectStorageCredentials {
   accessKeyId: string;
@@ -312,18 +313,10 @@ export class S3ObjectStorageAdapter
       available = false;
     }
 
-    // Cleanup is attempted even after an ambiguous/aborted PUT response. It is
-    // intentionally bounded by the S3 client's configured request timeout.
-    try {
-      await this.client.send(
-        new DeleteObjectCommand({
-          Bucket: this.options.bucket,
-          Key: objectKey,
-        }),
-      );
-    } catch {
-      available = false;
-    }
+    // Cleanup uses an independent deadline because the caller's signal may
+    // already be aborted after an ambiguous PUT. The operation is still
+    // awaited, but can never extend the probe indefinitely.
+    if (!(await this.cleanupHealthObject(objectKey))) available = false;
 
     return available
       ? {
@@ -341,6 +334,40 @@ export class S3ObjectStorageAdapter
 
   onApplicationShutdown(): void {
     this.client.destroy();
+  }
+
+  private async cleanupHealthObject(objectKey: string): Promise<boolean> {
+    const controller = new AbortController();
+    const timeoutMs = Math.min(
+      this.options.requestTimeoutMs,
+      MAX_HEALTH_CLEANUP_TIMEOUT_MS,
+    );
+    let timeout: NodeJS.Timeout | undefined;
+    const cleanup = this.client
+      .send(
+        new DeleteObjectCommand({
+          Bucket: this.options.bucket,
+          Key: objectKey,
+        }),
+        { abortSignal: controller.signal },
+      )
+      .then(
+        () => true,
+        () => false,
+      );
+    const expired = new Promise<boolean>((resolve) => {
+      timeout = setTimeout(() => {
+        controller.abort();
+        resolve(false);
+      }, timeoutMs);
+      timeout.unref();
+    });
+
+    try {
+      return await Promise.race([cleanup, expired]);
+    } finally {
+      if (timeout) clearTimeout(timeout);
+    }
   }
 
   private notFound(cause: unknown): ObjectStorageError {

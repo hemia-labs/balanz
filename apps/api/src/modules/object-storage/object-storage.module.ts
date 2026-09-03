@@ -22,8 +22,7 @@ import type { FiscalMetricsService } from '../../common/observability/fiscal-met
 import { InstrumentedObjectStorageAdapter } from './services/instrumented-object-storage.adapter';
 
 export type ObjectStorageModuleOptions = (
-  | LocalFilesystemObjectStorageOptions
-  | S3ObjectStorageOptions
+  LocalFilesystemObjectStorageOptions | S3ObjectStorageOptions
 ) & { metrics?: FiscalMetricsService };
 
 export interface ObjectStorageModuleAsyncOptions extends Pick<

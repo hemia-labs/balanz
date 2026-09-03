@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { EntityManager } from 'typeorm';
+import { assertCanonicalFiscalErrorCode } from '../../../common/observability/fiscal-error-code';
 import type { FiscalPlatformConfig } from '../../../config/fiscal-platform.config';
 import {
   FiscalApiTenantScope,
@@ -13,7 +14,6 @@ import {
 } from '../entities/ingestion-job.entity';
 
 const WORKER_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
-const ERROR_CODE_PATTERN = /^[A-Z][A-Z0-9_]{0,79}$/;
 
 const SUPPORTED_SOURCE_TYPES = new Set<string>(
   Object.values(IngestionJobSourceType),
@@ -53,6 +53,7 @@ export interface RetryScheduleResult {
     | typeof IngestionJobStatus.FAILED_RETRYABLE
     | typeof IngestionJobStatus.FAILED_FINAL;
   nextAttemptAt: Date | null;
+  automaticRetryCount: number;
   version: number;
 }
 
@@ -99,6 +100,7 @@ interface ClaimRow {
 interface RetryScheduleRow {
   status: RetryScheduleResult['status'];
   next_attempt_at: Date | null;
+  automatic_retry_count: number;
   version: number;
 }
 
@@ -136,7 +138,8 @@ export class IngestionJobRepository {
     this.activeJobsPerTenant = platform.limits.activeJobsPerTenant;
     if (
       this.worker.leaseSeconds !== 90 ||
-      this.worker.maxAttempts !== 3 ||
+      this.worker.maxAttempts !== 4 ||
+      this.worker.maxRetries !== 3 ||
       this.worker.backoffSeconds.join(',') !== '10,30,120' ||
       this.activeJobsPerTenant !== 4 ||
       this.retention.orphanGraceMinutes !== 60 ||
@@ -167,13 +170,14 @@ export class IngestionJobRepository {
       async (manager) =>
         await manager.query<ClaimRow[]>(
           `SELECT *
-             FROM claim_ingestion_job($1, $2, $3::text[], $4, $5, $6)`,
+             FROM claim_ingestion_job($1, $2, $3::text[], $4, $5, $6, $7)`,
           [
             workerId,
             leaseToken,
             sources,
             this.worker.leaseSeconds,
             this.worker.maxAttempts,
+            this.worker.maxRetries,
             this.activeJobsPerTenant,
           ],
         ),
@@ -213,8 +217,8 @@ export class IngestionJobRepository {
     const rows = await this.tenantTransactions.runWorkerMaintenance(
       async (manager) =>
         manager.query<QueueAgeRow[]>(
-          `SELECT * FROM ingestion_queue_ages($1::text[], $2)`,
-          [sources, this.worker.maxAttempts],
+          `SELECT * FROM ingestion_queue_ages($1::text[], $2, $3)`,
+          [sources, this.worker.maxAttempts, this.worker.maxRetries],
         ),
     );
     const observed = new Map(
@@ -422,16 +426,23 @@ export class IngestionJobRepository {
       const rows = await manager.query<RetryScheduleRow[]>(
         `WITH scheduled AS (
            UPDATE ingestion_jobs
-            SET status = CASE WHEN attempt_count >= $6 THEN 'failed_final' ELSE 'failed_retryable' END,
+            SET status = CASE
+                    WHEN automatic_retry_count >= $6 THEN 'failed_final'
+                    ELSE 'failed_retryable'
+                  END,
+                  automatic_retry_count = CASE
+                    WHEN automatic_retry_count >= $6 THEN automatic_retry_count
+                    ELSE automatic_retry_count + 1
+                  END,
                   next_attempt_at = CASE
-                    WHEN attempt_count >= $6 THEN NULL
+                    WHEN automatic_retry_count >= $6 THEN NULL
                     ELSE clock_timestamp()
                       + make_interval(
-                          secs => ($7::integer[])[least(attempt_count, cardinality($7::integer[]))]
+                          secs => ($7::integer[])[least(automatic_retry_count + 1, cardinality($7::integer[]))]
                             + floor(
                                 random()
                                 * (
-                                    ($7::integer[])[least(attempt_count, cardinality($7::integer[]))]
+                                    ($7::integer[])[least(automatic_retry_count + 1, cardinality($7::integer[]))]
                                     * $8::integer / 100.0
                                     + 1
                                   )
@@ -440,7 +451,10 @@ export class IngestionJobRepository {
                   END,
                   locked_by = NULL,
                   lease_expires_at = NULL,
-                  completed_at = CASE WHEN attempt_count >= $6 THEN clock_timestamp() ELSE NULL END,
+                  completed_at = CASE
+                    WHEN automatic_retry_count >= $6 THEN clock_timestamp()
+                    ELSE NULL
+                  END,
                   last_error_code = $4,
                   last_error_detail = $5,
                   updated_at = clock_timestamp(),
@@ -452,7 +466,8 @@ export class IngestionJobRepository {
               AND lease_expires_at > clock_timestamp()
           RETURNING
             id, organization_id, client_account_id, legal_entity_id,
-            correlation_id, status, next_attempt_at, version
+            correlation_id, status, next_attempt_at,
+            automatic_retry_count, version
          ),
          audited AS (
            INSERT INTO audit_events (
@@ -463,21 +478,34 @@ export class IngestionJobRepository {
            SELECT
              scheduled.organization_id, 'service', 'cfdi-worker',
              scheduled.client_account_id, scheduled.legal_entity_id,
-             'ingestion.job.retry_scheduled', 'ALLOW',
-             'ingestion_job', scheduled.id, 'Worker scheduled durable retry.',
+             CASE WHEN scheduled.status = 'failed_retryable'
+               THEN 'ingestion.job.retry_scheduled'
+               ELSE 'ingestion.job.retry_exhausted'
+             END,
+             'ALLOW',
+             'ingestion_job', scheduled.id,
+             CASE WHEN scheduled.status = 'failed_retryable'
+               THEN 'Worker scheduled durable automatic retry.'
+               ELSE 'Worker exhausted the durable automatic retry budget.'
+             END,
              scheduled.correlation_id,
-             jsonb_build_object('status', scheduled.status, 'error_code', $4::text)
+             jsonb_build_object(
+               'status', scheduled.status,
+               'error_code', $4::text,
+               'automatic_retry_count', scheduled.automatic_retry_count
+             )
            FROM scheduled
            RETURNING 1
          )
-         SELECT status, next_attempt_at, version FROM scheduled`,
+         SELECT status, next_attempt_at, automatic_retry_count, version
+         FROM scheduled`,
         [
           claim.jobId,
           claim.organizationId,
           claim.leaseToken,
           errorCode,
           safeDetail ?? null,
-          this.worker.maxAttempts,
+          this.worker.maxRetries,
           this.worker.backoffSeconds,
           this.worker.backoffJitterPercent,
         ],
@@ -487,6 +515,7 @@ export class IngestionJobRepository {
         ? {
             status: row.status,
             nextAttemptAt: row.next_attempt_at,
+            automaticRetryCount: row.automatic_retry_count,
             version: row.version,
           }
         : null;
@@ -501,29 +530,18 @@ export class IngestionJobRepository {
            UPDATE ingestion_jobs
               SET status = CASE
                     WHEN status = 'cancel_requested' THEN 'cancelled'
-                    WHEN attempt_count >= $4::integer THEN 'failed_final'
                     ELSE 'queued'
                   END,
                   next_attempt_at = CASE
-                    WHEN status = 'cancel_requested' OR attempt_count >= $4::integer THEN NULL
+                    WHEN status = 'cancel_requested' THEN NULL
                     ELSE clock_timestamp()
                   END,
                   locked_by = NULL,
                   lease_expires_at = NULL,
                   current_stage = NULL,
                   completed_at = CASE
-                    WHEN status = 'cancel_requested' OR attempt_count >= $4::integer THEN clock_timestamp()
+                    WHEN status = 'cancel_requested' THEN clock_timestamp()
                     ELSE NULL
-                  END,
-                  last_error_code = CASE
-                    WHEN status <> 'cancel_requested' AND attempt_count >= $4::integer
-                      THEN 'JOB_RETRY_EXHAUSTED'
-                    ELSE last_error_code
-                  END,
-                  last_error_detail = CASE
-                    WHEN status <> 'cancel_requested' AND attempt_count >= $4::integer
-                      THEN 'Worker shutdown consumed the final execution attempt.'
-                    ELSE last_error_detail
                   END,
                   updated_at = clock_timestamp(),
                   version = version + 1
@@ -552,12 +570,7 @@ export class IngestionJobRepository {
            RETURNING 1
          )
          SELECT version FROM released`,
-        [
-          claim.jobId,
-          claim.organizationId,
-          claim.leaseToken,
-          this.worker.maxAttempts,
-        ],
+        [claim.jobId, claim.organizationId, claim.leaseToken],
       );
       return rows.length === 1;
     });
@@ -584,7 +597,7 @@ export class IngestionJobRepository {
       async (manager) =>
         await manager.query<FoundationReconciliationRow[]>(
           `SELECT *
-             FROM reconcile_fiscal_ingestion_foundation($1, $2, $3, $4, $5::integer[], $6, $7)`,
+             FROM reconcile_fiscal_ingestion_foundation($1, $2, $3, $4, $5::integer[], $6, $7, $8)`,
           [
             limit,
             this.retention.orphanGraceMinutes,
@@ -593,6 +606,7 @@ export class IngestionJobRepository {
             this.worker.backoffSeconds,
             this.worker.backoffJitterPercent,
             this.worker.maxAttempts,
+            this.worker.maxRetries,
           ],
         ),
     );
@@ -643,9 +657,7 @@ export class IngestionJobRepository {
   }
 
   private assertSafeError(errorCode: string, safeDetail?: string): void {
-    if (!ERROR_CODE_PATTERN.test(errorCode)) {
-      throw new Error('Error code is invalid');
-    }
+    assertCanonicalFiscalErrorCode(errorCode);
     if (
       safeDetail !== undefined &&
       (safeDetail.length > 500 || containsUnsafeControl(safeDetail))

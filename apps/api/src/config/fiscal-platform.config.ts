@@ -40,6 +40,7 @@ export interface FiscalPlatformConfig {
     leaseSeconds: number;
     heartbeatSeconds: number;
     maxAttempts: number;
+    maxRetries: number;
     backoffSeconds: readonly number[];
     backoffJitterPercent: number;
     pollIntervalMs: number;
@@ -170,7 +171,8 @@ export default registerAs('fiscalPlatform', (): FiscalPlatformConfig => {
       concurrency: envNumber(process.env.WORKER_CONCURRENCY, 4),
       leaseSeconds: envNumber(process.env.WORKER_LEASE_SECONDS, 90),
       heartbeatSeconds: envNumber(process.env.WORKER_HEARTBEAT_SECONDS, 20),
-      maxAttempts: envNumber(process.env.WORKER_MAX_ATTEMPTS, 3),
+      maxAttempts: envNumber(process.env.WORKER_MAX_ATTEMPTS, 4),
+      maxRetries: envNumber(process.env.WORKER_MAX_RETRIES, 3),
       backoffSeconds: parseBackoff(process.env.WORKER_BACKOFF_SECONDS),
       backoffJitterPercent: envNumber(
         process.env.WORKER_BACKOFF_JITTER_PERCENT,

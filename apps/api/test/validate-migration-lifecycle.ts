@@ -17,6 +17,8 @@ import {
 } from '../src/database/scripts/migration-manifest';
 import { FiscalIngestionFoundation1787690600000 } from '../src/database/migrations/1787690600000-FiscalIngestionFoundation';
 import { FiscalRlsWorkerClaims1787690610000 } from '../src/database/migrations/1787690610000-FiscalRlsWorkerClaims';
+import { IngestionAutomaticRetryBudget1787690620000 } from '../src/database/migrations/1787690620000-IngestionAutomaticRetryBudget';
+import { PhaseZeroRuntimeCompatibility1787690630000 } from '../src/database/migrations/1787690630000-PhaseZeroRuntimeCompatibility';
 import { seedDatabase } from '../src/database/seeds/seed-database';
 import { ROLE_DEFINITIONS } from '../src/modules/permissions/entities/role.entity';
 
@@ -236,8 +238,19 @@ async function validatePhaseZeroDownUpSavepoint(
 
   const foundation = new FiscalIngestionFoundation1787690600000();
   const rls = new FiscalRlsWorkerClaims1787690610000();
+  const retryBudget = new IngestionAutomaticRetryBudget1787690620000();
+  const runtimeCompatibility = new PhaseZeroRuntimeCompatibility1787690630000();
   await manager.query(`SAVEPOINT phase_zero_down_up_validation`);
   try {
+    await runtimeCompatibility.down(queryRunner);
+    const runtimeCompatibilityDown =
+      await inspectRuntimeCompatibilityDownState(manager);
+    assertAllTrue(runtimeCompatibilityDown, 'migration 063 down state');
+
+    await retryBudget.down(queryRunner);
+    const retryBudgetDown = await inspectRetryBudgetDownState(manager);
+    assertAllTrue(retryBudgetDown, 'migration 062 down state');
+
     await rls.down(queryRunner);
     const rlsDown = await inspectRlsDownState(manager);
     assertAllTrue(rlsDown, 'migration 061 down state');
@@ -248,14 +261,23 @@ async function validatePhaseZeroDownUpSavepoint(
 
     await foundation.up(queryRunner);
     await rls.up(queryRunner);
+    await retryBudget.up(queryRunner);
+    await runtimeCompatibility.up(queryRunner);
     const restored = await inspectPhaseZeroState(manager);
     assertPhaseZeroState(restored);
 
     report.phaseZeroDownUp = {
       savepoint: true,
+      migration063Down: runtimeCompatibilityDown,
+      migration062Down: retryBudgetDown,
       migration061Down: rlsDown,
       migration060Down: foundationDown,
-      reappliedInOrder: [foundation.name, rls.name],
+      reappliedInOrder: [
+        foundation.name,
+        rls.name,
+        retryBudget.name,
+        runtimeCompatibility.name,
+      ],
       restored,
     };
   } finally {
@@ -283,8 +305,9 @@ async function validatePhaseZeroSchema(
             'lease_expires_at', 'heartbeat_at', 'attempt_count',
             'next_attempt_at', 'cancel_requested_at', 'started_at',
             'completed_at', 'last_error_code', 'correlation_id', 'version',
-            'created_at', 'updated_at', 'counters_reconciled_at'
-          )) = 20 AS durable_job_columns,
+            'created_at', 'updated_at', 'counters_reconciled_at',
+            'automatic_retry_count'
+          )) = 21 AS durable_job_columns,
       (SELECT count(*) = 11
                 AND bool_and(
                   cardinality(conkey) >= 2
@@ -521,17 +544,84 @@ async function inspectPhaseZeroState(
             'ingestion_jobs', 'ingestion_items'
           )) AS tenantPolicies,
       to_regprocedure(
-        'public.claim_ingestion_job(text,text,text[],integer,integer,integer)'
+        'public.claim_ingestion_job(text,text,text[],integer,integer,integer,integer)'
       ) IS NOT NULL AS claimFunction,
       to_regprocedure(
-        'public.ingestion_queue_ages(text[],integer)'
+        'public.ingestion_queue_ages(text[],integer,integer)'
       ) IS NOT NULL AS queueAgeFunction,
       to_regprocedure(
         'public.request_ingestion_job_cancellation(uuid)'
       ) IS NOT NULL AS cancellationFunction,
       to_regprocedure(
-        'public.reconcile_fiscal_ingestion_foundation(integer,integer,integer,integer,integer[],integer,integer)'
+        'public.reconcile_fiscal_ingestion_foundation(integer,integer,integer,integer,integer[],integer,integer,integer)'
       ) IS NOT NULL AS reconcileFunction,
+      has_function_privilege(
+        'balanz_worker',
+        'public.claim_ingestion_job(text,text,text[],integer,integer,integer,integer)',
+        'EXECUTE'
+      ) AS workerCanExecuteRetryClaim,
+      NOT has_function_privilege(
+        'balanz_worker',
+        'public.claim_ingestion_job(text,text,text[],integer,integer,integer)',
+        'EXECUTE'
+      )
+      AND NOT has_function_privilege(
+        'balanz_worker',
+        'public.ingestion_queue_ages(text[],integer)',
+        'EXECUTE'
+      )
+      AND NOT has_function_privilege(
+        'balanz_worker',
+        'public.reconcile_fiscal_ingestion_foundation(integer,integer,integer,integer,integer[],integer,integer)',
+        'EXECUTE'
+      ) AS workerCannotExecuteLegacyFunctions,
+      COALESCE((
+        SELECT bool_and(
+          has_table_privilege('balanz_api', format('public.%I', relation_name), 'SELECT') = can_select
+          AND has_table_privilege('balanz_api', format('public.%I', relation_name), 'INSERT') = can_insert
+          AND has_table_privilege('balanz_api', format('public.%I', relation_name), 'UPDATE') = can_update
+          AND has_table_privilege('balanz_api', format('public.%I', relation_name), 'DELETE') = can_delete
+        )
+        FROM (VALUES
+          ('auth_factors', true, true, true, false),
+          ('auth_rate_limits', true, true, true, false),
+          ('email_verification_tokens', true, true, true, false),
+          ('roles', true, false, false, false),
+          ('memberships', true, true, true, false),
+          ('organizations', true, true, false, false),
+          ('permissions', true, false, false, false),
+          ('role_permissions', true, false, false, false),
+          ('auth_sessions', true, true, true, false),
+          ('subscriptions', true, true, true, false),
+          ('users', true, true, true, false),
+          ('client_accounts', true, true, true, false),
+          ('legal_entities', true, true, true, false),
+          ('account_assignments', true, true, true, false),
+          ('fiscal_years', true, true, false, false),
+          ('periods', true, true, true, false),
+          ('password_reset_tokens', true, true, true, false),
+          ('membership_permissions', true, true, true, false),
+          ('fiscal_operations', true, true, true, false),
+          ('object_access_grants', true, true, true, false),
+          ('private_objects', true, false, false, false),
+          ('audit_events', false, true, false, false)
+        ) AS requirement(
+          relation_name, can_select, can_insert, can_update, can_delete
+        )
+      ), false)
+      AND NOT EXISTS (
+        SELECT 1
+        FROM pg_class AS sequence
+        INNER JOIN pg_namespace AS namespace
+          ON namespace.oid = sequence.relnamespace
+        WHERE namespace.nspname = 'public'
+          AND sequence.relkind = 'S'
+          AND (
+            has_sequence_privilege('balanz_api', sequence.oid, 'USAGE')
+            OR has_sequence_privilege('balanz_api', sequence.oid, 'SELECT')
+            OR has_sequence_privilege('balanz_api', sequence.oid, 'UPDATE')
+          )
+      ) AS apiHasLeastPrivileges,
       NOT EXISTS (
         SELECT 1
         FROM pg_auth_members AS membership
@@ -566,6 +656,21 @@ function assertPhaseZeroState(state: Record<string, unknown>): void {
   assertEqual(state.queueagefunction, true, 'queue age function');
   assertEqual(state.cancellationfunction, true, 'cancellation function');
   assertEqual(state.reconcilefunction, true, 'reconcile function');
+  assertEqual(
+    state.workercanexecuteretryclaim,
+    true,
+    'worker retry-budget claim privilege',
+  );
+  assertEqual(
+    state.workercannotexecutelegacyfunctions,
+    true,
+    'legacy worker function privileges revoked',
+  );
+  assertEqual(
+    state.apihasleastprivileges,
+    true,
+    'API least-privilege application ACL',
+  );
   assertEqual(
     state.ownermembershipsisolated,
     true,
@@ -672,6 +777,148 @@ async function inspectRlsDownState(
             'stored_objects', 'ingestion_uploads',
             'ingestion_jobs', 'ingestion_items'
           )) = 4 AS foundation_preserved
+  `);
+  return state;
+}
+
+async function inspectRetryBudgetDownState(
+  manager: EntityManager,
+): Promise<Record<string, boolean>> {
+  const [state] = await manager.query(`
+    SELECT
+      to_regprocedure(
+        'public.claim_ingestion_job(text,text,text[],integer,integer,integer,integer)'
+      ) IS NULL AS retry_claim_removed,
+      to_regprocedure(
+        'public.ingestion_queue_ages(text[],integer,integer)'
+      ) IS NULL AS retry_queue_age_removed,
+      to_regprocedure(
+        'public.reconcile_fiscal_ingestion_foundation(integer,integer,integer,integer,integer[],integer,integer,integer)'
+      ) IS NULL AS retry_reconcile_removed,
+      to_regprocedure(
+        'public.claim_ingestion_job(text,text,text[],integer,integer,integer)'
+      ) IS NOT NULL AS prior_claim_preserved,
+      to_regprocedure(
+        'public.ingestion_queue_ages(text[],integer)'
+      ) IS NOT NULL AS prior_queue_age_preserved,
+      to_regprocedure(
+        'public.reconcile_fiscal_ingestion_foundation(integer,integer,integer,integer,integer[],integer,integer)'
+      ) IS NOT NULL AS prior_reconcile_preserved,
+      NOT EXISTS (
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = 'ingestion_jobs'
+          AND column_name = 'automatic_retry_count'
+      ) AS retry_column_removed,
+      has_function_privilege(
+        'balanz_worker',
+        'public.claim_ingestion_job(text,text,text[],integer,integer,integer)',
+        'EXECUTE'
+      ) AS prior_worker_claim_restored,
+      has_function_privilege(
+        'balanz_worker',
+        'public.ingestion_queue_ages(text[],integer)',
+        'EXECUTE'
+      ) AS prior_worker_queue_age_restored,
+      has_function_privilege(
+        'balanz_worker',
+        'public.reconcile_fiscal_ingestion_foundation(integer,integer,integer,integer,integer[],integer,integer)',
+        'EXECUTE'
+      ) AS prior_worker_reconcile_restored
+  `);
+  return state;
+}
+
+async function inspectRuntimeCompatibilityDownState(
+  manager: EntityManager,
+): Promise<Record<string, boolean>> {
+  const [state] = await manager.query(`
+    SELECT
+      NOT has_function_privilege(
+        'balanz_worker',
+        'public.claim_ingestion_job(text,text,text[],integer,integer,integer)',
+        'EXECUTE'
+      ) AS legacy_claim_revoked,
+      NOT has_function_privilege(
+        'balanz_worker',
+        'public.ingestion_queue_ages(text[],integer)',
+        'EXECUTE'
+      ) AS legacy_queue_age_revoked,
+      NOT has_function_privilege(
+        'balanz_worker',
+        'public.reconcile_fiscal_ingestion_foundation(integer,integer,integer,integer,integer[],integer,integer)',
+        'EXECUTE'
+      ) AS legacy_reconciler_revoked,
+      COALESCE((
+        SELECT bool_and(
+          NOT has_table_privilege(
+            'balanz_api',
+            format('public.%I', relation_name),
+            'SELECT'
+          )
+          AND NOT has_table_privilege(
+            'balanz_api',
+            format('public.%I', relation_name),
+            'INSERT'
+          )
+          AND NOT has_table_privilege(
+            'balanz_api',
+            format('public.%I', relation_name),
+            'UPDATE'
+          )
+          AND NOT has_table_privilege(
+            'balanz_api',
+            format('public.%I', relation_name),
+            'DELETE'
+          )
+        )
+        FROM unnest(ARRAY[
+          'password_reset_tokens',
+          'membership_permissions',
+          'fiscal_operations',
+          'object_access_grants',
+          'private_objects'
+        ]) AS relation(relation_name)
+      ), false) AS new_application_table_acl_revoked,
+      COALESCE((
+        SELECT bool_and(
+          has_table_privilege('balanz_api', format('public.%I', relation_name), 'SELECT')
+          AND has_table_privilege('balanz_api', format('public.%I', relation_name), 'INSERT')
+          AND has_table_privilege('balanz_api', format('public.%I', relation_name), 'UPDATE')
+          AND has_table_privilege('balanz_api', format('public.%I', relation_name), 'DELETE')
+        )
+        FROM unnest(ARRAY[
+          'auth_factors',
+          'auth_rate_limits',
+          'email_verification_tokens',
+          'roles',
+          'memberships',
+          'organizations',
+          'permissions',
+          'role_permissions',
+          'auth_sessions',
+          'subscriptions',
+          'users',
+          'client_accounts',
+          'legal_entities',
+          'account_assignments',
+          'fiscal_years',
+          'periods'
+        ]) AS relation(relation_name)
+      ), false) AS prior_application_table_acl_restored,
+      NOT EXISTS (
+        SELECT 1
+        FROM pg_class AS sequence
+        INNER JOIN pg_namespace AS namespace
+          ON namespace.oid = sequence.relnamespace
+        WHERE namespace.nspname = 'public'
+          AND sequence.relkind = 'S'
+          AND NOT (
+            has_sequence_privilege('balanz_api', sequence.oid, 'USAGE')
+            AND has_sequence_privilege('balanz_api', sequence.oid, 'SELECT')
+          )
+      ) AS prior_sequence_acl_restored
   `);
   return state;
 }
@@ -953,7 +1200,9 @@ function validateAppliedMigrationLedger(
   if (requireComplete) {
     const missing = EXPECTED_MIGRATIONS.filter((name) => !seen.has(name));
     if (missing.length > 0) {
-      throw new Error(`Missing expected migrations: ${JSON.stringify(missing)}`);
+      throw new Error(
+        `Missing expected migrations: ${JSON.stringify(missing)}`,
+      );
     }
   }
 }
@@ -962,7 +1211,9 @@ function sameStringSet(
   left: ReadonlySet<string>,
   right: ReadonlySet<string>,
 ): boolean {
-  return left.size === right.size && [...left].every((value) => right.has(value));
+  return (
+    left.size === right.size && [...left].every((value) => right.has(value))
+  );
 }
 
 function migrationTimestamp(name: string): number {

@@ -23,6 +23,11 @@ describe('FiscalReadinessService', () => {
       workerState?: 'running' | 'stopping' | 'stopped';
       workerLastActivityAt?: string;
       healthTimeoutMs?: number;
+      postgresFoundationProbe?: () => Promise<
+        Array<{ foundation_ready: boolean }>
+      >;
+      postgresConnect?: () => Promise<void>;
+      postgresRunnerCreated?: () => void;
       storageHealth?: (
         signal?: AbortSignal,
       ) => ReturnType<ObjectStoragePort['health']>;
@@ -33,7 +38,11 @@ describe('FiscalReadinessService', () => {
   ) {
     const queryRunner = {
       isTransactionActive: false,
-      connect: jest.fn().mockResolvedValue(undefined),
+      connect: jest
+        .fn()
+        .mockImplementation(
+          options.postgresConnect ?? (() => Promise.resolve()),
+        ),
       startTransaction: jest.fn().mockImplementation(function (this: {
         isTransactionActive: boolean;
       }) {
@@ -45,11 +54,13 @@ describe('FiscalReadinessService', () => {
         .mockImplementation((query: string) =>
           query.includes('set_config')
             ? Promise.resolve([])
-            : options.postgres === 'down'
-              ? Promise.reject(new Error('offline'))
-              : Promise.resolve([
-                  { foundation_ready: options.foundationReady ?? true },
-                ]),
+            : options.postgresFoundationProbe
+              ? options.postgresFoundationProbe()
+              : options.postgres === 'down'
+                ? Promise.reject(new Error('offline'))
+                : Promise.resolve([
+                    { foundation_ready: options.foundationReady ?? true },
+                  ]),
         ),
       rollbackTransaction: jest.fn().mockImplementation(function (this: {
         isTransactionActive: boolean;
@@ -61,7 +72,10 @@ describe('FiscalReadinessService', () => {
     };
     const dataSource = {
       isInitialized: options.postgres !== 'down',
-      createQueryRunner: jest.fn().mockReturnValue(queryRunner),
+      createQueryRunner: jest.fn().mockImplementation(() => {
+        options.postgresRunnerCreated?.();
+        return queryRunner;
+      }),
     } as unknown as DataSource;
     const storage = {
       health: jest.fn().mockImplementation(
@@ -258,4 +272,193 @@ describe('FiscalReadinessService', () => {
     expect(storageAborted).toHaveBeenCalledTimes(1);
     expect(scannerAborted).toHaveBeenCalledTimes(1);
   });
+
+  it('shares one PostgreSQL, storage and scanner probe across concurrent requests', async () => {
+    const postgresFoundationProbe = jest
+      .fn()
+      .mockResolvedValue([{ foundation_ready: true }]);
+    const storageHealth = jest.fn().mockResolvedValue({
+      status: 'up',
+      provider: 's3',
+      durationMs: 1,
+    });
+    const scannerHealth = jest.fn().mockResolvedValue({
+      status: 'up',
+      scanner: 'clamav',
+      durationMs: 1,
+    });
+    const readiness = service({
+      postgresFoundationProbe,
+      storageHealth,
+      scannerHealth,
+    });
+
+    const results = await Promise.all([
+      readiness.check('api'),
+      readiness.check('api'),
+      readiness.check('worker'),
+    ]);
+
+    expect(results.map(({ status }) => status)).toEqual(['up', 'up', 'up']);
+    expect(postgresFoundationProbe).toHaveBeenCalledTimes(1);
+    expect(storageHealth).toHaveBeenCalledTimes(1);
+    expect(scannerHealth).toHaveBeenCalledTimes(1);
+  });
+
+  it('reuses the short health cache and observes degradation after its TTL', async () => {
+    jest.useFakeTimers();
+    jest.setSystemTime(new Date('2026-09-02T12:00:00.000Z'));
+    let storageAvailable = true;
+    const postgresFoundationProbe = jest
+      .fn()
+      .mockResolvedValue([{ foundation_ready: true }]);
+    const storageHealth = jest.fn().mockImplementation(() =>
+      Promise.resolve(
+        storageAvailable
+          ? { status: 'up', provider: 's3', durationMs: 1 }
+          : {
+              status: 'down',
+              provider: 's3',
+              durationMs: 1,
+              errorCode: 'OBJECT_STORAGE_UNAVAILABLE',
+            },
+      ),
+    );
+    const scannerHealth = jest.fn().mockResolvedValue({
+      status: 'up',
+      scanner: 'clamav',
+      durationMs: 1,
+    });
+
+    try {
+      const readiness = service({
+        healthTimeoutMs: 100,
+        postgresFoundationProbe,
+        storageHealth,
+        scannerHealth,
+      });
+      await expect(readiness.check('api')).resolves.toMatchObject({
+        status: 'up',
+      });
+
+      storageAvailable = false;
+      await expect(readiness.check('api')).resolves.toMatchObject({
+        status: 'up',
+      });
+      expect(storageHealth).toHaveBeenCalledTimes(1);
+
+      jest.advanceTimersByTime(101);
+      await expect(readiness.check('api')).resolves.toMatchObject({
+        status: 'down',
+        dependencies: {
+          storage: { errorCode: 'OBJECT_STORAGE_UNAVAILABLE' },
+        },
+      });
+      expect(postgresFoundationProbe).toHaveBeenCalledTimes(2);
+      expect(storageHealth).toHaveBeenCalledTimes(2);
+      expect(scannerHealth).toHaveBeenCalledTimes(2);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('keeps one physical PostgreSQL gate after timeout until its runner settles', async () => {
+    jest.useFakeTimers();
+    jest.setSystemTime(new Date('2026-09-02T12:00:00.000Z'));
+    let releaseConnect: (() => void) | undefined;
+    const connectGate = new Promise<void>((resolve) => {
+      releaseConnect = resolve;
+    });
+    const postgresRunnerCreated = jest.fn();
+
+    try {
+      const readiness = service({
+        healthTimeoutMs: 10,
+        postgresConnect: () => connectGate,
+        postgresRunnerCreated,
+      });
+      const first = readiness.check('api');
+      await jest.advanceTimersByTimeAsync(10);
+      await expect(first).resolves.toMatchObject({
+        status: 'down',
+        dependencies: {
+          postgres: { errorCode: 'POSTGRES_UNAVAILABLE' },
+        },
+      });
+      expect(postgresRunnerCreated).toHaveBeenCalledTimes(1);
+
+      await jest.advanceTimersByTimeAsync(11);
+      const second = readiness.check('api');
+      await Promise.resolve();
+      expect(postgresRunnerCreated).toHaveBeenCalledTimes(1);
+
+      releaseConnect?.();
+      await expect(second).resolves.toMatchObject({ status: 'up' });
+      expect(postgresRunnerCreated).toHaveBeenCalledTimes(1);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it.each(['storage', 'scanner'] as const)(
+    'keeps one physical %s gate after timeout until adapter cleanup settles',
+    async (dependency) => {
+      jest.useFakeTimers();
+      jest.setSystemTime(new Date('2026-09-02T12:00:00.000Z'));
+      type PendingHealth =
+        | { status: 'up'; provider: 's3'; durationMs: number }
+        | { status: 'up'; scanner: 'clamav'; durationMs: number };
+      let releasePhysical: (() => void) | undefined;
+      let physicalSignal: AbortSignal | undefined;
+      const physicalResult: PendingHealth =
+        dependency === 'storage'
+          ? { status: 'up', provider: 's3', durationMs: 1 }
+          : { status: 'up', scanner: 'clamav', durationMs: 1 };
+      const pendingHealth = new Promise<PendingHealth>((resolve) => {
+        releasePhysical = () => resolve(physicalResult);
+      });
+      const storageHealth = jest.fn((signal?: AbortSignal) => {
+        physicalSignal = signal;
+        return pendingHealth as ReturnType<ObjectStoragePort['health']>;
+      });
+      const scannerHealth = jest.fn((signal?: AbortSignal) => {
+        physicalSignal = signal;
+        return pendingHealth as ReturnType<MalwareScannerPort['health']>;
+      });
+
+      try {
+        const readiness = service({
+          healthTimeoutMs: 10,
+          ...(dependency === 'storage' ? { storageHealth } : { scannerHealth }),
+        });
+        const first = readiness.check('api');
+        await jest.advanceTimersByTimeAsync(10);
+        const firstResult = await first;
+        expect(firstResult.status).toBe('down');
+        expect(firstResult.dependencies[dependency]).toMatchObject({
+          status: 'down',
+          errorCode:
+            dependency === 'storage'
+              ? 'OBJECT_STORAGE_HEALTH_TIMEOUT'
+              : 'MALWARE_SCANNER_HEALTH_TIMEOUT',
+        });
+        expect(physicalSignal?.aborted).toBe(true);
+
+        await jest.advanceTimersByTimeAsync(11);
+        const second = readiness.check('api');
+        await Promise.resolve();
+        expect(
+          dependency === 'storage' ? storageHealth : scannerHealth,
+        ).toHaveBeenCalledTimes(1);
+
+        releasePhysical?.();
+        await expect(second).resolves.toMatchObject({ status: 'up' });
+        expect(
+          dependency === 'storage' ? storageHealth : scannerHealth,
+        ).toHaveBeenCalledTimes(1);
+      } finally {
+        jest.useRealTimers();
+      }
+    },
+  );
 });

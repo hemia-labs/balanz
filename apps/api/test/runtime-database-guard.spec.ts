@@ -3,7 +3,7 @@ import { RuntimeDatabaseGuard } from '../src/database/runtime-database-guard.ser
 
 describe('RuntimeDatabaseGuard', () => {
   const safeRow = {
-    current_user: 'balanz_api_login',
+    current_user: 'balanz_api',
     session_user: 'balanz_api_login',
     rolsuper: false,
     rolbypassrls: false,
@@ -17,12 +17,13 @@ describe('RuntimeDatabaseGuard', () => {
     expected_direct_admin_option: false,
     expected_direct_inherit_option: false,
     expected_direct_set_option: true,
+    unexpected_expected_group_member: false,
     unexpected_role_count: 0,
     reachable_privileged_role: false,
     reachable_admin_option: false,
     owns_current_database: false,
-    owns_fiscal_relation: false,
-    direct_fiscal_acl: false,
+    owns_public_object: false,
+    direct_public_acl: false,
     can_create_current_database: false,
     safe_search_path: true,
     unsafe_schema_create: false,
@@ -38,7 +39,8 @@ describe('RuntimeDatabaseGuard', () => {
             .fn()
             .mockResolvedValueOnce([])
             .mockResolvedValueOnce([{ current_user: expected }])
-            .mockResolvedValueOnce([]),
+            .mockResolvedValueOnce([])
+            .mockResolvedValueOnce([{ current_user: expected }]),
         });
       },
     );
@@ -71,14 +73,21 @@ describe('RuntimeDatabaseGuard', () => {
     const sql = String(calls[0]?.[0]);
     expect(sql).toContain('datdba IN (SELECT oid FROM reachable)');
     expect(sql).toContain("namespace.nspname = 'public'");
+    expect(sql).toContain('procedure.proowner IN (SELECT oid FROM reachable)');
+    expect(sql).toContain('type.typowner IN (SELECT oid FROM reachable)');
+    expect(sql).toContain('namespace.nspowner IN (SELECT oid FROM reachable)');
     expect(sql).toContain("current_schemas(false) = ARRAY['public']::name[]");
     expect(sql).toContain(
       "has_schema_privilege(session_user, namespace.oid, 'CREATE')",
     );
     expect(sql).toContain('membership.admin_option');
+    expect(sql).toContain('unexpected_expected_group_member');
+    expect(sql).toContain('group_membership.member <> login.oid');
     expect(sql).toContain('aclexplode');
-    expect(sql).toContain('direct_fiscal_acl');
+    expect(sql).toContain('direct_public_acl');
     expect(sql).toContain('attribute.attacl');
+    expect(sql).toContain('type.typacl');
+    expect(sql).toContain('namespace.nspacl');
     expect(sql).toContain('has_database_privilege');
   });
 
@@ -96,16 +105,20 @@ describe('RuntimeDatabaseGuard', () => {
     ['direct ADMIN OPTION', { expected_direct_admin_option: true }],
     ['direct INHERIT OPTION', { expected_direct_inherit_option: true }],
     ['missing SET OPTION', { expected_direct_set_option: false }],
+    [
+      'SET-only sibling member of runtime group',
+      { unexpected_expected_group_member: true },
+    ],
     ['any additional role', { unexpected_role_count: 1 }],
     ['reachable privileged role', { reachable_privileged_role: true }],
     ['ADMIN OPTION membership', { reachable_admin_option: true }],
     ['database ownership', { owns_current_database: true }],
-    ['fiscal table ownership', { owns_fiscal_relation: true }],
-    ['direct fiscal ACL', { direct_fiscal_acl: true }],
+    ['public object ownership', { owns_public_object: true }],
+    ['direct ACL on any public object', { direct_public_acl: true }],
     ['CREATE on current database', { can_create_current_database: true }],
     ['unsafe search path', { safe_search_path: false }],
     ['CREATE on application schema', { unsafe_schema_create: true }],
-    ['SET ROLE session', { current_user: 'balanz_api' }],
+    ['missing startup runtime role', { current_user: 'balanz_api_login' }],
   ])('fails boot for %s', async (_case, override) => {
     await expect(
       guard({ ...safeRow, ...override }).onApplicationBootstrap(),

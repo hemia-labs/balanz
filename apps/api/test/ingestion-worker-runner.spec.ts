@@ -1,6 +1,7 @@
+import { Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { CorrelationIdService } from '../src/common/correlation/correlation-id.service';
-import type { FiscalEventLogger } from '../src/common/observability/fiscal-event-logger.service';
+import { FiscalEventLogger } from '../src/common/observability/fiscal-event-logger.service';
 import { FiscalMetricsService } from '../src/common/observability/fiscal-metrics.service';
 import type { FiscalPlatformConfig } from '../src/config/fiscal-platform.config';
 import { IngestionJobSourceType } from '../src/modules/ingestion/entities/ingestion-job.entity';
@@ -49,7 +50,13 @@ const emptyReconciliation: FoundationReconciliationResult = {
 };
 
 describe('IngestionWorkerRunner durable semantics', () => {
-  function createRunner(handler?: IngestionJobHandler, heartbeat = 'renewed') {
+  afterEach(() => jest.restoreAllMocks());
+
+  function createRunner(
+    handler?: IngestionJobHandler,
+    heartbeat = 'renewed',
+    eventLogger?: FiscalEventLogger,
+  ) {
     const jobs = {
       claimNext: jest.fn().mockResolvedValueOnce(claim).mockResolvedValue(null),
       queueAges: jest
@@ -63,6 +70,7 @@ describe('IngestionWorkerRunner durable semantics', () => {
       scheduleRetry: jest.fn().mockResolvedValue({
         status: 'failed_retryable',
         nextAttemptAt: new Date(),
+        automaticRetryCount: 1,
         version: 3,
       }),
       releaseForShutdown: jest.fn().mockResolvedValue(true),
@@ -71,13 +79,14 @@ describe('IngestionWorkerRunner durable semantics', () => {
     const wakeups = {
       subscribe: jest.fn().mockReturnValue(jest.fn()),
     };
-    const events = { write: jest.fn() };
+    const events = eventLogger ?? { write: jest.fn() };
     const metrics = new FiscalMetricsService();
     const worker = {
       concurrency: 1,
       leaseSeconds: 90,
       heartbeatSeconds: 0.01,
-      maxAttempts: 3,
+      maxAttempts: 4,
+      maxRetries: 3,
       backoffSeconds: [10, 30, 120],
       backoffJitterPercent: 20,
       pollIntervalMs: 60_000,
@@ -131,7 +140,7 @@ describe('IngestionWorkerRunner durable semantics', () => {
       handle: jest
         .fn()
         .mockRejectedValue(
-          new DurableWorkerError('SYNTHETIC_TERMINAL', { retryable: false }),
+          new DurableWorkerError('MALWARE_DETECTED', { retryable: false }),
         ),
     };
     const { runner, jobs } = createRunner(handler);
@@ -141,9 +150,65 @@ describe('IngestionWorkerRunner durable semantics', () => {
     expect(jobs.scheduleRetry).not.toHaveBeenCalled();
     expect(jobs.failFinal).toHaveBeenCalledWith(
       expect.objectContaining({ jobId: claim.jobId }),
-      'SYNTHETIC_TERMINAL',
+      'MALWARE_DETECTED',
       undefined,
     );
+    await runner.onApplicationShutdown();
+  });
+
+  it('logs a canonical handler code without reclassifying the durable transition as infrastructure failure', async () => {
+    const emitted: string[] = [];
+    jest.spyOn(Logger.prototype, 'error').mockImplementation((message) => {
+      emitted.push(String(message));
+    });
+    const handler: IngestionJobHandler = {
+      source: IngestionJobSourceType.MANUAL_XML,
+      handle: jest
+        .fn()
+        .mockRejectedValue(
+          new DurableWorkerError('MALWARE_DETECTED', { retryable: false }),
+        ),
+    };
+    const { runner, jobs } = createRunner(
+      handler,
+      'renewed',
+      new FiscalEventLogger(),
+    );
+
+    runner.onApplicationBootstrap();
+    await eventually(() =>
+      emitted.some((line) => line.includes('MALWARE_DETECTED')),
+    );
+
+    expect(jobs.failFinal).toHaveBeenCalledTimes(1);
+    expect(emitted).toHaveLength(1);
+    expect(JSON.parse(emitted[0])).toMatchObject({
+      event: 'ingestion_job_finished',
+      result: 'failed_final',
+      error_code: 'MALWARE_DETECTED',
+    });
+    expect(emitted[0]).not.toContain('WORKER_STATE_TRANSITION_FAILED');
+    await runner.onApplicationShutdown();
+  });
+
+  it('schedules a durable retry for a retryable execution failure', async () => {
+    const handler: IngestionJobHandler = {
+      source: IngestionJobSourceType.MANUAL_XML,
+      handle: jest
+        .fn()
+        .mockRejectedValue(new Error('synthetic transient fault')),
+    };
+    const { runner, jobs } = createRunner(handler);
+    runner.onApplicationBootstrap();
+    await eventually(() => jobs.scheduleRetry.mock.calls.length === 1);
+
+    expect(jobs.scheduleRetry).toHaveBeenCalledWith(
+      expect.objectContaining({ jobId: claim.jobId }),
+      'UNEXPECTED_WORKER_ERROR',
+      undefined,
+    );
+    expect(jobs.failFinal).not.toHaveBeenCalled();
+    expect(jobs.releaseForShutdown).not.toHaveBeenCalled();
     await runner.onApplicationShutdown();
   });
 
@@ -238,6 +303,8 @@ describe('IngestionWorkerRunner durable semantics', () => {
     expect(jobs.releaseForShutdown).toHaveBeenCalledWith(
       expect.objectContaining({ jobId: claim.jobId }),
     );
+    expect(jobs.scheduleRetry).not.toHaveBeenCalled();
+    expect(jobs.failFinal).not.toHaveBeenCalled();
     expect(runner.status().activeJobs).toBe(0);
   });
 

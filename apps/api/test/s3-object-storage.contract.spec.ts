@@ -205,6 +205,117 @@ describe('S3ObjectStorageAdapter configuration/command contract (unit only)', ()
       'DeleteObjectCommand',
     ]);
   });
+
+  it('uses an independent signal and awaits cleanup after the caller aborts', async () => {
+    const caller = new AbortController();
+    let cleanupSignal: AbortSignal | undefined;
+    let finishCleanup: (() => void) | undefined;
+    let cleanupStarted: (() => void) | undefined;
+    const started = new Promise<void>((resolve) => {
+      cleanupStarted = resolve;
+    });
+    const send = jest
+      .fn()
+      .mockImplementation(
+        (command: object, options?: { abortSignal?: AbortSignal }) => {
+          if (command.constructor.name === 'HeadBucketCommand') {
+            caller.abort();
+            return Promise.reject(new Error('caller aborted'));
+          }
+          if (command.constructor.name === 'DeleteObjectCommand') {
+            cleanupSignal = options?.abortSignal;
+            cleanupStarted?.();
+            return new Promise((resolve) => {
+              finishCleanup = () => resolve({});
+            });
+          }
+          return Promise.resolve({});
+        },
+      );
+    const adapter = new S3ObjectStorageAdapter(
+      {
+        driver: 's3',
+        region: 'us-east-2',
+        bucket: 'private-health',
+        maxBytes: 1024,
+        requestTimeoutMs: 10_000,
+        serverSideEncryption: 'AES256',
+      },
+      undefined,
+      { send, destroy: jest.fn() } as unknown as S3Client,
+    );
+
+    const health = adapter.health(caller.signal);
+    await started;
+    expect(caller.signal.aborted).toBe(true);
+    expect(cleanupSignal).toBeDefined();
+    expect(cleanupSignal).not.toBe(caller.signal);
+    expect(cleanupSignal?.aborted).toBe(false);
+
+    let settled = false;
+    void health.then(() => {
+      settled = true;
+    });
+    await Promise.resolve();
+    expect(settled).toBe(false);
+
+    finishCleanup?.();
+    await expect(health).resolves.toMatchObject({ status: 'down' });
+  });
+
+  it('aborts and bounds a stalled health cleanup with its own timeout', async () => {
+    jest.useFakeTimers();
+    let cleanupSignal: AbortSignal | undefined;
+    let cleanupStarted: (() => void) | undefined;
+    const started = new Promise<void>((resolve) => {
+      cleanupStarted = resolve;
+    });
+    const send = jest
+      .fn()
+      .mockImplementation(
+        (command: object, options?: { abortSignal?: AbortSignal }) => {
+          if (command.constructor.name === 'HeadBucketCommand') {
+            return Promise.reject(new Error('provider unavailable'));
+          }
+          if (command.constructor.name === 'DeleteObjectCommand') {
+            cleanupSignal = options?.abortSignal;
+            cleanupStarted?.();
+            return new Promise((_resolve, reject) => {
+              cleanupSignal?.addEventListener(
+                'abort',
+                () => reject(new Error('cleanup aborted')),
+                { once: true },
+              );
+            });
+          }
+          return Promise.resolve({});
+        },
+      );
+    const adapter = new S3ObjectStorageAdapter(
+      {
+        driver: 's3',
+        region: 'us-east-2',
+        bucket: 'private-health',
+        maxBytes: 1024,
+        requestTimeoutMs: 25,
+        serverSideEncryption: 'AES256',
+      },
+      undefined,
+      { send, destroy: jest.fn() } as unknown as S3Client,
+    );
+
+    try {
+      const health = adapter.health();
+      await started;
+      expect(cleanupSignal?.aborted).toBe(false);
+
+      jest.advanceTimersByTime(25);
+      await expect(health).resolves.toMatchObject({ status: 'down' });
+      expect(cleanupSignal?.aborted).toBe(true);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
 });
 
 function expectSynchronousCode(work: () => unknown, code: string): void {

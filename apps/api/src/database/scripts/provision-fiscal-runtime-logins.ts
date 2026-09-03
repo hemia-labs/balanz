@@ -1,5 +1,6 @@
 import * as dotenv from 'dotenv';
 import { DataSource, type EntityManager } from 'typeorm';
+import { withRuntimeDatabaseRole } from '../../config/database.config';
 import { resolveRuntimeDatabaseCredential } from '../database-options.factory';
 import { RuntimeDatabaseGuard } from '../runtime-database-guard.service';
 import { resolveScriptDatabaseOptions } from './script-database-options';
@@ -75,20 +76,77 @@ async function provisionFiscalRuntimeLogins(): Promise<void> {
       );
     }
     const capability = await admin.query<
-      Array<{ apiGroup: boolean; workerGroup: boolean; foundation: boolean }>
+      Array<{
+        apiGroup: boolean;
+        apiRuntimeAccess: boolean;
+        workerGroup: boolean;
+        workerRuntimeAccess: boolean;
+        foundation: boolean;
+      }>
     >(`
       SELECT
         to_regrole('balanz_api') IS NOT NULL AS "apiGroup",
         to_regrole('balanz_worker') IS NOT NULL AS "workerGroup",
-        to_regclass('public.ingestion_jobs') IS NOT NULL AS foundation
+        to_regclass('public.ingestion_jobs') IS NOT NULL AS foundation,
+        COALESCE((
+          SELECT bool_and(
+            has_table_privilege('balanz_api', format('public.%I', relation_name), 'SELECT') = can_select
+            AND has_table_privilege('balanz_api', format('public.%I', relation_name), 'INSERT') = can_insert
+            AND has_table_privilege('balanz_api', format('public.%I', relation_name), 'UPDATE') = can_update
+            AND has_table_privilege('balanz_api', format('public.%I', relation_name), 'DELETE') = can_delete
+          )
+          FROM (VALUES
+            ('auth_factors', true, true, true, false),
+            ('auth_rate_limits', true, true, true, false),
+            ('email_verification_tokens', true, true, true, false),
+            ('roles', true, false, false, false),
+            ('memberships', true, true, true, false),
+            ('organizations', true, true, false, false),
+            ('permissions', true, false, false, false),
+            ('role_permissions', true, false, false, false),
+            ('auth_sessions', true, true, true, false),
+            ('subscriptions', true, true, true, false),
+            ('users', true, true, true, false),
+            ('client_accounts', true, true, true, false),
+            ('legal_entities', true, true, true, false),
+            ('account_assignments', true, true, true, false),
+            ('fiscal_years', true, true, false, false),
+            ('periods', true, true, true, false),
+            ('password_reset_tokens', true, true, true, false),
+            ('membership_permissions', true, true, true, false),
+            ('fiscal_operations', true, true, true, false),
+            ('object_access_grants', true, true, true, false),
+            ('private_objects', true, false, false, false),
+            ('audit_events', false, true, false, false)
+          ) AS requirement(
+            relation_name, can_select, can_insert, can_update, can_delete
+          )
+        ), false) AS "apiRuntimeAccess",
+        has_function_privilege(
+          'balanz_worker',
+          'public.claim_ingestion_job(text,text,text[],integer,integer,integer,integer)',
+          'EXECUTE'
+        )
+        AND has_function_privilege(
+          'balanz_worker',
+          'public.ingestion_queue_ages(text[],integer,integer)',
+          'EXECUTE'
+        )
+        AND has_function_privilege(
+          'balanz_worker',
+          'public.reconcile_fiscal_ingestion_foundation(integer,integer,integer,integer,integer[],integer,integer,integer)',
+          'EXECUTE'
+        ) AS "workerRuntimeAccess"
     `);
     if (
       !capability[0]?.apiGroup ||
       !capability[0]?.workerGroup ||
-      !capability[0]?.foundation
+      !capability[0]?.foundation ||
+      !capability[0]?.apiRuntimeAccess ||
+      !capability[0]?.workerRuntimeAccess
     ) {
       throw new Error(
-        'Apply Phase 0 migrations 060/061 before provisioning runtime logins',
+        'Apply Phase 0 migrations 060/061/062/063 before provisioning runtime logins',
       );
     }
 
@@ -118,19 +176,25 @@ async function provisionFiscalRuntimeLogins(): Promise<void> {
     for (const runtime of provisioned) {
       const credential =
         runtime.principal === 'api' ? apiCredential : workerCredential;
-      const connection = new DataSource({
-        ...options,
-        host: credential.host,
-        port: credential.port,
-        database: credential.database,
-        username: credential.username,
-        password: credential.password,
-        logging: false,
-        entities: [],
-        migrations: [],
-      });
+      const connection = new DataSource(
+        withRuntimeDatabaseRole(
+          {
+            ...options,
+            host: credential.host,
+            port: credential.port,
+            database: credential.database,
+            username: credential.username,
+            password: credential.password,
+            logging: false,
+            entities: [],
+            migrations: [],
+          },
+          runtime.group,
+        ),
+      );
       try {
         await connection.initialize();
+        await assertSelectedRuntimeCapabilities(connection, runtime.principal);
         await new RuntimeDatabaseGuard(
           connection,
           runtime.principal,
@@ -176,6 +240,7 @@ async function provisionPrincipal(
       createDb: boolean;
       createRole: boolean;
       bypassRls: boolean;
+      inherit: boolean;
       replication: boolean;
       superuser: boolean;
     }>
@@ -185,6 +250,7 @@ async function provisionPrincipal(
        rolcreatedb AS "createDb",
        rolcreaterole AS "createRole",
        rolbypassrls AS "bypassRls",
+       rolinherit AS inherit,
        rolreplication AS replication,
        rolsuper AS superuser
      FROM pg_roles
@@ -244,12 +310,16 @@ async function provisionPrincipal(
         [group, username],
       ),
     );
-  } else if (
-    membership[0].adminOption ||
-    membership[0].inheritOption ||
-    !membership[0].setOption
-  ) {
+  } else if (membership[0].adminOption) {
     throw new Error(`Existing ${principal} membership options are unsafe`);
+  } else if (membership[0].inheritOption || !membership[0].setOption) {
+    await manager.query(
+      await formatStatement(
+        manager,
+        'GRANT %I TO %I WITH ADMIN FALSE, INHERIT FALSE, SET TRUE',
+        [group, username],
+      ),
+    );
   }
   await manager.query(
     await formatStatement(manager, 'GRANT CONNECT ON DATABASE %I TO %I', [
@@ -261,7 +331,7 @@ async function provisionPrincipal(
   return { created, group, principal, username, password };
 }
 
-async function assertNoExternalRoleState(
+export async function assertNoExternalRoleState(
   manager: EntityManager,
   username: string,
   expectedGroup: string,
@@ -271,9 +341,13 @@ async function assertNoExternalRoleState(
     Array<{
       expectedMemberships: number;
       memberCount: number;
+      unexpectedGroupMembers: number;
       ownsDatabase: boolean;
       ownsRelation: boolean;
-      directFiscalAcl: boolean;
+      ownsProcedure: boolean;
+      ownsType: boolean;
+      ownsSchema: boolean;
+      directPublicAcl: boolean;
       canCreateCurrentDatabase: boolean;
       unsafeSchemaCreate: boolean;
       unexpectedMemberships: number;
@@ -287,16 +361,49 @@ async function assertNoExternalRoleState(
           INNER JOIN pg_roles AS granted_login
             ON granted_login.oid = child_membership.roleid
          WHERE granted_login.rolname = $1) AS "memberCount",
+       (SELECT count(*)::integer
+          FROM pg_auth_members AS group_membership
+          INNER JOIN pg_roles AS granted_group
+            ON granted_group.oid = group_membership.roleid
+          INNER JOIN pg_roles AS group_member
+            ON group_member.oid = group_membership.member
+         WHERE granted_group.rolname = $2
+           AND group_member.rolname <> $1) AS "unexpectedGroupMembers",
        EXISTS (
          SELECT 1 FROM pg_database AS database
          INNER JOIN pg_roles AS owner ON owner.oid = database.datdba
-         WHERE owner.rolname = $1
-       ) AS "ownsDatabase",
-       EXISTS (
-         SELECT 1 FROM pg_class AS relation
-         INNER JOIN pg_roles AS owner ON owner.oid = relation.relowner
-         WHERE owner.rolname = $1
-       ) AS "ownsRelation",
+          WHERE owner.rolname IN ($1, $2)
+        ) AS "ownsDatabase",
+        EXISTS (
+          SELECT 1 FROM pg_class AS relation
+          INNER JOIN pg_roles AS owner ON owner.oid = relation.relowner
+          INNER JOIN pg_namespace AS namespace
+            ON namespace.oid = relation.relnamespace
+          WHERE namespace.nspname = 'public'
+            AND owner.rolname IN ($1, $2)
+        ) AS "ownsRelation",
+        EXISTS (
+          SELECT 1 FROM pg_proc AS procedure
+          INNER JOIN pg_roles AS owner ON owner.oid = procedure.proowner
+          INNER JOIN pg_namespace AS namespace
+            ON namespace.oid = procedure.pronamespace
+          WHERE namespace.nspname = 'public'
+            AND owner.rolname IN ($1, $2)
+        ) AS "ownsProcedure",
+        EXISTS (
+          SELECT 1 FROM pg_type AS type
+          INNER JOIN pg_roles AS owner ON owner.oid = type.typowner
+          INNER JOIN pg_namespace AS namespace
+            ON namespace.oid = type.typnamespace
+          WHERE namespace.nspname = 'public'
+            AND owner.rolname IN ($1, $2)
+        ) AS "ownsType",
+        EXISTS (
+          SELECT 1 FROM pg_namespace AS namespace
+          INNER JOIN pg_roles AS owner ON owner.oid = namespace.nspowner
+          WHERE namespace.nspname = 'public'
+            AND owner.rolname IN ($1, $2)
+        ) AS "ownsSchema",
        (
          EXISTS (
            SELECT 1
@@ -307,16 +414,6 @@ async function assertNoExternalRoleState(
            INNER JOIN pg_roles AS grantee ON grantee.oid = access.grantee
            WHERE namespace.nspname = 'public'
              AND grantee.rolname = $1
-             AND (
-               relation.relname IN (
-                 'stored_objects', 'ingestion_uploads',
-                 'ingestion_jobs', 'ingestion_items', 'audit_events'
-               )
-               OR (
-                 relation.relkind = 'S'
-                 AND relation.relname ~ '^(stored_objects|ingestion_|audit_events)'
-               )
-             )
          )
          OR EXISTS (
            SELECT 1
@@ -331,10 +428,6 @@ async function assertNoExternalRoleState(
              AND grantee.rolname = $1
              AND attribute.attnum > 0
              AND NOT attribute.attisdropped
-             AND relation.relname IN (
-               'stored_objects', 'ingestion_uploads',
-               'ingestion_jobs', 'ingestion_items', 'audit_events'
-             )
          )
          OR EXISTS (
            SELECT 1
@@ -345,14 +438,24 @@ async function assertNoExternalRoleState(
            INNER JOIN pg_roles AS grantee ON grantee.oid = access.grantee
            WHERE namespace.nspname = 'public'
              AND grantee.rolname = $1
-             AND procedure.proname IN (
-               'enforce_stored_object_immutability',
-               'mark_ingestion_job_counters_dirty',
-               'claim_ingestion_job',
-               'ingestion_queue_ages',
-               'request_ingestion_job_cancellation',
-               'reconcile_fiscal_ingestion_foundation'
-             )
+         )
+         OR EXISTS (
+           SELECT 1
+           FROM pg_type AS type
+           INNER JOIN pg_namespace AS namespace
+             ON namespace.oid = type.typnamespace
+           CROSS JOIN LATERAL aclexplode(type.typacl) AS access
+           INNER JOIN pg_roles AS grantee ON grantee.oid = access.grantee
+           WHERE namespace.nspname = 'public'
+             AND grantee.rolname = $1
+         )
+         OR EXISTS (
+           SELECT 1
+           FROM pg_namespace AS namespace
+           CROSS JOIN LATERAL aclexplode(namespace.nspacl) AS access
+           INNER JOIN pg_roles AS grantee ON grantee.oid = access.grantee
+           WHERE namespace.nspname = 'public'
+             AND grantee.rolname = $1
          )
          OR EXISTS (
            SELECT 1
@@ -360,13 +463,12 @@ async function assertNoExternalRoleState(
            CROSS JOIN LATERAL aclexplode(defaults.defaclacl) AS access
            INNER JOIN pg_roles AS grantee ON grantee.oid = access.grantee
            WHERE grantee.rolname = $1
-             AND defaults.defaclobjtype IN ('r','S','f')
              AND (
                defaults.defaclnamespace = 0::oid
                OR defaults.defaclnamespace = 'public'::regnamespace
              )
          )
-       ) AS "directFiscalAcl",
+       ) AS "directPublicAcl",
        has_database_privilege($1, current_database(), 'CREATE')
          AS "canCreateCurrentDatabase",
        EXISTS (
@@ -392,15 +494,84 @@ async function assertNoExternalRoleState(
   if (
     state.unexpectedMemberships > 0 ||
     state.memberCount > 0 ||
+    state.unexpectedGroupMembers > 0 ||
     state.ownsDatabase ||
     state.ownsRelation ||
-    state.directFiscalAcl ||
+    state.ownsProcedure ||
+    state.ownsType ||
+    state.ownsSchema ||
+    state.directPublicAcl ||
     state.canCreateCurrentDatabase ||
     state.unsafeSchemaCreate ||
     (requireExpected && state.expectedMemberships !== 1)
   ) {
     throw new Error(
-      'Runtime login must have one exclusive group membership and own no database objects',
+      'Runtime login and its expected group must own no database or public schema objects; the login must be the only member of that group, have one exclusive membership, and hold no direct ACL on public schema objects',
+    );
+  }
+}
+
+async function assertSelectedRuntimeCapabilities(
+  connection: DataSource,
+  principal: 'api' | 'worker',
+): Promise<void> {
+  const [capability] =
+    principal === 'api'
+      ? await connection.query<Array<{ ready: boolean }>>(`
+      SELECT COALESCE(bool_and(
+        has_table_privilege(current_user, format('public.%I', relation_name), 'SELECT') = can_select
+        AND has_table_privilege(current_user, format('public.%I', relation_name), 'INSERT') = can_insert
+        AND has_table_privilege(current_user, format('public.%I', relation_name), 'UPDATE') = can_update
+        AND has_table_privilege(current_user, format('public.%I', relation_name), 'DELETE') = can_delete
+      ), false) AS ready
+      FROM (VALUES
+        ('auth_factors', true, true, true, false),
+        ('auth_rate_limits', true, true, true, false),
+        ('email_verification_tokens', true, true, true, false),
+        ('roles', true, false, false, false),
+        ('memberships', true, true, true, false),
+        ('organizations', true, true, false, false),
+        ('permissions', true, false, false, false),
+        ('role_permissions', true, false, false, false),
+        ('auth_sessions', true, true, true, false),
+        ('subscriptions', true, true, true, false),
+        ('users', true, true, true, false),
+        ('client_accounts', true, true, true, false),
+        ('legal_entities', true, true, true, false),
+        ('account_assignments', true, true, true, false),
+        ('fiscal_years', true, true, false, false),
+        ('periods', true, true, true, false),
+        ('password_reset_tokens', true, true, true, false),
+        ('membership_permissions', true, true, true, false),
+        ('fiscal_operations', true, true, true, false),
+        ('object_access_grants', true, true, true, false),
+        ('private_objects', true, false, false, false),
+        ('audit_events', false, true, false, false)
+      ) AS requirement(
+        relation_name, can_select, can_insert, can_update, can_delete
+      )
+    `)
+      : await connection.query<Array<{ ready: boolean }>>(`
+          SELECT
+            has_function_privilege(
+              current_user,
+              'public.claim_ingestion_job(text,text,text[],integer,integer,integer,integer)',
+              'EXECUTE'
+            )
+            AND has_function_privilege(
+              current_user,
+              'public.ingestion_queue_ages(text[],integer,integer)',
+              'EXECUTE'
+            )
+            AND has_function_privilege(
+              current_user,
+              'public.reconcile_fiscal_ingestion_foundation(integer,integer,integer,integer,integer[],integer,integer,integer)',
+              'EXECUTE'
+            ) AS ready
+        `);
+  if (!capability?.ready) {
+    throw new Error(
+      `${principal} runtime connection did not select the required group capabilities`,
     );
   }
 }
@@ -470,11 +641,13 @@ function assertSafeEnvironment(): void {
   }
 }
 
-void provisionFiscalRuntimeLogins().catch((error: unknown) => {
-  console.error(
-    error instanceof Error
-      ? error.message
-      : 'Runtime login provisioning failed',
-  );
-  process.exitCode = 1;
-});
+if (require.main === module) {
+  void provisionFiscalRuntimeLogins().catch((error: unknown) => {
+    console.error(
+      error instanceof Error
+        ? error.message
+        : 'Runtime login provisioning failed',
+    );
+    process.exitCode = 1;
+  });
+}

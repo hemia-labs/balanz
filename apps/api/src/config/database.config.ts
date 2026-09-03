@@ -17,6 +17,7 @@ export interface DatabaseConfig {
 }
 
 export type DatabaseRuntimeProfile = 'api' | 'worker';
+export type DatabaseRuntimeRole = 'balanz_api' | 'balanz_worker';
 
 export function getDatabaseConfig(
   env: NodeJS.ProcessEnv = process.env,
@@ -80,5 +81,32 @@ export function getDatabaseOptions(config: DatabaseConfig): DataSourceOptions {
       path.join(__dirname, '..', 'database', 'migrations', '*.js'),
       path.join(__dirname, '..', 'database', 'migrations', '*.ts'),
     ],
+  };
+}
+
+/**
+ * Forces every pooled runtime connection to select its single NOINHERIT group
+ * during PostgreSQL startup. The role is a closed code-level union, never an
+ * environment or request value; tenant GUCs remain SET LOCAL-only.
+ */
+export function withRuntimeDatabaseRole(
+  options: DataSourceOptions,
+  role: DatabaseRuntimeRole,
+): DataSourceOptions {
+  const extra =
+    typeof options.extra === 'object' && options.extra !== null
+      ? (options.extra as Record<string, unknown>)
+      : {};
+  const baseOptions =
+    typeof extra.options === 'string' ? extra.options.trim() : '';
+  if (/(?:^|\s)-c\s+role(?:=|\s)/i.test(baseOptions)) {
+    throw new Error('Runtime PostgreSQL role option must have one authority');
+  }
+  return {
+    ...options,
+    extra: {
+      ...extra,
+      options: `${baseOptions} -c role=${role}`.trim(),
+    },
   };
 }

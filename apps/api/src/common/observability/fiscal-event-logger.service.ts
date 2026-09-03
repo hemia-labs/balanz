@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { assertCanonicalFiscalErrorCode } from './fiscal-error-code';
 
 export type FiscalLogLevel = 'debug' | 'info' | 'warn' | 'error';
 
@@ -41,16 +42,6 @@ const SAFE_RESULTS = new Set([
   'failed_final',
   'success',
 ]);
-const SAFE_ERROR_CODES = new Set([
-  'JOB_CLAIM_FAILED',
-  'JOB_LEASE_LOST',
-  'WORKER_STATE_TRANSITION_FAILED',
-  'HANDLER_NOT_REGISTERED',
-  'INVALID_HANDLER_RESULT',
-  'UNEXPECTED_WORKER_ERROR',
-  'RECONCILIATION_FAILED',
-]);
-
 /** Emits only an allowlisted event schema; arbitrary SDK/user text is rejected. */
 @Injectable()
 export class FiscalEventLogger {
@@ -85,11 +76,7 @@ export class FiscalEventLogger {
       error_code:
         event.errorCode === undefined
           ? undefined
-          : this.allowlistedToken(
-              event.errorCode,
-              'errorCode',
-              SAFE_ERROR_CODES,
-            ),
+          : this.canonicalErrorCode(event.errorCode),
     };
     const serialized = JSON.stringify(payload);
     if (level === 'error') this.logger.error(serialized);
@@ -121,6 +108,11 @@ export class FiscalEventLogger {
     if (!Number.isFinite(value) || value < 0) {
       throw new Error('durationMs must be finite and non-negative');
     }
+    return value;
+  }
+
+  private canonicalErrorCode(value: string): string {
+    assertCanonicalFiscalErrorCode(value);
     return value;
   }
 }

@@ -347,8 +347,11 @@ describe('UsersService', () => {
       id: 'membership-owner',
       organizationId: 'organization-a',
       userId: 'owner-1',
+      roleId: 'role-admin',
       status: MembershipStatus.ACTIVE,
-      role: RoleKey.ADMIN,
+      role: { key: RoleKey.ADMIN } as Role,
+      createdAt: new Date(),
+      updatedAt: new Date(),
     } as Membership;
     const userRepository = {
       findOne: jest.fn().mockResolvedValue(user),

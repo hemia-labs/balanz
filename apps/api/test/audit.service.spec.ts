@@ -8,9 +8,16 @@ import { CorrelationIdService } from '../src/common/correlation/correlation-id.s
 
 describe('AuditService', () => {
   it('records registration metadata without credentials or tokens', async () => {
+    const queryBuilder = {
+      insert: jest.fn().mockReturnThis(),
+      into: jest.fn().mockReturnThis(),
+      values: jest.fn().mockReturnThis(),
+      updateEntity: jest.fn().mockReturnThis(),
+      execute: jest.fn().mockResolvedValue(undefined),
+    };
     const repository = {
       create: jest.fn((value: Partial<AuditEvent>) => value),
-      save: jest.fn((value: Partial<AuditEvent>) => Promise.resolve(value)),
+      createQueryBuilder: jest.fn().mockReturnValue(queryBuilder),
     };
     const manager = { getRepository: jest.fn().mockReturnValue(repository) };
 
@@ -30,12 +37,21 @@ describe('AuditService', () => {
     await new AuditService().record(manager as never, event);
 
     expect(repository.create).toHaveBeenCalledWith(event);
+    expect(queryBuilder.updateEntity).toHaveBeenCalledWith(false);
+    expect(queryBuilder.execute).toHaveBeenCalledTimes(1);
   });
 
   it('uses the request correlation ID instead of an operation-local fallback', async () => {
+    const queryBuilder = {
+      insert: jest.fn().mockReturnThis(),
+      into: jest.fn().mockReturnThis(),
+      values: jest.fn().mockReturnThis(),
+      updateEntity: jest.fn().mockReturnThis(),
+      execute: jest.fn().mockResolvedValue(undefined),
+    };
     const repository = {
       create: jest.fn((value: Partial<AuditEvent>) => value),
-      save: jest.fn((value: Partial<AuditEvent>) => Promise.resolve(value)),
+      createQueryBuilder: jest.fn().mockReturnValue(queryBuilder),
     };
     const manager = { getRepository: jest.fn().mockReturnValue(repository) };
     const correlation = new CorrelationIdService();
@@ -62,5 +78,38 @@ describe('AuditService', () => {
     expect(repository.create).toHaveBeenCalledWith(
       expect.objectContaining({ correlationId: requestId }),
     );
+    expect(queryBuilder.updateEntity).toHaveBeenCalledWith(false);
+    expect(queryBuilder.execute).toHaveBeenCalledTimes(1);
+  });
+
+  it('fails closed when the insert-only audit write fails', async () => {
+    const writeError = new Error('audit insert rejected');
+    const queryBuilder = {
+      insert: jest.fn().mockReturnThis(),
+      into: jest.fn().mockReturnThis(),
+      values: jest.fn().mockReturnThis(),
+      updateEntity: jest.fn().mockReturnThis(),
+      execute: jest.fn().mockRejectedValue(writeError),
+    };
+    const repository = {
+      create: jest.fn((value: Partial<AuditEvent>) => value),
+      createQueryBuilder: jest.fn().mockReturnValue(queryBuilder),
+    };
+    const manager = { getRepository: jest.fn().mockReturnValue(repository) };
+    const service = new AuditService();
+
+    await expect(
+      service.record(manager as never, {
+        organizationId: null,
+        actorType: AuditActorType.SYSTEM,
+        action: 'test',
+        decision: AuditDecision.DENY,
+        objectType: 'test',
+        correlationId: '19b403ac-8d5f-4dc1-8e09-17f62cbf4d2b',
+        metadata: {},
+      }),
+    ).rejects.toBe(writeError);
+
+    expect(queryBuilder.updateEntity).toHaveBeenCalledWith(false);
   });
 });
