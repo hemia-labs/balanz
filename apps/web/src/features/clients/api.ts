@@ -228,9 +228,13 @@ export function revokeAssignment(
   );
 }
 
-export function getFiscalYears(legalEntityId: string, signal?: AbortSignal) {
-  return apiClient<FiscalYear[]>(
-    `/legal-entities/${encodeURIComponent(legalEntityId)}/fiscal-years`,
+export function getFiscalYears(
+  legalEntityId: string,
+  query: { page?: number; limit?: number; year?: number } = {},
+  signal?: AbortSignal,
+) {
+  return apiClient<CollectionPage<FiscalYear>>(
+    `/legal-entities/${encodeURIComponent(legalEntityId)}/fiscal-years${queryString(query)}`,
     { signal },
   );
 }

@@ -253,6 +253,7 @@ export function LiveFiscalYearsScreen({
   const { organization, locale, capabilities } = useAccountingContext();
   const router = useRouter();
   const routeQuery = useLegalEntityRouteQuery();
+  const [yearsPage, setYearsPage] = useState(1);
   const { detail, error, loading } = useClientDetail(
     clientId,
     legalEntityDetailQuery(
@@ -279,10 +280,11 @@ export function LiveFiscalYearsScreen({
             organizationId: organization.id,
             clientId,
             legalEntityId: entity.id,
+            page: yearsPage,
             revision,
           }
         : null,
-    [clientId, entity, organization.id, revision],
+    [clientId, entity, organization.id, revision, yearsPage],
   );
   useEffect(() => {
     if (
@@ -311,11 +313,15 @@ export function LiveFiscalYearsScreen({
       }
       const request = { ...yearsQuery, requestId };
       setYearsState(startFiscalYearsLoad(request));
-      void getFiscalYears(request.legalEntityId, controller.signal)
-        .then((items) => {
+      void getFiscalYears(
+        request.legalEntityId,
+        { page: request.page, limit: 25 },
+        controller.signal,
+      )
+        .then((page) => {
           if (controller.signal.aborted) return;
           setYearsState((current) =>
-            resolveFiscalYearsLoad(current, request, items),
+            resolveFiscalYearsLoad(current, request, page),
           );
         })
         .catch((cause) => {
@@ -415,7 +421,10 @@ export function LiveFiscalYearsScreen({
               capabilities.includes("fiscal_years.manage") ? (
                 <CreateYearForm
                   entity={entity}
-                  reload={() => setRevision((value) => value + 1)}
+                  reload={() => {
+                    setYearsPage(1);
+                    setRevision((value) => value + 1);
+                  }}
                 />
               ) : undefined
             }
@@ -467,6 +476,13 @@ export function LiveFiscalYearsScreen({
               },
             ]}
           />
+          {visibleYearsState.meta ? (
+            <CollectionPagination
+              meta={visibleYearsState.meta}
+              itemLabel="ejercicios"
+              onPageChange={setYearsPage}
+            />
+          ) : null}
         </Surface>
       )}
     </div>
@@ -582,10 +598,14 @@ export function LiveFiscalYearScreen({
       }
       const request = { ...periodsQuery, requestId };
       setPeriodsState(startFiscalPeriodsLoad(request));
-      void getFiscalYears(request.legalEntityId, controller.signal)
-        .then((years) => {
+      void getFiscalYears(
+        request.legalEntityId,
+        { year: Number(request.year), limit: 1 },
+        controller.signal,
+      )
+        .then((page) => {
           if (controller.signal.aborted) return null;
-          const match = years.find(
+          const match = page.items.find(
             (item) => String(item.year) === request.year,
           );
           if (!match)

@@ -9,8 +9,10 @@ import {
   ParseUUIDPipe,
   Patch,
   Post,
+  Res,
   UseGuards,
 } from '@nestjs/common';
+import type { Response } from 'express';
 import { CurrentRequestContext } from '../../common/decorators/request-context.decorator';
 import type { RequestContext } from '../../common/decorators/request-context.decorator';
 import { CurrentTenant } from '../../common/decorators/current-session.decorator';
@@ -32,13 +34,21 @@ export class PermissionAdministrationController {
 
   @Get('roles')
   @Permissions('organization.view')
-  listRoles() {
+  listRoles(@Res({ passthrough: true }) response: Response) {
+    response.setHeader(
+      'Cache-Control',
+      'private, max-age=300, stale-while-revalidate=60',
+    );
     return this.service.listRoles();
   }
 
   @Get('permissions')
   @Permissions('permissions.manage')
-  listPermissions() {
+  listPermissions(@Res({ passthrough: true }) response: Response) {
+    response.setHeader(
+      'Cache-Control',
+      'private, max-age=300, stale-while-revalidate=60',
+    );
     return this.service.listPermissions();
   }
 

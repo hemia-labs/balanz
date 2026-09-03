@@ -51,18 +51,25 @@ function entityQueryBuilder(
 ) {
   const builder = {
     innerJoin: jest.fn(),
+    select: jest.fn(),
+    addSelect: jest.fn(),
     where: jest.fn(),
     andWhere: jest.fn(),
     orderBy: jest.fn(),
     addOrderBy: jest.fn(),
+    groupBy: jest.fn(),
     getMany: jest.fn().mockResolvedValue(items),
     getOne: jest.fn().mockResolvedValue(item),
+    getRawMany: jest.fn().mockResolvedValue([]),
   };
   builder.innerJoin.mockReturnValue(builder);
+  builder.select.mockReturnValue(builder);
+  builder.addSelect.mockReturnValue(builder);
   builder.where.mockReturnValue(builder);
   builder.andWhere.mockReturnValue(builder);
   builder.orderBy.mockReturnValue(builder);
   builder.addOrderBy.mockReturnValue(builder);
+  builder.groupBy.mockReturnValue(builder);
   return builder;
 }
 
@@ -142,6 +149,9 @@ describe('Client account detail authorization', () => {
       createQueryBuilder: jest.fn().mockReturnValue(primaryBuilder),
     };
     const fiscalYearBuilder = entityQueryBuilder();
+    fiscalYearBuilder.getRawMany.mockResolvedValue([
+      { legalEntityId: 'entity-active', count: '3' },
+    ]);
     const fiscalYears = {
       createQueryBuilder: jest.fn().mockReturnValue(fiscalYearBuilder),
     };
@@ -172,7 +182,9 @@ describe('Client account detail authorization', () => {
       displayName: 'Persona Responsable',
     });
     expect(result.legalEntities).toEqual({
-      items: [expect.objectContaining({ id: 'entity-active' })],
+      items: [
+        expect.objectContaining({ id: 'entity-active', fiscalYearCount: 3 }),
+      ],
       meta: { page: 1, limit: 25, total: 1, totalPages: 1 },
     });
     expect(assignments.createQueryBuilder).toHaveBeenCalledTimes(1);
@@ -180,14 +192,13 @@ describe('Client account detail authorization', () => {
       'user.email',
       'email',
     );
-    expect(fiscalYearBuilder.innerJoin).toHaveBeenCalled();
+    expect(fiscalYearBuilder.select).toHaveBeenCalledWith(
+      'year.legal_entity_id',
+      'legalEntityId',
+    );
     expect(fiscalYearBuilder.andWhere).toHaveBeenCalledWith(
       'year.status <> :archivedYearStatus',
       { archivedYearStatus: FiscalYearStatus.ARCHIVED },
-    );
-    expect(fiscalYearBuilder.andWhere).toHaveBeenCalledWith(
-      'year_entity.status <> :archivedEntityStatus',
-      { archivedEntityStatus: LegalEntityStatus.ARCHIVED },
     );
   });
 });

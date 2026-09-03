@@ -46,10 +46,9 @@ type ErrorResponse = {
 
 type ClientDetailResponse = {
   legalEntities: {
-    items: Array<{ id: string }>;
+    items: Array<{ id: string; fiscalYearCount: number }>;
     meta: { page: number; limit: number; total: number; totalPages: number };
   };
-  fiscalYears: Array<{ id: string; legalEntityId: string }>;
 };
 
 describe('Client accounts domain (e2e)', () => {
@@ -317,6 +316,17 @@ describe('Client accounts domain (e2e)', () => {
       .expect(200);
     expect(responseBody(legalEntities)).toEqual({
       items: [expect.objectContaining({ id: mainClient.legalEntityId })],
+      meta: { page: 1, limit: 1, total: 1, totalPages: 1 },
+    });
+
+    const fiscalYears = await request(app.getHttpServer())
+      .get(
+        `${apiPrefix}/legal-entities/${mainClient.legalEntityId}/fiscal-years?page=1&limit=1`,
+      )
+      .set('Cookie', owner.cookie)
+      .expect(200);
+    expect(responseBody(fiscalYears)).toEqual({
+      items: [expect.objectContaining({ year: new Date().getFullYear() })],
       meta: { page: 1, limit: 1, total: 1, totalPages: 1 },
     });
 
@@ -624,9 +634,9 @@ describe('Client accounts domain (e2e)', () => {
       .set('Origin', allowedOrigin)
       .send({ year: currentYear - 3 })
       .expect(201);
-    const archivedEntityYearId = responseBody<{ id: string }>(
-      archivedEntityYearResponse,
-    ).id;
+    expect(
+      responseBody<{ id: string }>(archivedEntityYearResponse).id,
+    ).toBeDefined();
     await request(app.getHttpServer())
       .delete(`${apiPrefix}/legal-entities/${archivedEntityId}`)
       .set('Cookie', owner.cookie)
@@ -641,9 +651,23 @@ describe('Client accounts domain (e2e)', () => {
     expect(body.legalEntities.items.map((entity) => entity.id)).not.toContain(
       archivedEntityId,
     );
-    expect(body.fiscalYears.map((year) => year.id)).not.toEqual(
-      expect.arrayContaining([archivedYearId, archivedEntityYearId]),
-    );
+    expect(
+      body.legalEntities.items.find(
+        (entity) => entity.id === mainClient.legalEntityId,
+      )?.fiscalYearCount,
+    ).toBe(2);
+
+    const fiscalYears = await request(app.getHttpServer())
+      .get(
+        `${apiPrefix}/legal-entities/${mainClient.legalEntityId}/fiscal-years?page=1&limit=100`,
+      )
+      .set('Cookie', accountant.cookie)
+      .expect(200);
+    expect(
+      responseBody<{ items: Array<{ id: string }> }>(fiscalYears).items.map(
+        (year) => year.id,
+      ),
+    ).not.toContain(archivedYearId);
   });
 
   it('keeps a duplicate RFC race to one committed aggregate', async () => {

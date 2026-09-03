@@ -5,6 +5,7 @@ import {
   Param,
   ParseUUIDPipe,
   Post,
+  Query,
   UseGuards,
 } from '@nestjs/common';
 import { CurrentRequestContext } from '../../common/decorators/request-context.decorator';
@@ -17,7 +18,10 @@ import { PermissionsGuard } from '../../common/guards/permissions.guard';
 import { SessionGuard } from '../../common/guards/session.guard';
 import { TenantAccessGuard } from '../../common/guards/tenant-access.guard';
 import type { SessionAuthorizationContext } from '../sessions/session.types';
-import { CreateFiscalYearDto } from './dtos/fiscal-year.dtos';
+import {
+  CreateFiscalYearDto,
+  ListFiscalYearsDto,
+} from './dtos/fiscal-year.dtos';
 import { ReopenPeriodDto } from './dtos/period-action.dtos';
 import { FiscalYearsService } from './fiscal-years.service';
 
@@ -30,9 +34,10 @@ export class FiscalYearsController {
   @Permissions('fiscal_years.view')
   list(
     @Param('legalEntityId', ParseUUIDPipe) legalEntityId: string,
+    @Query() query: ListFiscalYearsDto,
     @CurrentTenant() tenant: SessionAuthorizationContext,
   ) {
-    return this.service.list(legalEntityId, tenant);
+    return this.service.list(legalEntityId, query, tenant);
   }
 
   @Post('legal-entities/:legalEntityId/fiscal-years')
