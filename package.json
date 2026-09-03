@@ -1,7 +1,12 @@
 {
   "name": "nextjs-nestjs",
   "private": true,
-  "workspaces": ["apps/*"],
+  "workspaces": [
+    "apps/*"
+  ],
+  "dependencies": {
+    "pm2": "7.0.4"
+  },
   "scripts": {
     "dev": "bun run --filter '*' dev",
     "build": "bun run --filter '*' build",

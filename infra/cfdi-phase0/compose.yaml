@@ -2,8 +2,8 @@ name: balanz-cfdi-phase0
 
 services:
   postgres:
-    image: postgres:16.15-bookworm
-    restart: unless-stopped
+    image: postgres:16.15-bookworm@sha256:bb3e1a57e5407e0a5280b4211980a5e537f4abd234a87014ac979849a78dd825
+    restart: "no"
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-balanz_cfdi_phase0_test}
       POSTGRES_USER: ${POSTGRES_USER:-balanz_cfdi_admin}
@@ -24,8 +24,8 @@ services:
       - ./postgres/001-extensions.sql:/docker-entrypoint-initdb.d/001-extensions.sql:ro
 
   redis:
-    image: redis:7.4.10-alpine
-    restart: unless-stopped
+    image: redis:7.4.10-alpine@sha256:e7723ff73d963f5cc6d9c4643ea3d989527a402a319239054e9472a7fb9219a2
+    restart: "no"
     command:
       [
         "redis-server",
@@ -46,13 +46,15 @@ services:
       retries: 20
     volumes:
       - cfdi_phase0_redis:/data
+    networks:
+      - redis_wakeup
 
   minio:
-    image: balanz/minio:RELEASE.2025-10-15T17-29-55Z
+    image: ${CFDI_MINIO_IMAGE:-balanz/minio:RELEASE.2025-10-15T17-29-55Z}
     build:
       context: minio
       dockerfile: Dockerfile
-    restart: unless-stopped
+    restart: "no"
     command: server /data --console-address ":9001"
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-balanz_phase0}
@@ -79,7 +81,7 @@ services:
       - cfdi_phase0_minio:/data
 
   minio-bootstrap:
-    image: quay.io/minio/mc:RELEASE.2025-08-13T08-35-41Z
+    image: quay.io/minio/mc:RELEASE.2025-08-13T08-35-41Z@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727
     restart: "no"
     depends_on:
       minio:
@@ -104,16 +106,26 @@ services:
         mc admin policy attach phase0 balanz-cfdi-phase0-app --user "$${MINIO_APP_USER}"
 
   clamav:
-    image: clamav/clamav:1.5.4-debian13-slim
-    restart: unless-stopped
+    image: clamav/clamav:1.5.4-debian13-slim@sha256:be3cb41d9833ce9ffb98f3d3e1483c35c0d87060c2bda3624d75fd28bbf0b3bd
+    restart: "no"
     environment:
+      # Persistent manual development keeps signature updates enabled. The
+      # validator alone overrides this to true for its digest-pinned,
+      # disposable volume so CI is independent of update/reload timing.
+      CLAMAV_NO_FRESHCLAMD: ${CLAMAV_NO_FRESHCLAMD:-false}
       CLAMD_CONF_MaxFileSize: 55M
       CLAMD_CONF_StreamMaxLength: 55M
       CLAMD_CONF_MaxScanSize: 55M
     ports:
       - "127.0.0.1:${CLAMAV_PORT:-53310}:3310"
     healthcheck:
-      test: ["CMD", "clamdscan", "--ping", "1"]
+      # Probe the same TCP listener used by API/worker. A local Unix-socket
+      # PONG can otherwise hide a broken inter-container TCP path.
+      test:
+        [
+          "CMD-SHELL",
+          "printf 'zPING\\0' | nc -w 2 127.0.0.1 3310 | grep -qx 'PONG'",
+        ]
       start_period: 120s
       interval: 15s
       timeout: 10s
@@ -121,8 +133,279 @@ services:
     volumes:
       - cfdi_phase0_clamav_signatures:/var/lib/clamav
 
+  vault:
+    profiles: ["phase0-validation"]
+    image: hashicorp/vault:1.20.4@sha256:268bb80aa9c6d13d65fcfa05c0c268caca068952240a8087291a6ce0b66e3a10
+    restart: "no"
+    user: "0"
+    cap_add:
+      - IPC_LOCK
+    command:
+      - server
+      - -dev
+      - -dev-tls
+      - -dev-tls-cert-dir=/vault/tls
+      - -dev-listen-address=0.0.0.0:8200
+      - -dev-tls-san=127.0.0.1
+      - -dev-tls-san=vault
+    environment:
+      VAULT_DEV_ROOT_TOKEN_ID: ${VAULT_DEV_ROOT_TOKEN_ID:-}
+    ports:
+      - "127.0.0.1:${VAULT_PORT:-58200}:8200"
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "VAULT_ADDR=https://127.0.0.1:8200 VAULT_CACERT=/vault/tls/vault-ca.pem vault status >/dev/null",
+        ]
+      start_period: 10s
+      interval: 2s
+      timeout: 2s
+      retries: 30
+    volumes:
+      - type: bind
+        source: ${VAULT_TLS_DIR:-./.local/vault-tls}
+        target: /vault/tls
+    # Vault dev mode prints its bootstrap token. Disable container logging so
+    # the disposable root credential never enters Docker or CI logs.
+    logging:
+      driver: none
+
+  deploy-control-smoke:
+    profiles: ["phase0-validation"]
+    image: ${CFDI_DEPLOY_SMOKE_IMAGE:-balanz/deploy-smoke:phase0}
+    build:
+      context: deploy-smoke
+      dockerfile: Dockerfile
+    restart: "no"
+    user: "0:0"
+    working_dir: /workspace
+    network_mode: none
+    environment:
+      BALANZ_DISPOSABLE_CONTAINER: phase0-runtime-isolation-v1
+    volumes:
+      - type: bind
+        source: ${CFDI_WORKSPACE_ROOT:-../..}
+        target: /workspace
+        read_only: true
+    command: ["bash", "scripts/deploy/smoke-runtime-isolation.sh"]
+
+  runtime-storage-init:
+    profiles: ["phase0-validation"]
+    image: node:22.22.0-bookworm-slim@sha256:dd9d21971ec4395903fa6143c2b9267d048ae01ca6d3ea96f16cb30df6187d94
+    restart: "no"
+    user: "0"
+    command:
+      - sh
+      - -ec
+      - install -d -o 1000 -g 1000 -m 0700 /var/lib/balanz/object-storage
+    volumes:
+      - cfdi_phase0_runtime_storage:/var/lib/balanz/object-storage
+
+  api:
+    profiles: ["phase0-validation"]
+    image: node:22.22.0-bookworm-slim@sha256:dd9d21971ec4395903fa6143c2b9267d048ae01ca6d3ea96f16cb30df6187d94
+    restart: "no"
+    init: true
+    user: "node"
+    working_dir: /workspace/apps/api
+    command: ["node", "dist/main.js"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      clamav:
+        condition: service_healthy
+      vault:
+        condition: service_healthy
+    environment:
+      NODE_ENV: test
+      APP_PORT: 3021
+      APP_CORS_ORIGINS: ""
+      SECRETS_ENABLED: "true"
+      SECRETS_ENVIRONMENT: dev
+      SECRETS_CATEGORY: internal
+      SECRETS_OWNER: balanz
+      SECRETS_SYSTEM: api
+      VAULT_BASE_URL: https://vault:8200
+      VAULT_AUTH_PATH: approle
+      VAULT_MOUNT_PREFIX: kv-
+      VAULT_ROLE_ID: ${API_VAULT_ROLE_ID:-}
+      VAULT_SECRET_ID: ${API_VAULT_SECRET_ID:-}
+      NODE_EXTRA_CA_CERTS: /vault-ca/vault-ca.pem
+      REDIS_ENABLED: "true"
+      REDIS_WAKEUP_ENABLED: "true"
+      REDIS_WAKEUP_PREFIX: ${REDIS_WAKEUP_PREFIX:-balanz:cfdi:phase0}
+      OBJECT_STORAGE_DRIVER: local
+      OBJECT_STORAGE_LOCAL_ROOT: /var/lib/balanz/object-storage
+      OBJECT_STORAGE_LOCAL_WINDOWS_PRESECURED: "false"
+      MALWARE_SCANNER_MODE: clamav
+      CLAMAV_HOST: clamav
+      CLAMAV_PORT: 3310
+      HEALTH_CHECK_TIMEOUT_MS: 5000
+    ports:
+      - "127.0.0.1:${API_PORT:-53021}:3021"
+    volumes:
+      - type: bind
+        source: ${CFDI_WORKSPACE_ROOT:-../..}/node_modules
+        target: /workspace/node_modules
+        read_only: true
+      - type: bind
+        source: ${CFDI_WORKSPACE_ROOT:-../..}/apps/api/dist
+        target: /workspace/apps/api/dist
+        read_only: true
+      - type: bind
+        source: ${CFDI_WORKSPACE_ROOT:-../..}/apps/api/src
+        target: /workspace/apps/api/src
+        read_only: true
+      - type: bind
+        source: ${CFDI_WORKSPACE_ROOT:-../..}/apps/api/test
+        target: /workspace/apps/api/test
+        read_only: true
+      - type: bind
+        source: ${CFDI_WORKSPACE_ROOT:-../..}/apps/api/tsconfig.json
+        target: /workspace/apps/api/tsconfig.json
+        read_only: true
+      - type: bind
+        source: ${CFDI_WORKSPACE_ROOT:-../..}/apps/api/package.json
+        target: /workspace/apps/api/package.json
+        read_only: true
+      - type: bind
+        source: ${VAULT_TLS_DIR:-./.local/vault-tls}/vault-ca.pem
+        target: /vault-ca/vault-ca.pem
+        read_only: true
+      - type: bind
+        source: ${RUNTIME_API_ENV_FILE:-./.local/runtime-api.env}
+        target: /workspace/apps/api/.env.api
+        read_only: true
+      - cfdi_phase0_runtime_storage:/var/lib/balanz/object-storage
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:3021/liveness').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      start_period: 10s
+      interval: 2s
+      timeout: 2s
+      retries: 30
+    stop_grace_period: 15s
+    networks:
+      - default
+      - redis_wakeup
+
+  worker:
+    profiles: ["phase0-validation"]
+    image: node:22.22.0-bookworm-slim@sha256:dd9d21971ec4395903fa6143c2b9267d048ae01ca6d3ea96f16cb30df6187d94
+    restart: "no"
+    init: true
+    user: "node"
+    working_dir: /workspace/apps/api
+    command: ["node", "dist/worker.js"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      clamav:
+        condition: service_healthy
+      vault:
+        condition: service_healthy
+    environment:
+      NODE_ENV: test
+      SECRETS_ENABLED: "true"
+      SECRETS_ENVIRONMENT: dev
+      SECRETS_CATEGORY: internal
+      SECRETS_OWNER: balanz
+      SECRETS_SYSTEM: api
+      VAULT_BASE_URL: https://vault:8200
+      VAULT_AUTH_PATH: approle
+      VAULT_MOUNT_PREFIX: kv-
+      VAULT_ROLE_ID: ${WORKER_VAULT_ROLE_ID:-}
+      VAULT_SECRET_ID: ${WORKER_VAULT_SECRET_ID:-}
+      NODE_EXTRA_CA_CERTS: /vault-ca/vault-ca.pem
+      REDIS_ENABLED: "true"
+      REDIS_WAKEUP_ENABLED: "true"
+      REDIS_WAKEUP_PREFIX: ${REDIS_WAKEUP_PREFIX:-balanz:cfdi:phase0}
+      OBJECT_STORAGE_DRIVER: local
+      OBJECT_STORAGE_LOCAL_ROOT: /var/lib/balanz/object-storage
+      OBJECT_STORAGE_LOCAL_WINDOWS_PRESECURED: "false"
+      MALWARE_SCANNER_MODE: clamav
+      CLAMAV_HOST: clamav
+      CLAMAV_PORT: 3310
+      WORKER_CONCURRENCY: 2
+      WORKER_LEASE_SECONDS: 90
+      WORKER_HEARTBEAT_SECONDS: 20
+      WORKER_MAX_ATTEMPTS: 4
+      WORKER_MAX_RETRIES: 3
+      WORKER_BACKOFF_SECONDS: 10,30,120
+      WORKER_POLL_INTERVAL_MS: 250
+      WORKER_RECONCILE_INTERVAL_MS: 60000
+      WORKER_SHUTDOWN_GRACE_MS: 5000
+      WORKER_HEALTH_HOST: 0.0.0.0
+      HEALTH_CHECK_TIMEOUT_MS: 5000
+    ports:
+      - "127.0.0.1:${WORKER_HEALTH_PORT:-53002}:3002"
+    volumes:
+      - type: bind
+        source: ${CFDI_WORKSPACE_ROOT:-../..}/node_modules
+        target: /workspace/node_modules
+        read_only: true
+      - type: bind
+        source: ${CFDI_WORKSPACE_ROOT:-../..}/apps/api/dist
+        target: /workspace/apps/api/dist
+        read_only: true
+      - type: bind
+        source: ${CFDI_WORKSPACE_ROOT:-../..}/apps/api/src
+        target: /workspace/apps/api/src
+        read_only: true
+      - type: bind
+        source: ${CFDI_WORKSPACE_ROOT:-../..}/apps/api/test
+        target: /workspace/apps/api/test
+        read_only: true
+      - type: bind
+        source: ${CFDI_WORKSPACE_ROOT:-../..}/apps/api/tsconfig.json
+        target: /workspace/apps/api/tsconfig.json
+        read_only: true
+      - type: bind
+        source: ${CFDI_WORKSPACE_ROOT:-../..}/apps/api/package.json
+        target: /workspace/apps/api/package.json
+        read_only: true
+      - type: bind
+        source: ${VAULT_TLS_DIR:-./.local/vault-tls}/vault-ca.pem
+        target: /vault-ca/vault-ca.pem
+        read_only: true
+      - type: bind
+        source: ${RUNTIME_WORKER_ENV_FILE:-./.local/runtime-worker.env}
+        target: /workspace/apps/api/.env.worker
+        read_only: true
+      - cfdi_phase0_runtime_storage:/var/lib/balanz/object-storage
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:3002/liveness').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      start_period: 10s
+      interval: 2s
+      timeout: 2s
+      retries: 30
+    stop_grace_period: 15s
+    networks:
+      - default
+      - redis_wakeup
+
+networks:
+  redis_wakeup:
+
 volumes:
   cfdi_phase0_postgres:
   cfdi_phase0_redis:
   cfdi_phase0_minio:
   cfdi_phase0_clamav_signatures:
+  cfdi_phase0_runtime_storage:

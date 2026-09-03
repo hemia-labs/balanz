@@ -11,7 +11,11 @@ configured `accounting_dev` database.
    the `MINIO_KMS_SECRET_KEY` placeholder with `balanz-phase0:` followed by a
    base64-encoded, cryptographically random 32-byte development key.
 2. Run `docker compose --env-file infra/cfdi-phase0/.env -f
-infra/cfdi-phase0/compose.yaml up -d --wait` from the repository root.
+infra/cfdi-phase0/compose.yaml up -d --wait postgres redis minio clamav`
+from the repository root, followed by the one-shot `minio-bootstrap` service.
+Vault and the real API/worker entrypoints belong to the
+`phase0-validation` profile and are configured automatically by the validator;
+do not point that profile at a shared Vault.
 3. Point the Phase 0 integration test process at:
 
    - PostgreSQL: `127.0.0.1:55432/balanz_cfdi_phase0_test`
@@ -48,10 +52,21 @@ The first build therefore needs network access to fetch the exact source tag
 and checksum-verified Go modules.
 
 Infrastructure versions are pinned to patched releases available at the Phase
-0 validation date: PostgreSQL `16.15`, Redis `7.4.10`, and ClamAV `1.5.4`.
+0 validation date: PostgreSQL `16.15`, Redis `7.4.10`, ClamAV `1.5.4`, Vault
+`1.20.4`, and Node.js `22.22.0`. Registry images use immutable manifest
+digests; the MinIO source build additionally pins and verifies its upstream
+commit.
 ClamAV 1.4.3 is intentionally excluded because fixes published in the 1.4.5/
 1.5.3 line cover malformed-file memory-safety and extraction-limit issues.
 Review these pins again before every later pilot or production-like exercise.
+The Compose healthcheck sends a framed `zPING` over TCP port 3310, the same
+listener used between containers; a healthy local Unix socket alone is not
+accepted. Persistent manual development keeps FreshClam enabled by default.
+Only the disposable validator sets `CLAMAV_NO_FRESHCLAMD=true`: its new volume
+is populated by the image's initial signature download, while disabling
+the background updater removes external-network/reload timing from that finite
+test. This test setting is not a production or long-running-development update
+policy.
 
 ## Windows local adapter
 
@@ -72,6 +87,73 @@ Run it under the same operating-system identity that will run the API/worker.
 Production never accepts this attestation and must use S3/KMS.
 
 ## Validation commands
+
+For the complete, repeatable validation, run this from the repository root
+after installing dependencies from the lockfile:
+
+```powershell
+powershell -NoProfile -File infra/cfdi-phase0/validate-phase0-local.ps1
+```
+
+The validator runs the API/web lint, typecheck, general tests, and builds before
+integration work. It allocates loopback-only ports, generates every credential
+in process memory, starts a uniquely named Compose project, waits for health,
+and prepares a private filesystem root. It provisions an ephemeral TLS Vault
+with versioned KV v2 data, separate minimal API/worker AppRoles, dedicated
+PostgreSQL runtime LOGINs, and a synthetic Redis secret. It never reads the
+developer Vault or a shared Redis instance.
+
+The same run executes the append-only migration preflight/run,
+`qa:cfdi:postgres`, and `test:external:fiscal`; starts the compiled
+`dist/main.js` and `dist/worker.js` entrypoints with separate environment
+profiles; verifies liveness, readiness, Vault policy denial, environment
+routing, unique isolated-network addresses and aliases, framed ClamAV TCP from
+both runtime containers, and secret-free logs. A real API smoke signs in a synthetic user,
+selects a tenant, exercises authorization and RLS isolation, and signs out. A
+separate worker smoke proves the running supervisor uses its dedicated
+`LOGIN NOINHERIT` principal with a single `INHERIT FALSE` membership, selects
+only `balanz_worker` at connection startup, and executes the
+read-only durable queue function without inventing a Phase 0 production
+handler. The same entrypoints load separate `.env.api`/`.env.worker` files
+natively through `PlatformConfigModule`; validation files contain only
+non-sensitive routing markers and observable profile settings, while every
+disposable credential remains process-only. The validator then
+sends SIGTERM and requires a clean bounded shutdown without restart. Nest may
+finish its shutdown hooks and then re-emit SIGTERM, so Docker exit `143` is
+accepted alongside `0`; timeout/SIGKILL exit `137` and every other exit remain
+failures. It removes
+only those stopped disposable runtime containers, stops Redis completely, and
+cold-starts fresh API/worker containers without Redis as a dependency gate.
+Redis uses a dedicated Compose wakeup network while PostgreSQL, storage,
+scanner, and Vault remain on the dependency network; API/worker attach to both.
+This prevents a stopped Redis endpoint address from being recycled as a
+required-dependency address during the same cold-start test. The validator
+checks the exact per-service topology, unique addresses within each network,
+case-sensitive DNS aliases, and a framed ClamAV PONG from both runtimes.
+Both stay live with degraded readiness, while the worker supervisor continues
+its PostgreSQL polling/reconciliation activity. The validator then restarts
+Redis without restarting either runtime, requires API publisher and worker
+publisher/subscriber readiness to return to `up`, and delivers a second real
+constant-payload wakeup whose worker metric must advance. It stops Redis once
+more before a second SIGTERM so shutdown is also proven while the optional
+accelerator is unavailable. All migrator/API/worker database credentials are distinct.
+The final JSON summary contains status only, never credential values, and is
+written under `.local/cfdi-phase0-validation-reports/` for CI artifact
+collection.
+
+Before cleanup, the script verifies the exact Compose project label, service or
+volume label, project-name namespace, Compose file, and project directory. Its
+`finally` block removes only that project and, by default, its disposable named
+volumes; it never invokes prune or a global delete. Pass `-PreserveEvidence`
+explicitly to retain named volumes and the isolated storage/Vault directories
+after a failure. The script rejects storage/report roots that escape their fixed
+workspace locations or traverse a symlink, junction, or reparse point, using
+case-insensitive comparisons only on Windows. On Windows it delegates the NTFS
+storage ACL setup and verification to `prepare-local-storage.ps1`; CI uses the
+equivalent private POSIX mode.
+
+The lower-level commands below remain useful when diagnosing one stage or when
+validating a pre-existing development service explicitly.
 
 From `apps/api`, keep the Vault/configured development connection but redirect
 only these guarded QA scripts to the isolated test database. The preparation
@@ -144,10 +226,11 @@ retryable scanner-unavailable result and must never treat the object as clean.
 
 ## Cleanup
 
-`docker compose ... down` stops containers without deleting the named volumes.
-Deleting volumes is intentionally not part of an automated project script;
-only remove this isolated test data after resolving the exact Compose project
-and confirming that no evidence is needed for the validation report.
+The full validator removes its uniquely labelled disposable volumes by default.
+Use `-PreserveEvidence` when they are needed for diagnosis. Manual development
+commands continue to use `docker compose ... down` without `--volumes`; remove
+manual volumes only after resolving the exact Compose project and confirming
+that no development data is in scope.
 
 These manifests are development/test infrastructure, not a production
 deployment definition. Production S3 requires KMS-backed encryption and a

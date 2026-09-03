@@ -103,7 +103,7 @@ if ($markerRules.Count -ne 2 -or $unsafeMarkerRule) {
 [ordered]@{
   root = $target
   ownerSid = $verified.Owner
-  inheritedRules = ($rules | Where-Object IsInherited).Count
+  inheritedRules = @($rules | Where-Object IsInherited).Count
   explicitAllowRules = $rules.Count
   marker = $markerName
   status = 'private-root-ready'
