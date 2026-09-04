@@ -1,30 +1,85 @@
 # Contrato técnico de la plataforma de ingesta CFDI
 
-- Versión contractual: `p0.1`
-- Fecha: 2026-08-28
-- Fase 0: `BLOCKED`
-- Fases 1–8: `NOT_STARTED`
+- Versión contractual: `p1.0`
+- Fecha: 2026-09-03
+- Fase 0 desarrollo: `ACCEPTED`
+- Fase 0 release: `BLOCKED`
+- Fase 1 XML: `PARTIALLY_COMPLETE`
+- Fase 2 ZIP: `NOT_AUTHORIZED`
+- Fases 3–8: `NOT_STARTED`
 
 ## 1. Propósito y límite público
 
-Este contrato define las interfaces internas y garantías durables que Fase 0
-debe entregar a las futuras verticales XML, ZIP, SAT, exportación y lifecycle.
-No es un contrato de producto para cargar CFDI.
+Este contrato conserva las interfaces internas y garantías durables entregadas
+por Fase 0 y añade el contrato público de XML individual autorizado en Fase 1.
+Las afirmaciones históricas de ausencia de rutas/parser en el alcance de Fase 0
+no restringen esta extensión. Continúan fuera del runtime: ZIP, e.firma,
+descarga/sincronización SAT, mesa mensual completa, exportaciones y Fases 2–8.
 
-En Fase 0 **no existe ni se debe registrar**:
+### 1.1 Superficie HTTP de Fase 1
 
-- endpoint de carga XML o ZIP;
-- endpoint de creación de una ingesta fiscal por usuario;
-- parser funcional, validación XSD o handler XML de producción;
-- lista, detalle o descarga real de CFDI;
-- endpoint SAT, e.firma, mesa mensual o exportación;
-- UI de cualquiera de esas capacidades.
+Todas las rutas viven bajo el prefijo global configurado por la API, usan
+sesión opaca, tenant/membresía activos, CSRF en mutaciones, permiso explícito,
+scope resuelto server-side y errores no enumerantes. Nunca aceptan
+`organizationId` como autoridad ni serializan entidades TypeORM.
 
-Las rutas de Fase 1 que aparezcan en documentos de arquitectura son únicamente
-reservas `FUTURE / NOT_STARTED`; no forman parte de OpenAPI ni del runtime de
-Fase 0. Los únicos endpoints nuevos permitidos en Fase 0 son probes técnicos de
-API/worker y, si la arquitectura existente lo requiere, exposición de métricas
-protegida por el control operativo vigente.
+| Método | Ruta | Permiso | Resultado principal |
+| ------ | ---- | ------- | ------------------- |
+| `POST` | `/legal-entities/:legalEntityId/ingestions/xml` | `ingestion.create` | `202` con `uploadId`, `objectId`, `jobId`, `status`, links y `correlationId` |
+| `GET` | `/ingestions/:ingestionJobId` | `ingestion.view` | estado durable; `ETag` y `Retry-After: 2` mientras no sea terminal |
+| `GET` | `/ingestions/:ingestionJobId/items` | `ingestion.view` | items paginados y resultado estable |
+| `POST` | `/ingestions/:ingestionJobId/retry` | `ingestion.retry` | `202`; exige `Idempotency-Key` y sólo un fallo final elegible |
+| `POST` | `/ingestions/:ingestionJobId/cancel` | `ingestion.cancel` | `202`; solicitud durable e idempotente por estado |
+| `GET` | `/processes` | `processes.view` | jobs `manual_xml` paginados dentro del scope |
+| `GET` | `/legal-entities/:legalEntityId/cfdis` | `cfdi.view` | lista fiscal real paginada |
+| `GET` | `/cfdis/:cfdiId` | `cfdi.view` | detalle explícito con conceptos, impuestos, relaciones, pagos, períodos, procedencia e incidencias permitidas |
+| `POST` | `/cfdis/:cfdiId/access-url` | `cfdi.view` + `cfdi.download` + MFA | grant temporal de un solo uso, ligado a sesión/membresía |
+| `GET` | `/cfdis/:cfdiId/content?token=…` | `cfdi.view` + `cfdi.download` + MFA | stream privado del XML; consume el grant y no expone `storage_key` |
+
+La carga acepta `multipart/form-data` con exactamente un archivo en el campo
+`file`, extensión `.xml`, MIME declarado XML y contenido detectado XML. El
+límite es 5 MiB y tanto almacenamiento como SHA-256/tamaño se calculan durante
+el stream, sin materializar el archivo completo en memoria. La object key es
+opaca y generada por servidor. Un rechazo temprano del file stream se observa
+sin esperar indefinidamente el cierre del request; el boundary liquida los
+streams restantes y no deja promesas rechazadas sin manejador.
+
+`Idempotency-Key` es obligatorio (1–128 caracteres ASCII imprimibles, sin
+espacios exteriores). El fingerprint `manual_xml_upload_v1` cubre operación,
+scope fiscal resuelto, SHA-256, tamaño, MIME declarado y MIME detectado. La
+misma key/fingerprint reproduce las mismas referencias; una key con otro
+fingerprint responde `409 IDEMPOTENCY_CONFLICT`, incluida la carrera
+concurrente. La admisión de nuevos jobs manuales se serializa por tenant y
+limita a 2 activos por membresía productora y 4 por tenant; un replay
+idempotente no consume otro slot y el exceso responde
+`429 INGESTION_ACTIVE_JOB_LIMIT`.
+
+### 1.2 Consultas, filtros y DTO
+
+Las colecciones usan `page >= 1`, `limit` entre 1 y 100, dirección `asc|desc`,
+orden estable con desempate por ID y únicamente filtros/sorts allowlisted:
+
+- items: `result`, sort `ordinal|updatedAt`;
+- procesos: `status`, `source=manual_xml`, `legalEntityId`, sort
+  `createdAt|updatedAt|status`;
+- CFDI: `documentType=I|E|T|N|P`, UUID sintácticamente válido, rango de emisión
+  y RFC contraparte, sort `issuedAt|total|createdAt`.
+
+Nómina se devuelve sólo con `payroll.view`; incidencias sólo con
+`incidents.view`. En ausencia del permiso, el detalle marca la sección como
+restringida sin filtrar sus datos. IDs ajenos, tenant B y cuenta no asignada
+responden el mismo `404 RESOURCE_NOT_FOUND`.
+
+### 1.3 Resultado durable XML
+
+`ingestion_items.product_result` usa `incorporated`, `duplicate`, `foreign`,
+`invalid`, `unsupported` o `internal_error`. UUID nuevo y válido crea el CFDI;
+UUID existente con igual hash enlaza la nueva observación al CFDI existente;
+UUID existente con distinto hash no reemplaza el original y crea incidente
+alto; `foreign`, `invalid` y `unsupported` no crean CFDI. Un complemento
+desconocido conserva/incorpora el core y crea `COMPLEMENT_UNSUPPORTED`.
+Todo resultado de contenido alcanzado por el parser, incluidos los rechazos,
+registra versión de parser/schema y momento del intento sin conservar XML.
 
 ## 2. Vocabulario e invariantes
 
@@ -128,9 +183,9 @@ Estados: `awaiting_upload`, `queued`, `processing`, `completed`,
 `completed_with_issues`, `failed_retryable`, `failed_final`,
 `cancel_requested`, `cancelled`.
 
-Etapas reservadas: `scanning`, `extracting`, `parsing`, `persisting`. En Fase 0
-sólo la plataforma y handlers de test pueden recorrerlas; no existe handler
-fiscal de producción.
+Las etapas `scanning`, `parsing` y `persisting` están activas para
+`manual_xml`; `extracting` permanece reservada para ZIP en Fase 2. En el cierre
+histórico de Fase 0 sólo la plataforma y handlers de test podían recorrerlas.
 
 | Comando            | Precondición                                         | Efecto durable                                                                                                               |
 | ------------------ | ---------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
@@ -151,12 +206,21 @@ claim y puede superar 4 por shutdown/reclaim. El shutdown gracioso no consume
 retry; un lease vencido sí. Perder lease produce `JOB_LEASE_LOST` y prohíbe
 publicar resultado.
 
+La transacción fiscal no retiene el row lock del job durante el trabajo lento:
+la etapa se publica antes en una transacción corta y heartbeat/cancel conservan
+capacidad de progresar. La cancelación anterior al commit fiscal impide publicar;
+después de que el item `manual_xml` se vuelve terminal, el job deja de ser
+cancelable y completa el resultado ya publicado. `failed_final`, tanto directo
+como por retries agotados, terminaliza cualquier item `manual_xml` no terminal
+como `internal_error` y reconcilia counters en la misma operación cercada.
+
 ### 5.4 Item
 
-Estado técnico: `pending`, `processing`, `terminal`. Resultados reservados:
+Estado técnico: `pending`, `processing`, `terminal`. Resultados activos para
+Fase 1:
 `incorporated`, `duplicate`, `foreign`, `invalid`, `unsupported`,
-`internal_error`. En Fase 0 estos resultados son vocabulario futuro/test; no
-afirman que exista clasificación CFDI.
+`internal_error`. En el cierre histórico de Fase 0 eran únicamente vocabulario
+de contrato/test; la clasificación CFDI real comienza con `manual_xml`.
 
 ## 6. Ports internos de Fase 0
 
@@ -272,11 +336,11 @@ usa el migrator, un owner ni un rol con `BYPASSRLS`.
 
 ## 8. Idempotencia
 
-Las operaciones futuras que creen uploads/jobs exigirán header
-`Idempotency-Key`; Fase 0 implementa la estructura, no una ruta pública. La key
-se normaliza de manera mínima (sin case folding semántico), se limita en tamaño
-y se almacena como dato sensible. El fingerprint canónico incluye operación,
-versión, scope resuelto y atributos que cambian el efecto.
+La carga XML manual y el retry de Fase 1 exigen `Idempotency-Key`; las
+operaciones posteriores que creen uploads/jobs definirán su propia versión de
+fingerprint. La key se normaliza de manera mínima (sin case folding semántico),
+se limita en tamaño y se almacena como dato sensible. El fingerprint canónico
+incluye operación, versión, scope resuelto y atributos que cambian el efecto.
 
 Resultados:
 
@@ -291,8 +355,8 @@ Resultados:
 ## 9. Errores
 
 Los códigos y su retryability están en
-`docs/contracts/CFDI_INGESTION_ERROR_CATALOG.md`. Un boundary HTTP futuro usa el
-envelope existente de la API y añade un código estable, mensaje seguro,
+`docs/contracts/CFDI_INGESTION_ERROR_CATALOG.md`. El boundary HTTP de Fase 1 usa
+el envelope existente de la API y añade un código estable, mensaje seguro,
 `correlationId` y detalles allowlisted. Stack, SQL, hostname, bucket/key, signed
 URL, antivirus signature, XML o datos fiscales no salen al cliente.
 
@@ -358,12 +422,12 @@ se agrega en el target de scrape, no a partir de datos de la ingesta.
 - Cada fase extiende ports/tablas existentes sólo cuando demuestra necesidad;
   no crea una segunda cola o storage paralelo.
 
-## 12. Reservas futuras, no implementadas
+## 12. Estado por fase y reservas futuras
 
-| Fase | Contrato futuro                                          | Estado        |
+| Fase | Capacidad                                                | Estado        |
 | ---- | -------------------------------------------------------- | ------------- |
-| 1    | upload XML 5 MiB, parser, dominio/lista/detalle/descarga | `NOT_STARTED` |
-| 2    | init/signed URL/confirm ZIP y resultados parciales       | `NOT_STARTED` |
+| 1    | upload XML 5 MiB, parser, dominio/lista/detalle/descarga | `PARTIALLY_COMPLETE` |
+| 2    | init/signed URL/confirm ZIP y resultados parciales       | `NOT_AUTHORIZED` |
 | 3    | reauth purpose-bound y custodia e.firma                  | `NOT_STARTED` |
 | 4    | solicitud/poll/paquetes SAT on-demand                    | `NOT_STARTED` |
 | 5    | mesa mensual, decisiones y cierre                        | `NOT_STARTED` |
@@ -371,5 +435,7 @@ se agrega en el target de scrape, no a partir de datos de la ingesta.
 | 7    | operación global/soporte JIT                             | `NOT_STARTED` |
 | 8    | hardening/piloto                                         | `NOT_STARTED` |
 
-No se debe generar OpenAPI, controller, ruta, UI ni reporte de validación de
-Fase 1 a partir de esta tabla hasta autorización expresa posterior.
+Las filas de Fases 2–8 son reservas contractuales: no autorizan generar
+OpenAPI, controllers, rutas, UI ni reportes de esas capacidades. Fase 1 fue
+autorizada expresamente y es el único consumidor funcional de este contrato en
+la ejecución actual.

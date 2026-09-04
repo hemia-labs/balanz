@@ -2,7 +2,7 @@
 
 - Estado: `ACCEPTED` (decisión de diseño)
 - Fecha: 2026-08-28
-- Implementación: Fase 1 `NOT_STARTED`
+- Implementación: Fase 1 `IN_PROGRESS`
 
 ## Contexto
 
@@ -14,7 +14,7 @@ plataforma que lo ejecutará.
 
 ## Decisión
 
-El parser futuro será un adapter aislado detrás de un port explícito. Recibirá
+El parser es un adapter aislado detrás de un port explícito. Recibe
 un stream/objeto ya almacenado y escaneado; nunca una URL proporcionada por el
 usuario. Se configurará con:
 
@@ -49,27 +49,31 @@ fuera válido.
 
 ## Consecuencias
 
-Los esquemas/catálogos serán dependencias versionadas con manifest y revisión
-de licencia/procedencia. La allowlist obliga a tratar una versión desconocida
-como `CFDI_VERSION_UNSUPPORTED` o `COMPLEMENT_UNSUPPORTED`, no como éxito
-silencioso. Las métricas sólo usan versión/tipo/código acotados; nunca RFC,
-UUID fiscal, nombre o contenido XML.
+Los esquemas/catálogos son dependencias versionadas con manifest y revisión de
+procedencia. La allowlist obliga a tratar una versión raíz o una versión
+desconocida de un complemento soportado como `CFDI_VERSION_UNSUPPORTED` o
+`COMPLEMENT_UNSUPPORTED`, no como éxito silencioso. Un namespace de complemento
+desconocido conserva el core CFDI 4.0 y produce un incidente
+`COMPLEMENT_UNSUPPORTED`, sin inventar campos. Las métricas sólo usan
+versión/tipo/código acotados; nunca RFC, UUID fiscal, nombre o contenido XML.
 
 ## Criterios de entrada de Fase 1
 
-- Fase 0 `DONE` y reporte aprobado.
+- Desarrollo de Fase 0 `ACCEPTED`, autorización explícita de Fase 1 y gates de
+  release todavía obligatorios antes de merge/despliegue.
 - Librería elegida demuestra controles de red/DTD/entities/limits.
 - Corpus oficial y sintético, XSD/catálogos y hashes registrados.
 - Threat model revisado y presupuesto de recursos medido.
 
-## Pruebas obligatorias futuras
+## Pruebas obligatorias de Fase 1
 
 XML válido; malformed; DTD/XXE; external schema; entity expansion; profundidad,
 tamaño y atributos extremos; encoding inválido; namespace engañoso; versión y
 complemento no soportados; timeout/memoria; reinicio y replay; logs redactados.
 
-## Límite de fase
+## Límite histórico de Fase 0
 
-Este ADR es el único entregable del parser en Fase 0. No se añade dependencia,
-handler, endpoint, tabla de dominio, fixture fiscal funcional ni código de
-parsing hasta revisión e inicio explícito de Fase 1.
+Este ADR fue el único entregable del parser en Fase 0. La autorización expresa
+de Fase 1 habilita ahora dependencia, handler, endpoints, dominio y fixtures
+sintéticos exclusivamente para XML individual; ZIP y fases posteriores
+permanecen fuera de alcance.

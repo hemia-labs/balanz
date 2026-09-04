@@ -1,17 +1,18 @@
 # Runbook del worker durable CFDI
 
-- Versión: 1.1
-- Fecha: 2026-08-28
-- Fase aplicable: Fase 0 `BLOCKED`
+- Versión: 1.2
+- Fecha: 2026-09-03
+- Fase aplicable: Fase 0 desarrollo `ACCEPTED`, release `BLOCKED`; Fase 1 XML
+  `IN_PROGRESS`
 - Audiencia: desarrollo, SRE/operación y respuesta a incidentes
 
 ## 1. Propósito y límites
 
-Este runbook opera la plataforma durable compartida: claim, lease, heartbeat,
-retry, Redis wakeup, object storage, scanner, reconciliadores, health y
-métricas. En Fase 0 el registry productivo no contiene un handler XML/ZIP/SAT;
-un job fiscal que requiera esos handlers no debe crearse. Los handlers de prueba
-sólo existen en módulos/entornos de test.
+Este runbook opera la plataforma durable compartida y el handler productivo
+`manual_xml` de Fase 1: claim, lease, heartbeat, retry, Redis wakeup, object
+storage, scanner, parser seguro, persistencia fiscal, reconciliadores, health y
+métricas. El registry no contiene handlers ZIP/SAT ni placeholders de fases
+posteriores.
 
 PostgreSQL es la única autoridad. No reconstruyas estado desde Redis, logs,
 storage o memoria del worker. No uses `DROP DATABASE`, `TRUNCATE` general,
@@ -362,10 +363,10 @@ integridad: pausa nuevos claims, preserva evidencia y escala inmediatamente.
 
 ### 6.7 `HANDLER_NOT_REGISTERED`
 
-Fase 0 no tiene handlers fiscales productivos. El error puede indicar que un
-seed/test creó un job ficticio o que se desplegó código/config incompatible.
-No registres un handler vacío para silenciarlo. Identifica el origen, detén el
-productor indebido, conserva el job y corrige mediante forward-fix.
+Fase 1 registra únicamente `manual_xml`. El error indica un job de fuente no
+soportada o un despliegue API/worker incompatible. No registres un handler vacío
+para silenciarlo. Identifica el origen, detén el productor indebido, conserva el
+job y corrige mediante forward-fix.
 
 ### 6.8 Fallo RLS/contexto
 
@@ -386,6 +387,19 @@ Es esperado ante señal duplicada, tardía o falsa. El worker consulta PostgreSQ
 no encuentra claim y vuelve al loop. No loggea el mensaje completo ni crea una
 fila. Un volumen anómalo se trata con rate/ACL de Redis, no desactivando polling.
 
+### 6.10 Fallo de scanner/parser XML
+
+- Scanner caído, timeout o storage caído conservan el objeto en cuarentena y
+  usan el presupuesto durable; no marques `clean` ni cambies a bypass.
+- Malware, DTD/XXE, expansión, XML malformado, versión no soportada, UUID
+  inválido y RFC ajeno son resultados de contenido no reintentables.
+- Un complemento de namespace desconocido incorpora sólo el core y abre
+  `COMPLEMENT_UNSUPPORTED`; una versión no soportada de TFD/Pagos/Nómina se
+  rechaza como `unsupported`.
+- Ante `CFDI_UUID_HASH_CONFLICT`, preserva el original, mantén el conflictivo en
+  cuarentena/hold y escala el incidente alto. Nunca reemplaces object key ni
+  CFDI por una corrección manual.
+
 ## 7. Reconciliadores
 
 Todos son idempotentes, procesan batches acotados, usan edad mínima y emiten
@@ -396,7 +410,7 @@ conteos técnicos.
 | leases vencidos             | job processing/cancel con lease expirado    | requeue, cancel o fallo final según intentos; auditar             |
 | uploads expirados           | intención incompleta >24 h                  | expirar y marcar objeto rechazado/retención; auditar              |
 | objetos huérfanos           | fila pending/uploaded sin referencia activa | verificar edad/referencias; marcar rechazo, retención y auditoría |
-| objetos confirmados sin job | upload/objeto listo sin job esperado        | marcar y auditar; no sintetizar jobs en Fase 0                    |
+| objetos confirmados sin job | upload/objeto listo sin job esperado        | marcar y auditar; no sintetizar jobs automáticamente              |
 | jobs huérfanos              | root object/upload ausente o terminal       | fallo final seguro y auditoría                                    |
 | counters/estado             | agregados inconsistentes con items          | recalcular mediante fuente durable/versionada                     |
 | lifecycle                   | `retention_until` vencido y sin hold        | marcar elegibilidad y auditar; no borrar bytes en Fase 0          |
@@ -409,13 +423,14 @@ estados reversibles y registra elegibilidad/procedencia. La eliminación durable
 con hold, retención y evidencia de storage pertenece a Fase 6 y permanece
 `NOT_STARTED`.
 
-## 8. Retry y cancelación manual futura
+## 8. Retry y cancelación manual de Fase 1
 
-No hay endpoint de producto en Fase 0. Cuando exista, retry/cancel requerirá
-permiso, assignment/ownership, estado válido, versión y RLS. Operación manual
-de soporte no debe mutar filas directamente. Un retry conserva procedencia y
-crea/actualiza la relación aprobada; cancelación se reconoce sólo en un boundary
-seguro.
+Las rutas de Fase 1 requieren `ingestion.retry`/`ingestion.cancel`, assignment y
+ownership propio para collaborator, estado válido y RLS. Retry exige
+`Idempotency-Key`, crea otro job con `retry_of_job_id` y conserva objeto/upload e
+item de procedencia; no reabre el job anterior. Cancelación solicita la
+transición durable y el worker la reconoce en un boundary seguro. Soporte no
+debe mutar filas directamente.
 
 ## 9. Despliegue y rollback
 

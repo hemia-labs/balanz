@@ -6,9 +6,9 @@
 
 ## Contexto
 
-Las futuras cargas XML/ZIP, descargas SAT, exportaciones y purgas no pueden
-depender del proceso HTTP, de memoria local ni de Redis. Deben sobrevivir
-reinicios, permitir reintentos acotados, cancelación, recuperación y reparto
+Las cargas XML y las futuras cargas ZIP, descargas SAT, exportaciones y purgas
+no pueden depender del proceso HTTP, de memoria local ni de Redis. Deben
+sobrevivir reinicios, permitir reintentos acotados, cancelación, recuperación y reparto
 justo entre organizaciones sin perder el aislamiento multi-tenant.
 
 ## Decisión
@@ -90,8 +90,9 @@ aunque aumenta la latencia hasta el siguiente poll.
 - Redis disponible reduce latencia; Redis apagado conserva progreso.
 - Los reconciliadores convergen al ejecutarse repetidamente.
 
-## Límite de fase
+## Evolución por fase
 
-Fase 0 implementa la maquinaria, probes y un registro de handlers vacío en
-producción. Los handlers XML, ZIP, SAT y exportación permanecen
-`NOT_STARTED` hasta su fase correspondiente.
+Fase 0 implementó la maquinaria, probes y un registro de handlers vacío en
+producción. Fase 1 registra el handler productivo `manual_xml` sobre esa misma
+cola durable; ZIP, SAT y exportación permanecen `NOT_STARTED` hasta su fase
+correspondiente.
