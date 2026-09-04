@@ -19,6 +19,7 @@ import { FiscalIngestionFoundation1787690600000 } from '../src/database/migratio
 import { FiscalRlsWorkerClaims1787690610000 } from '../src/database/migrations/1787690610000-FiscalRlsWorkerClaims';
 import { IngestionAutomaticRetryBudget1787690620000 } from '../src/database/migrations/1787690620000-IngestionAutomaticRetryBudget';
 import { PhaseZeroRuntimeCompatibility1787690630000 } from '../src/database/migrations/1787690630000-PhaseZeroRuntimeCompatibility';
+import { PhaseOneCfdiDomain1787690700000 } from '../src/database/migrations/1787690700000-PhaseOneCfdiDomain';
 import { seedDatabase } from '../src/database/seeds/seed-database';
 import { ROLE_DEFINITIONS } from '../src/modules/permissions/entities/role.entity';
 
@@ -154,6 +155,7 @@ async function validateMigrationLifecycle(): Promise<void> {
     report.transactionalMigrationLog = transactionalMigrationLog;
 
     await validatePhaseZeroSchema(queryRunner.manager, report);
+    await validatePhaseOneCfdiSchema(queryRunner.manager, report);
     await validateCounterReconciliationPlan(queryRunner.manager, report);
     await validateFiscalOwnerMembershipRejection(queryRunner.manager, report);
     await validateSeedsTwice(queryRunner.manager, report);
@@ -240,8 +242,13 @@ async function validatePhaseZeroDownUpSavepoint(
   const rls = new FiscalRlsWorkerClaims1787690610000();
   const retryBudget = new IngestionAutomaticRetryBudget1787690620000();
   const runtimeCompatibility = new PhaseZeroRuntimeCompatibility1787690630000();
+  const phaseOne = new PhaseOneCfdiDomain1787690700000();
   await manager.query(`SAVEPOINT phase_zero_down_up_validation`);
   try {
+    await phaseOne.down(queryRunner);
+    const phaseOneDown = await inspectPhaseOneCfdiDownState(manager);
+    assertAllTrue(phaseOneDown, 'migration 070 down state');
+
     await runtimeCompatibility.down(queryRunner);
     const runtimeCompatibilityDown =
       await inspectRuntimeCompatibilityDownState(manager);
@@ -263,11 +270,15 @@ async function validatePhaseZeroDownUpSavepoint(
     await rls.up(queryRunner);
     await retryBudget.up(queryRunner);
     await runtimeCompatibility.up(queryRunner);
+    await phaseOne.up(queryRunner);
     const restored = await inspectPhaseZeroState(manager);
     assertPhaseZeroState(restored);
+    const restoredPhaseOne = await inspectPhaseOneCfdiState(manager);
+    assertPhaseOneCfdiState(restoredPhaseOne);
 
     report.phaseZeroDownUp = {
       savepoint: true,
+      migration070Down: phaseOneDown,
       migration063Down: runtimeCompatibilityDown,
       migration062Down: retryBudgetDown,
       migration061Down: rlsDown,
@@ -277,8 +288,10 @@ async function validatePhaseZeroDownUpSavepoint(
         rls.name,
         retryBudget.name,
         runtimeCompatibility.name,
+        phaseOne.name,
       ],
       restored,
+      restoredPhaseOne,
     };
   } finally {
     await manager.query(`ROLLBACK TO SAVEPOINT phase_zero_down_up_validation`);
@@ -351,6 +364,188 @@ async function validatePhaseZeroSchema(
   `);
   assertAllTrue(migrationShape, 'Phase 0 migration shape');
   report.phaseZeroSchema = { ...state, ...migrationShape };
+}
+
+const PHASE_ONE_CFDI_TABLES = [
+  'cfdis',
+  'cfdi_concepts',
+  'cfdi_relations',
+  'cfdi_payments',
+  'cfdi_payment_documents',
+  'cfdi_taxes',
+  'cfdi_payrolls',
+  'cfdi_payroll_perceptions',
+  'cfdi_payroll_deductions',
+  'cfdi_payroll_other_payments',
+  'cfdi_payroll_incapacities',
+  'period_cfdis',
+  'incidents',
+  'cfdi_access_grants',
+] as const;
+
+async function validatePhaseOneCfdiSchema(
+  manager: EntityManager,
+  report: Record<string, unknown>,
+): Promise<void> {
+  const state = await inspectPhaseOneCfdiState(manager);
+  assertPhaseOneCfdiState(state);
+  report.phaseOneCfdiSchema = state;
+}
+
+async function inspectPhaseOneCfdiState(
+  manager: EntityManager,
+): Promise<Record<string, unknown>> {
+  const [state] = await manager.query(
+    `SELECT
+       (SELECT count(*)::integer
+          FROM information_schema.tables
+         WHERE table_schema = 'public'
+           AND table_name = ANY($1::text[])) AS domainTables,
+       (SELECT count(*)::integer
+          FROM pg_class
+         WHERE relnamespace = 'public'::regnamespace
+           AND relname = ANY($1::text[])
+           AND relrowsecurity
+           AND relforcerowsecurity) AS forcedRlsTables,
+       (SELECT count(*)::integer
+          FROM pg_policies
+         WHERE schemaname = 'public'
+           AND tablename = ANY($1::text[])) AS tenantPolicies,
+       (SELECT count(*)::integer
+          FROM information_schema.columns
+         WHERE table_schema = 'public'
+           AND table_name = 'ingestion_items'
+           AND column_name IN (
+             'cfdi_id', 'parser_version', 'schema_version',
+             'parsed_cfdi_version', 'normalized_uuid', 'issuer_rfc',
+             'receiver_rfc', 'document_type', 'parser_completed_at'
+           )) AS ingestionProvenanceColumns,
+       EXISTS (
+         SELECT 1 FROM pg_constraint
+         WHERE conrelid = 'public.cfdis'::regclass
+           AND conname = 'uq_cfdis_legal_entity_uuid'
+           AND contype = 'u'
+       ) AS logicalIdentityUnique,
+       COALESCE((
+         SELECT bool_and(
+           cardinality(conkey) >= 2
+           AND pg_get_constraintdef(oid) ~ '^FOREIGN KEY \\(organization_id,'
+         )
+         FROM pg_constraint
+         WHERE connamespace = 'public'::regnamespace
+           AND conrelid = ANY(
+             SELECT format('public.%I', relation_name)::regclass
+             FROM unnest($1::text[]) AS relation(relation_name)
+           )
+           AND contype = 'f'
+       ), false) AS allForeignKeysCarryScope,
+       NOT EXISTS (
+         SELECT 1
+         FROM information_schema.columns
+         WHERE table_schema = 'public'
+           AND table_name = ANY($1::text[])
+           AND (
+             data_type IN ('real', 'double precision', 'json', 'jsonb')
+             OR column_name ~ 'xml'
+           )
+       ) AS exactModeledDomain,
+       NOT EXISTS (
+         SELECT 1
+         FROM information_schema.columns
+         WHERE table_schema = 'public'
+           AND table_name = ANY($1::text[])
+           AND (
+             column_name LIKE '%amount%'
+             OR column_name IN (
+               'exchange_rate', 'subtotal', 'discount', 'total',
+               'quantity', 'unit_value', 'rate_or_quota', 'equivalence',
+               'previous_balance', 'remaining_balance', 'paid_days',
+               'base_salary', 'integrated_daily_salary', 'incapacity_days'
+             )
+           )
+           AND data_type <> 'numeric'
+       ) AS exactNumericColumns,
+       COALESCE((
+         SELECT bool_and(
+           has_table_privilege('balanz_api', format('public.%I', relation_name), 'SELECT')
+           AND NOT has_table_privilege('balanz_api', format('public.%I', relation_name), 'INSERT')
+           AND NOT has_table_privilege('balanz_api', format('public.%I', relation_name), 'UPDATE')
+           AND NOT has_table_privilege('balanz_api', format('public.%I', relation_name), 'DELETE')
+         )
+         FROM unnest($2::text[]) AS relation(relation_name)
+       ), false) AS apiReadOnlyDomain,
+       COALESCE((
+         SELECT bool_and(
+           has_table_privilege('balanz_worker', format('public.%I', relation_name), 'SELECT')
+           AND has_table_privilege('balanz_worker', format('public.%I', relation_name), 'INSERT')
+           AND NOT has_table_privilege('balanz_worker', format('public.%I', relation_name), 'UPDATE')
+           AND NOT has_table_privilege('balanz_worker', format('public.%I', relation_name), 'DELETE')
+         )
+         FROM unnest($2::text[]) AS relation(relation_name)
+       ), false) AS workerAppendOnlyDomain,
+       has_table_privilege('balanz_api', 'public.cfdi_access_grants', 'SELECT')
+         AND NOT has_table_privilege('balanz_api', 'public.cfdi_access_grants', 'INSERT')
+         AND NOT has_table_privilege('balanz_api', 'public.cfdi_access_grants', 'UPDATE')
+         AND NOT has_table_privilege('balanz_api', 'public.cfdi_access_grants', 'DELETE')
+         AND has_column_privilege('balanz_api', 'public.cfdi_access_grants', 'id', 'INSERT')
+         AND has_column_privilege('balanz_api', 'public.cfdi_access_grants', 'expires_at', 'INSERT')
+         AND NOT has_column_privilege('balanz_api', 'public.cfdi_access_grants', 'created_at', 'INSERT')
+         AND has_column_privilege('balanz_api', 'public.cfdi_access_grants', 'used_at', 'UPDATE')
+         AND NOT has_column_privilege('balanz_api', 'public.cfdi_access_grants', 'token_hash', 'UPDATE')
+         AS accessGrantLeastPrivilege,
+       (SELECT tableowner = 'balanz_fiscal_owner'
+          FROM pg_tables
+         WHERE schemaname = 'public' AND tablename = 'cfdis')
+         AS constrainedOwner,
+       NOT has_schema_privilege('balanz_fiscal_owner', 'public', 'CREATE')
+         AS ownerCannotCreate
+    `,
+    [
+      [...PHASE_ONE_CFDI_TABLES],
+      PHASE_ONE_CFDI_TABLES.filter((table) => table !== 'cfdi_access_grants'),
+    ],
+  );
+  return state;
+}
+
+function assertPhaseOneCfdiState(state: Record<string, unknown>): void {
+  assertEqual(state.domaintables, 14, 'Phase 1 CFDI table count');
+  assertEqual(state.forcedrlstables, 14, 'Phase 1 FORCE RLS table count');
+  assertEqual(state.tenantpolicies, 27, 'Phase 1 RLS policy count');
+  assertEqual(
+    state.ingestionprovenancecolumns,
+    9,
+    'ingestion provenance columns',
+  );
+  assertEqual(
+    state.logicalidentityunique,
+    true,
+    'CFDI logical identity unique',
+  );
+  assertEqual(
+    state.allforeignkeyscarryscope,
+    true,
+    'Phase 1 composite scope FKs',
+  );
+  assertEqual(
+    state.exactmodeleddomain,
+    true,
+    'modeled domain has no float/JSON/XML',
+  );
+  assertEqual(state.exactnumericcolumns, true, 'exact numeric fiscal values');
+  assertEqual(
+    state.apireadonlydomain,
+    true,
+    'API read-only CFDI domain grants',
+  );
+  assertEqual(
+    state.workerappendonlydomain,
+    true,
+    'worker append-only CFDI grants',
+  );
+  assertEqual(state.accessgrantleastprivilege, true, 'access grant ACL');
+  assertEqual(state.constrainedowner, true, 'CFDI constrained table owner');
+  assertEqual(state.ownercannotcreate, true, 'CFDI owner CREATE privilege');
 }
 
 async function validateCounterReconciliationPlan(
@@ -778,6 +973,40 @@ async function inspectRlsDownState(
             'ingestion_jobs', 'ingestion_items'
           )) = 4 AS foundation_preserved
   `);
+  return state;
+}
+
+async function inspectPhaseOneCfdiDownState(
+  manager: EntityManager,
+): Promise<Record<string, boolean>> {
+  const [state] = await manager.query(
+    `SELECT
+       (SELECT count(*)::integer
+          FROM information_schema.tables
+         WHERE table_schema = 'public'
+           AND table_name = ANY($1::text[])) = 0 AS domain_tables_removed,
+       (SELECT count(*)::integer
+          FROM information_schema.columns
+         WHERE table_schema = 'public'
+           AND table_name = 'ingestion_items'
+           AND column_name IN (
+             'cfdi_id', 'parser_version', 'schema_version',
+             'parsed_cfdi_version', 'normalized_uuid', 'issuer_rfc',
+             'receiver_rfc', 'document_type', 'parser_completed_at'
+           )) = 0 AS provenance_columns_removed,
+       NOT EXISTS (
+         SELECT 1 FROM pg_constraint
+         WHERE conrelid = 'public.periods'::regclass
+           AND conname = 'uq_periods_scope_id'
+       ) AS period_scope_key_removed,
+       NOT EXISTS (
+         SELECT 1 FROM pg_constraint
+         WHERE conrelid = 'public.auth_sessions'::regclass
+           AND conname = 'uq_auth_sessions_scope_membership_id'
+       ) AS session_scope_key_removed
+    `,
+    [[...PHASE_ONE_CFDI_TABLES]],
+  );
   return state;
 }
 

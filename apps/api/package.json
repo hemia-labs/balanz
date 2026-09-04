@@ -38,6 +38,8 @@
     "qa:migrations": "ts-node --transpile-only test/validate-migration-lifecycle.ts",
     "test:integration:fiscal": "ts-node --transpile-only test/validate-fiscal-foundation-transaction.ts",
     "test:integration:fiscal:runtime": "ts-node --transpile-only test/validate-fiscal-foundation-runtime.ts",
+    "test:integration:cfdi-domain": "ts-node --transpile-only test/validate-cfdi-phase-one-migration.ts",
+    "test:integration:cfdi-worker-transitions": "ts-node --transpile-only test/validate-manual-xml-worker-transitions.ts",
     "test:external:fiscal": "jest --testRegex=\"test/external/.*\\.external\\.ts$\" --runInBand --detectOpenHandles",
     "test:external:redis:vault": "jest --testRegex=\"test/external/redis-wakeup\\.external\\.ts$\" --runInBand --detectOpenHandles",
     "db:test:prepare": "ts-node --transpile-only src/database/scripts/prepare-fiscal-test-database.ts",
@@ -63,6 +65,7 @@
     "@nestjs/typeorm": "^11.0.2",
     "@smithy/node-http-handler": "4.11.3",
     "bcrypt": "^6.0.0",
+    "busboy": "1.6.0",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.15.1",
     "cookie-parser": "^1.4.7",
@@ -73,7 +76,9 @@
     "redis": "^6.2.1",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1",
-    "typeorm": "^1.0.0"
+    "saxes": "6.0.0",
+    "typeorm": "^1.0.0",
+    "xmllint-wasm": "5.3.0"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3.2.0",
@@ -82,6 +87,7 @@
     "@nestjs/schematics": "^11.0.0",
     "@nestjs/testing": "^11.0.1",
     "@types/bcrypt": "^6.0.0",
+    "@types/busboy": "1.5.4",
     "@types/cookie-parser": "^1.4.10",
     "@types/express": "^5.0.0",
     "@types/jest": "^30.0.0",

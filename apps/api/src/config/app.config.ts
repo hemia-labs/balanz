@@ -9,6 +9,7 @@ export function getCorsOptions(nodeEnv: string, corsOrigins: string[]) {
   return {
     origin: corsOrigins.length > 0 ? corsOrigins : true,
     credentials: true,
+    exposedHeaders: ['ETag', 'Retry-After'],
   };
 }
 

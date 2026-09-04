@@ -104,6 +104,18 @@ interface RetryScheduleRow {
   version: number;
 }
 
+interface TerminalJobRow {
+  id: string;
+  organization_id: string;
+  client_account_id: string;
+  legal_entity_id: string;
+  correlation_id: string;
+  source_type: IngestionJobSourceType;
+  version: number;
+}
+
+interface RetryTransitionRow extends RetryScheduleRow, TerminalJobRow {}
+
 interface FoundationReconciliationRow {
   lease_retryable_count: number;
   lease_final_count: number;
@@ -302,7 +314,7 @@ export class IngestionJobRepository {
     this.assertLeaseIdentity(claim);
     this.assertSafeError(errorCode, safeDetail);
     return this.withClaimScope(claim, async (manager) => {
-      const rows = await manager.query<Array<{ version: number }>>(
+      const rows = await manager.query<TerminalJobRow[]>(
         `WITH failed AS (
            UPDATE ingestion_jobs
               SET status = 'failed_final',
@@ -321,24 +333,9 @@ export class IngestionJobRepository {
               AND lease_expires_at > clock_timestamp()
           RETURNING
             id, organization_id, client_account_id, legal_entity_id,
-            correlation_id, version
-         ),
-         audited AS (
-           INSERT INTO audit_events (
-             organization_id, actor_type, service_principal,
-             client_account_id, legal_entity_id, action, decision,
-             object_type, object_id, reason, correlation_id, metadata
-           )
-           SELECT
-             failed.organization_id, 'service', 'cfdi-worker',
-             failed.client_account_id, failed.legal_entity_id,
-             'ingestion.job.failed_final', 'ALLOW',
-             'ingestion_job', failed.id, 'Worker reported a terminal error.',
-             failed.correlation_id, jsonb_build_object('error_code', $4::text)
-           FROM failed
-           RETURNING 1
+            correlation_id, source_type, version
          )
-         SELECT version FROM failed`,
+         SELECT * FROM failed`,
         [
           claim.jobId,
           claim.organizationId,
@@ -347,7 +344,37 @@ export class IngestionJobRepository {
           safeDetail ?? null,
         ],
       );
-      return rows.length === 1;
+      const failed = rows[0];
+      if (!failed) return false;
+      if (failed.source_type === IngestionJobSourceType.MANUAL_XML) {
+        failed.version = await this.terminalizeManualXmlItems(
+          manager,
+          failed,
+          errorCode,
+          safeDetail,
+        );
+      }
+      await manager.query(
+        `INSERT INTO audit_events (
+           organization_id, actor_type, service_principal,
+           client_account_id, legal_entity_id, action, decision,
+           object_type, object_id, reason, correlation_id, metadata
+         ) VALUES (
+           $1,'service','cfdi-worker',$2,$3,
+           'ingestion.job.failed_final','ALLOW','ingestion_job',$4,
+           'Worker reported a terminal error.',$5,
+           jsonb_build_object('error_code',$6::text)
+         )`,
+        [
+          failed.organization_id,
+          failed.client_account_id,
+          failed.legal_entity_id,
+          failed.id,
+          failed.correlation_id,
+          errorCode,
+        ],
+      );
+      return true;
     });
   }
 
@@ -371,6 +398,7 @@ export class IngestionJobRepository {
         `WITH completed AS (
            UPDATE ingestion_jobs
               SET status = $4,
+                  current_stage = NULL,
                   next_attempt_at = NULL,
                   locked_by = NULL,
                   lease_expires_at = NULL,
@@ -423,7 +451,7 @@ export class IngestionJobRepository {
     this.assertSafeError(errorCode, safeDetail);
 
     return this.withClaimScope(claim, async (manager) => {
-      const rows = await manager.query<RetryScheduleRow[]>(
+      const rows = await manager.query<RetryTransitionRow[]>(
         `WITH scheduled AS (
            UPDATE ingestion_jobs
             SET status = CASE
@@ -466,39 +494,10 @@ export class IngestionJobRepository {
               AND lease_expires_at > clock_timestamp()
           RETURNING
             id, organization_id, client_account_id, legal_entity_id,
-            correlation_id, status, next_attempt_at,
+            correlation_id, source_type, status, next_attempt_at,
             automatic_retry_count, version
-         ),
-         audited AS (
-           INSERT INTO audit_events (
-             organization_id, actor_type, service_principal,
-             client_account_id, legal_entity_id, action, decision,
-             object_type, object_id, reason, correlation_id, metadata
-           )
-           SELECT
-             scheduled.organization_id, 'service', 'cfdi-worker',
-             scheduled.client_account_id, scheduled.legal_entity_id,
-             CASE WHEN scheduled.status = 'failed_retryable'
-               THEN 'ingestion.job.retry_scheduled'
-               ELSE 'ingestion.job.retry_exhausted'
-             END,
-             'ALLOW',
-             'ingestion_job', scheduled.id,
-             CASE WHEN scheduled.status = 'failed_retryable'
-               THEN 'Worker scheduled durable automatic retry.'
-               ELSE 'Worker exhausted the durable automatic retry budget.'
-             END,
-             scheduled.correlation_id,
-             jsonb_build_object(
-               'status', scheduled.status,
-               'error_code', $4::text,
-               'automatic_retry_count', scheduled.automatic_retry_count
-             )
-           FROM scheduled
-           RETURNING 1
          )
-         SELECT status, next_attempt_at, automatic_retry_count, version
-         FROM scheduled`,
+         SELECT * FROM scheduled`,
         [
           claim.jobId,
           claim.organizationId,
@@ -511,6 +510,51 @@ export class IngestionJobRepository {
         ],
       );
       const row = rows[0];
+      if (
+        row?.status === IngestionJobStatus.FAILED_FINAL &&
+        row.source_type === IngestionJobSourceType.MANUAL_XML
+      ) {
+        row.version = await this.terminalizeManualXmlItems(
+          manager,
+          row,
+          errorCode,
+          safeDetail,
+        );
+      }
+      if (row) {
+        const retryable = row.status === IngestionJobStatus.FAILED_RETRYABLE;
+        await manager.query(
+          `INSERT INTO audit_events (
+             organization_id, actor_type, service_principal,
+             client_account_id, legal_entity_id, action, decision,
+             object_type, object_id, reason, correlation_id, metadata
+           ) VALUES (
+             $1,'service','cfdi-worker',$2,$3,$4,'ALLOW',
+             'ingestion_job',$5,$6,$7,
+             jsonb_build_object(
+               'status',$8::text,
+               'error_code',$9::text,
+               'automatic_retry_count',$10::integer
+             )
+           )`,
+          [
+            row.organization_id,
+            row.client_account_id,
+            row.legal_entity_id,
+            retryable
+              ? 'ingestion.job.retry_scheduled'
+              : 'ingestion.job.retry_exhausted',
+            row.id,
+            retryable
+              ? 'Worker scheduled durable automatic retry.'
+              : 'Worker exhausted the durable automatic retry budget.',
+            row.correlation_id,
+            row.status,
+            errorCode,
+            row.automatic_retry_count,
+          ],
+        );
+      }
       return row
         ? {
             status: row.status,
@@ -637,6 +681,70 @@ export class IngestionJobRepository {
       },
       work,
     );
+  }
+
+  private async terminalizeManualXmlItems(
+    manager: EntityManager,
+    job: TerminalJobRow,
+    errorCode: string,
+    safeDetail?: string,
+  ): Promise<number> {
+    await manager.query(
+      `UPDATE ingestion_items
+          SET technical_status = 'terminal',
+              product_result = 'internal_error',
+              error_code = $3,
+              safe_error_detail = $4,
+              processed_at = clock_timestamp(),
+              updated_at = clock_timestamp(),
+              version = version + 1
+        WHERE organization_id = $1
+          AND ingestion_job_id = $2
+          AND technical_status IN ('pending','processing')`,
+      [job.organization_id, job.id, errorCode, safeDetail ?? null],
+    );
+    const rows = await manager.query<Array<{ version: number }>>(
+      `WITH aggregate AS MATERIALIZED (
+         SELECT count(*)::integer AS total_items,
+                count(*) FILTER (WHERE technical_status = 'pending')::integer AS pending_items,
+                count(*) FILTER (WHERE technical_status = 'processing')::integer AS processing_items,
+                count(*) FILTER (WHERE product_result = 'incorporated')::integer AS incorporated_items,
+                count(*) FILTER (WHERE product_result = 'duplicate')::integer AS duplicate_items,
+                count(*) FILTER (WHERE product_result = 'foreign')::integer AS foreign_items,
+                count(*) FILTER (WHERE product_result = 'invalid')::integer AS invalid_items,
+                count(*) FILTER (WHERE product_result = 'unsupported')::integer AS unsupported_items,
+                count(*) FILTER (WHERE product_result = 'internal_error')::integer AS internal_error_items
+           FROM ingestion_items
+          WHERE organization_id = $1 AND ingestion_job_id = $2
+       ), reconciled AS (
+         UPDATE ingestion_jobs AS job
+            SET current_stage = NULL,
+                total_items = aggregate.total_items,
+                pending_items = aggregate.pending_items,
+                processing_items = aggregate.processing_items,
+                incorporated_items = aggregate.incorporated_items,
+                duplicate_items = aggregate.duplicate_items,
+                foreign_items = aggregate.foreign_items,
+                invalid_items = aggregate.invalid_items,
+                unsupported_items = aggregate.unsupported_items,
+                internal_error_items = aggregate.internal_error_items,
+                counters_reconciled_at = clock_timestamp(),
+                updated_at = clock_timestamp(),
+                version = job.version + 1
+           FROM aggregate
+          WHERE job.id = $2
+            AND job.organization_id = $1
+            AND job.source_type = 'manual_xml'
+            AND job.status = 'failed_final'
+        RETURNING job.version
+       )
+       SELECT version FROM reconciled`,
+      [job.organization_id, job.id],
+    );
+    if (rows.length !== 1) {
+      throw new Error('Manual XML terminal counter reconciliation failed');
+    }
+    return Number(rows[0].version);
   }
 
   private assertLeaseIdentity(claim: JobLeaseIdentity): void {

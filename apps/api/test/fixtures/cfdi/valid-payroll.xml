@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<c:Comprobante xmlns:c="http://www.sat.gob.mx/cfd/4"
+  xmlns:n="http://www.sat.gob.mx/nomina12"
+  xmlns:t="http://www.sat.gob.mx/TimbreFiscalDigital"
+  Version="4.0" Serie="PAYROLL" Folio="4001" Fecha="2026-08-31T12:00:00"
+  Sello="U0VMTE8=" NoCertificado="00000000000000000000" Certificado="Q0VSVA=="
+  SubTotal="1000.000000" Descuento="100.000000" Moneda="MXN" Total="900.000000"
+  TipoDeComprobante="N" Exportacion="01" MetodoPago="PUE" LugarExpedicion="00000">
+  <c:Emisor Rfc="AAA010101AAA" Nombre="PATRON SINTETICO" RegimenFiscal="601"/>
+  <c:Receptor Rfc="XAXX010101000" Nombre="EMPLEADO SINTETICO"
+    DomicilioFiscalReceptor="00000" RegimenFiscalReceptor="605" UsoCFDI="CN01"/>
+  <c:Conceptos>
+    <c:Concepto ClaveProdServ="84111505" Cantidad="1" ClaveUnidad="ACT"
+      Descripcion="PAGO DE NOMINA" ValorUnitario="1000.000000"
+      Importe="1000.000000" Descuento="100.000000" ObjetoImp="01"/>
+  </c:Conceptos>
+  <c:Complemento>
+    <n:Nomina Version="1.2" TipoNomina="O" FechaPago="2026-08-31"
+      FechaInicialPago="2026-08-16" FechaFinalPago="2026-08-31"
+      NumDiasPagados="15.000" TotalPercepciones="1000.00"
+      TotalDeducciones="100.00" TotalOtrosPagos="10.00">
+      <n:Emisor Curp="AAAA010101HDFBBB01" RegistroPatronal="SYNTHETIC01"/>
+      <n:Receptor Curp="BABB010101MDFCCC02" NumSeguridadSocial="00000000000"
+        FechaInicioRelLaboral="2020-01-01" Antigüedad="P347W" TipoContrato="01"
+        Sindicalizado="No" TipoJornada="01" TipoRegimen="02" NumEmpleado="SYN-001"
+        Departamento="QA" Puesto="PERSONA SINTETICA" RiesgoPuesto="1"
+        PeriodicidadPago="04" SalarioBaseCotApor="66.66"
+        SalarioDiarioIntegrado="70.00" ClaveEntFed="CMX"/>
+      <n:Percepciones TotalSueldos="1000.00" TotalGravado="900.00"
+        TotalExento="100.00">
+        <n:Percepcion TipoPercepcion="001" Clave="SYN-PER" Concepto="SUELDO SINTETICO"
+          ImporteGravado="900.00" ImporteExento="100.00"/>
+      </n:Percepciones>
+      <n:Deducciones TotalOtrasDeducciones="100.00">
+        <n:Deduccion TipoDeduccion="004" Clave="SYN-DED" Concepto="DEDUCCION SINTETICA"
+          Importe="100.00"/>
+      </n:Deducciones>
+      <n:OtrosPagos>
+        <n:OtroPago TipoOtroPago="002" Clave="SYN-OTH" Concepto="SUBSIDIO SINTETICO"
+          Importe="10.00">
+          <n:SubsidioAlEmpleo SubsidioCausado="10.00"/>
+        </n:OtroPago>
+      </n:OtrosPagos>
+      <n:Incapacidades>
+        <n:Incapacidad DiasIncapacidad="2" TipoIncapacidad="01"
+          ImporteMonetario="50.00"/>
+      </n:Incapacidades>
+    </n:Nomina>
+    <t:TimbreFiscalDigital Version="1.1"
+      UUID="CCCCCCCC-CCCC-4CCC-8CCC-CCCCCCCCCCCC"
+      FechaTimbrado="2026-08-31T12:01:00" RfcProvCertif="AAA010101AAA"
+      SelloCFD="SELLO-CFD-SINTETICO" NoCertificadoSAT="00000000000000000000"
+      SelloSAT="SELLO-SAT-SINTETICO"/>
+  </c:Complemento>
+</c:Comprobante>
