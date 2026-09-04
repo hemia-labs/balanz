@@ -184,10 +184,9 @@ export function AppTopbar() {
           render={<Link href={processesHref} />}
           variant="ghost"
           size="icon"
-          aria-label="Procesos: uno activo y uno con errores"
+          aria-label="Abrir Centro de procesos"
         >
           <Workflow className="size-4" />
-          <span className="sr-only">1 proceso activo, 1 con errores</span>
         </Button>
         <NotificationsDrawer />
         <DropdownMenu>
