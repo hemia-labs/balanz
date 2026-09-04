@@ -1,5 +1,9 @@
 # Reporte de validación CFDI — Fase 0
 
+> Actualización vigente de integración: véase la sección 22. El cierre
+> histórico se conserva sin reescribirlo; Fase 0 está aceptada para desarrollo,
+> pero no tiene aprobación de release ni de integración.
+
 ## 1. Resultado ejecutivo
 
 La plataforma fiscal compartida de Fase 0 quedó implementada y validada con
@@ -782,3 +786,45 @@ PostgreSQL de desarrollo debe aprovisionar los dos secretos/login canónicos y
 volver a ejecutar los probes runtime contra `accounting_dev`. Hasta entonces,
 el PR sólo puede permanecer en borrador y `codex/cfdis` no debe fusionarse a
 `develop`. El trabajo se detiene antes de Fase 1.
+
+## 22. Revalidación focal de integración — 2026-09-03
+
+Docker está operativo. La revalidación externa focal confirmó nuevamente el
+adapter final contra servicios reales, sin sustituirlos por mocks:
+
+```text
+DOCKER_DAEMON: PASS
+CLAMAV_HEALTH: PASS
+CLAMAV_CLEAN: PASS
+CLAMAV_EICAR: PASS
+CLAMAV_OFFLINE_FAIL_CLOSED: PASS
+MINIO_HEALTH: PASS
+PRIVATE_BUCKET_SSE: PASS
+STREAM_ROUNDTRIP: PASS
+HASH_INTEGRITY: PASS
+PUBLIC_ACCESS_DENIED: PASS
+TEMPORARY_ACCESS: PASS
+EXPIRED_ACCESS_DENIED: PASS
+EXTERNAL_ADAPTER_CLEANUP: PASS
+```
+
+Esta evidencia no desbloquea la integración. `develop` despliega
+automáticamente API/worker y los secretos compartidos
+`database/postgres-api` y `database/postgres-worker` continúan `NOT_FOUND`.
+Además, el check de PR #17 falla al iniciar el runtime por `EACCES` en la
+carga del entorno. No se agregó fallback a migrator/admin.
+
+```text
+PHASE_0_DEVELOPMENT_STATUS: ACCEPTED
+PHASE_0_INTEGRATION_STATUS: BLOCKED
+PHASE_0_RELEASE_STATUS: BLOCKED
+CI_RUNTIME_WORKER_STARTUP: FAIL - runtime env EACCES
+SHARED_VAULT_POSTGRES_RUNTIME_SECRETS: BLOCKED - API/worker NOT_FOUND
+DEVELOP_AUTO_DEPLOY: YES
+PR_17_STATE: DRAFT
+PR_17_REQUIRED_CHECKS: FAIL
+PR_17_MERGE: NO
+PHASE_1_VALIDATION_STATUS: PASS
+PHASE_1_INTEGRATION_STATUS: BLOCKED - PR #18 required check
+PHASE_2_ZIP: NOT_STARTED
+```

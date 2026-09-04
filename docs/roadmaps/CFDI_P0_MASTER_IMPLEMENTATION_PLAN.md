@@ -12,16 +12,20 @@
 | Fase en ejecución   | `PHASE_1_XML`                                                                     |
 | Desarrollo Fase 0   | `ACCEPTED`                                                                        |
 | Release Fase 0      | `BLOCKED`                                                                         |
-| Estado de Fase 1    | `PARTIALLY_COMPLETE`                                                              |
+| Implementación F1   | `COMPLETE`                                                                        |
+| Validación F1       | `PASS`                                                                            |
+| Estado de Fase 1    | `BLOCKED` por check requerido de PR #18                                           |
 | Estado Fases 2–8    | `NOT_STARTED`                                                                     |
 | Regla de cierre     | No declarar `DONE` sin evidencia ejecutada de toda la Definition of Done          |
 
 Este archivo y los ADR vigentes son la fuente de verdad operativa del programa
 CFDI. El diseño histórico usado para crear Fase 0 ya no es una instrucción de
 ejecución. La plataforma compartida queda aceptada para continuar desarrollo,
-pero su release permanece bloqueado por `CI_RUNTIME_WORKER_STARTUP` y
-`SHARED_VAULT_POSTGRES_RUNTIME_SECRETS`. Esos gates siguen siendo obligatorios
-antes de fusionar o desplegar y no bloquean la implementación autorizada de
+pero su release permanece bloqueado: el check
+`CI_RUNTIME_WORKER_STARTUP` falla por `EACCES` al cargar el entorno y
+`SHARED_VAULT_POSTGRES_RUNTIME_SECRETS` sigue bloqueado porque los secretos de
+API/worker están `NOT_FOUND`. Como `develop` despliega automáticamente, ambos
+gates impiden integrar o liberar; no bloquearon la implementación autorizada de
 `PHASE_1_XML`.
 
 ## 1. Autoridad, contexto y límites
@@ -378,13 +382,13 @@ ClamAV y Vault; no se sustituyó su semántica por mocks. Redis compartido de
 desarrollo también fue encontrado en Vault y validado tanto en línea —incluido
 pub/sub— como con Redis apagado, manteniendo polling PostgreSQL como fallback.
 
-El único control externo pendiente es el aprovisionamiento de los secretos
-canónicos de runtime `database/postgres-api` y `database/postgres-worker` en
-Vault. Ambos están `NOT_FOUND` y el AppRole disponible responde
-`ACCESS_DENIED` para crearlos. Por ello no puede completarse todavía la prueba
-de login de API/worker contra la base compartida de desarrollo. La ejecución
-final de cierre no se declara `PASS` en este plan; su resultado y evidencia
-pertenecen al reporte QA.
+Los adapters finales volvieron a validarse externamente con Docker operativo:
+ClamAV real pasó health, limpio, EICAR y caída fail-closed; MinIO real pasó
+bucket SSE privado, round-trip streaming con hash íntegro, acceso anónimo y URL
+expirada denegados, URL temporal y cleanup. Persisten dos gates de integración:
+los secretos canónicos `database/postgres-api` y `database/postgres-worker`
+están `NOT_FOUND`, y el check runtime de PR #17 falla por `EACCES` al cargar el
+entorno. Como `develop` auto-despliega API/worker, no se permite integrar Fase 0.
 
 ## 12. Riesgos del programa
 
@@ -429,7 +433,7 @@ pertenecen al reporte QA.
 | Riesgos              | R-001 a R-005, R-009 y R-010.                                                                                                                                                                                                                                             |
 | Rollback             | Aplicación compatible hacia atrás; conservar tablas aditivas; limpieza destructiva sólo en DB de QA inequívocamente aislada.                                                                                                                                              |
 | Estado               | Desarrollo `ACCEPTED`; release `BLOCKED`                                                                                                                                                                                                                                 |
-| Evidencia            | `docs/qa/CFDI_PHASE_0_VALIDATION_REPORT.md`: migraciones 030/050 reconciliadas, 060/061/062/063 aplicadas, stack aislado real y Redis compartido validados; bloquean exclusivamente los secretos Vault canónicos y logins runtime de API/worker en desarrollo compartido. |
+| Evidencia            | `docs/qa/CFDI_PHASE_0_VALIDATION_REPORT.md`: plataforma real validada; bloquean el check runtime (`EACCES`) y los secretos Vault API/worker `NOT_FOUND`.                                                                                                                       |
 
 ### Fase 1 — XML individual end-to-end
 
@@ -441,10 +445,10 @@ pertenecen al reporte QA.
 | Dependencias         | Desarrollo de Fase 0 `ACCEPTED`; release de Fase 0 aún bloqueado; corpus/XSD oficiales versionados.                           |
 | Alcance              | multipart streaming 5 MiB, parser CFDI 4.0/TFD 1.1/Pagos 2.0/Nómina 1.2, I/E/T/N/P, dedupe, períodos, incidentes, API/UI real. |
 | Fuera de alcance     | ZIP, e.firma, SAT, mesa completa y exportaciones.                                                                              |
-| Tablas/migraciones   | `cfdis`, conceptos, impuestos, relaciones, pagos, nómina core, procedencia, participaciones e incidentes.                      |
+| Tablas/migraciones   | Dominio fiscal en `070`; `071` amplía `usage_code` a `varchar(4)` para valores como `CP01`.                                    |
 | Backend              | Upload/202/polling, consulta/detail y acceso XML autorizado.                                                                   |
 | Worker               | Handler XML real sobre la plataforma de Fase 0.                                                                                |
-| Frontend             | Cargar XML, progreso, recuperación, lista/detalle sin fallback demo.                                                           |
+| Frontend             | Carga, progreso, recuperación, lista/detalle/descarga reales; sin fallback ni contadores hardcodeados.                        |
 | Seguridad            | Parser endurecido, MFA para descarga, assignment, RLS y hash conflict.                                                         |
 | Operación            | Corpus, schemas manifest, dashboards y runbook de parser.                                                                      |
 | Configuración        | Límites XML/parser/versiones.                                                                                                  |
@@ -456,8 +460,8 @@ pertenecen al reporte QA.
 | Criterios de salida  | Definition of Done de Fase 1 completa y cero fallback demo/deuda.                                                              |
 | Riesgos              | R-006 y R-007.                                                                                                                 |
 | Rollback             | Deshabilitar rutas/UI y conservar dominio/objetos; forward-fix de migraciones.                                                 |
-| Estado               | `PARTIALLY_COMPLETE`                                                                                                           |
-| Evidencia            | Rama `codex/cfdi-phase1-xml`; reporte `docs/qa/CFDI_PHASE_1_VALIDATION_REPORT.md` al cierre.                                  |
+| Estado               | `BLOCKED`: implementación `COMPLETE`, validación funcional `PASS`, integración pendiente del check requerido de PR #18        |
+| Evidencia            | ClamAV/MinIO, EICAR worker, 202/reload, CP01, duplicate, MFA/download y tenant switch `PASS`; 0 defectos funcionales conocidos. |
 
 ### Fase 2 — ZIP y éxito parcial
 
@@ -679,19 +683,28 @@ desarrollo, pero no está aprobada para fusionar o desplegar.
 PHASE_0_DEVELOPMENT_STATUS: ACCEPTED
 PHASE_0_RELEASE_STATUS: BLOCKED
 PHASE_0_RELEASE_GATES:
-  - CI_RUNTIME_WORKER_STARTUP
-  - SHARED_VAULT_POSTGRES_RUNTIME_SECRETS
-PHASE_1_XML: PARTIALLY_COMPLETE
+  - CI_RUNTIME_WORKER_STARTUP: FAIL - runtime env EACCES
+  - SHARED_VAULT_POSTGRES_RUNTIME_SECRETS: BLOCKED - API/worker NOT_FOUND
+PHASE_0_INTEGRATION_STATUS: BLOCKED
+PHASE_1_IMPLEMENTATION_STATUS: COMPLETE
+PHASE_1_VALIDATION_STATUS: PASS
+PHASE_1_INTEGRATION_STATUS: BLOCKED
+PHASE_1_XML: BLOCKED
+CLAMAV_REAL: PASS
+MINIO_REAL: PASS
+MANUAL_E2E: PASS
 TECHNICAL_DEBT: 0
-KNOWN_DEFECTS: 0
-NEXT_PHASE: NOT_AUTHORIZED
+KNOWN_FUNCTIONAL_DEFECTS: 0
+PR_18_REQUIRED_CHECKS: FAIL - migration validator exact count
+PHASE_2_ZIP: NOT_STARTED
 ```
 
-El resultado parcial de Fase 1 se debe a evidencia externa pendiente con el
-código final —ClamAV clean/EICAR, S3/MinIO y QA manual end-to-end—, no a una
-autorización para omitir esos controles. El detalle, la regresión ejecutada y
-los conteos finales de deuda/defectos viven en
-`docs/qa/CFDI_PHASE_1_VALIDATION_REPORT.md`.
+ClamAV, MinIO y el recorrido manual están validados con el código final. EICAR
+por worker real terminó en cuarentena sin CFDI; MFA/download y cambio de tenant
+pasaron, y el defecto TypeORM del grant quedó corregido. El detalle vive en
+`docs/qa/CFDI_PHASE_1_VALIDATION_REPORT.md`. PR #17 permanece `DRAFT` con check
+runtime fallido; PR #18 permanece `DRAFT` con el validador de migraciones
+fallido por conteo exacto. No se autoriza merge fuera del orden establecido.
 
 ```text
 DEFERRED_PRODUCT_CAPABILITIES:
@@ -706,6 +719,5 @@ DEFERRED_PRODUCT_CAPABILITIES:
 
 Para mover Fase 1 a `DONE` sigue siendo obligatorio:
 
-- ejecutar ClamAV y S3/MinIO reales con el código final;
-- completar el recorrido manual navegador–API–worker–resultado/descarga;
+- dejar verdes los checks requeridos de PR #17 y PR #18;
 - resolver antes de merge/despliegue los dos gates de release de Fase 0.

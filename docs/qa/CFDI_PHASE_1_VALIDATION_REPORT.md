@@ -9,33 +9,72 @@ incluye upload streaming de un XML, job durable `manual_xml`, escaneo,
 validación y extracción CFDI 4.0, persistencia fiscal con RLS, períodos,
 incidencias, consultas, acceso temporal al original y pantallas reales.
 
-El estado de cierre es `PARTIALLY_COMPLETE`, no `DONE`. Después de la
-interrupción eléctrica se recuperaron Docker Desktop y los servicios locales,
-se aplicó la migración de Fase 1 y se verificó el arranque real de API y worker
-contra PostgreSQL, Redis, ClamAV y almacenamiento privado local. Aún no se han
-ejecutado con el código final las pruebas clean/EICAR de ClamAV ni el round-trip
-S3/MinIO, y tampoco se completó una carga manual XML de extremo a extremo desde
-el navegador. Las pruebas de dependencia caída sí comprobaron el comportamiento
-fail-closed. Esta falta de evidencia no se sustituye con mocks ni con las
-validaciones históricas de Fase 0.
+La implementación y la validación funcional están `COMPLETE`/`PASS`, pero el
+gate general de Fase 1 permanece `BLOCKED`, no `DONE`, por el check requerido
+fallido de PR #18. Con Docker operativo,
+la prueba externa final de ClamAV pasó health, XML limpio, EICAR y scanner
+offline fail-closed. La prueba externa final de MinIO pasó bucket privado con
+SSE, round-trip streaming, tamaño/hash, acceso anónimo denegado, URL temporal,
+expiración denegada y cleanup.
+
+El recorrido manual de navegador confirmó progreso, `202`, transiciones
+`queued`/`processing`, recuperación durable tras recarga y procesamiento por el
+worker. Después de aplicar la migración `071`, el pago sintético CP01 quedó
+`incorporated` con 2 pagos, 3 documentos relacionados y 2 períodos; una segunda
+carga quedó `duplicate` y se conservó un único CFDI lógico. También pasaron
+EICAR por el worker real, cambio de tenant y descarga de 3213 bytes mediante
+MFA/grant de un uso. El defecto TypeORM del consumo del grant fue corregido y no
+quedan defectos funcionales conocidos.
 
 ```text
-RESULT: PHASE_1_XML_PARTIALLY_COMPLETE
+RESULT: PHASE_1_XML_BLOCKED_BY_REQUIRED_CHECK
 PHASE_0_DEVELOPMENT_STATUS: ACCEPTED
 PHASE_0_RELEASE_STATUS: BLOCKED
 PHASE_0_RELEASE_GATES:
-  - CI_RUNTIME_WORKER_STARTUP
-  - SHARED_VAULT_POSTGRES_RUNTIME_SECRETS
-PHASE_1_XML: PARTIALLY_COMPLETE
+  - CI_RUNTIME_WORKER_STARTUP: FAIL - runtime env EACCES
+  - SHARED_VAULT_POSTGRES_RUNTIME_SECRETS: BLOCKED - API/worker NOT_FOUND
+PHASE_1_IMPLEMENTATION_STATUS: COMPLETE
+PHASE_1_VALIDATION_STATUS: PASS
+PHASE_1_INTEGRATION_STATUS: BLOCKED
+PHASE_1_XML: BLOCKED
+CLAMAV_REAL: PASS
+MINIO_REAL: PASS
+MANUAL_E2E: PASS
 TECHNICAL_DEBT: 0
-KNOWN_DEFECTS: 0
-NEXT_PHASE: NOT_AUTHORIZED
+KNOWN_FUNCTIONAL_DEFECTS: 0
+PR_18_REQUIRED_CHECKS: FAIL - migration validator exact count
+PHASE_2_ZIP: NOT_STARTED
 ```
 
-La única regresión completa final quedó verde. No se conocen defectos ni deuda
-técnica dentro del código implementado. Los bloqueos de infraestructura
-descritos aquí son gaps de validación/release, no defectos conocidos ni
-capacidades trasladadas silenciosamente a otra fase.
+```text
+CLAMAV_HEALTH: PASS
+CLAMAV_CLEAN: PASS
+CLAMAV_EICAR: PASS
+INFECTED_CFDI_ROWS: 0
+CLAMAV_CLEANUP: PASS
+MINIO_HEALTH: PASS
+PRIVATE_BUCKET: PASS
+STREAM_ROUNDTRIP: PASS
+HASH_INTEGRITY: PASS
+PUBLIC_ACCESS_DENIED: PASS
+TEMPORARY_ACCESS: PASS
+EXPIRED_ACCESS_DENIED: PASS
+CROSS_SCOPE_DENIED: PASS
+MINIO_CLEANUP: PASS
+MANUAL_E2E_LOGIN: PASS
+MANUAL_E2E_UPLOAD: PASS
+MANUAL_E2E_202: PASS
+MANUAL_E2E_WORKER: PASS
+MANUAL_E2E_RELOAD_RECOVERY: PASS
+MANUAL_E2E_CFDI_DETAIL: PASS
+MANUAL_E2E_MFA_DOWNLOAD: PASS
+MANUAL_E2E_DUPLICATE: PASS
+MANUAL_E2E_TENANT_SWITCH: PASS
+```
+
+La única regresión completa final registrada quedó verde y no hay deuda técnica
+aceptada ni defectos funcionales conocidos. El check requerido de PR #18 impide
+la integración y el estado `DONE`; no se presenta como capacidad futura.
 
 ## 2. Alcance implementado
 
@@ -75,6 +114,11 @@ La migración append-only
 12. `period_cfdis`;
 13. `incidents`;
 14. `cfdi_access_grants`.
+
+La migración append-only focal
+`1787690710000-CfdiUsageCodeLength.ts` amplía `cfdis.usage_code` de
+`varchar(3)` a `varchar(4)` para conservar valores válidos como `CP01`. Fue
+aplicada antes de repetir el pago sintético del recorrido manual.
 
 También extiende `ingestion_items` con vínculo a CFDI, versión de parser y
 schema, versión CFDI detectada, UUID normalizado, RFC emisor/receptor, tipo y
@@ -284,7 +328,9 @@ Las pantallas existentes quedaron conectadas a datos reales:
 - acceso temporal al original con MFA;
 - cancelación de upload/polling y limpieza de estado al cambiar de tenant. El
   lifecycle invalida callbacks ya encolados, de modo que una respuesta tardía
-  del tenant anterior no puede reemplazar el upload ni el resultado vigente.
+  del tenant anterior no puede reemplazar el upload ni el resultado vigente;
+- topbar y notificaciones sin copy hardcodeado de contadores que pudiera
+  presentar datos ficticios.
 
 Las rutas CFDI/procesos usan siempre componentes live, incluso si el resto del
 producto se ejecuta en modo demo. ZIP y SAT se muestran como no disponibles y
@@ -315,10 +361,10 @@ otro tenant y la inconsistencia de cancelar después de publicar dominio.
 
 ## 11. Pruebas de Fase 1
 
-La matriz siguiente distingue cobertura automatizada de validación externa
-pendiente. `Cubierto` significa que existe una prueba focal ejecutada o una
-validación PostgreSQL registrada; la regresión completa final también quedó
-registrada en la sección 12.
+La matriz siguiente distingue cobertura automatizada, externa y manual.
+`Cubierto` significa que existe una prueba focal ejecutada o una validación
+PostgreSQL registrada; la regresión completa final también quedó registrada en
+la sección 12.
 
 | Caso obligatorio | Evidencia | Estado al corte |
 | ---------------- | --------- | --------------- |
@@ -354,8 +400,11 @@ registrada en la sección 12.
 | fallo final | item `internal_error` terminal y counters reconciliados | cubierto |
 | filtro UUID malformado | rechazo DTO antes de cast PostgreSQL | cubierto |
 | auditoría/logs sin XML | canario sintético y allowlist | cubierto |
-| ClamAV real clean/EICAR | requiere clamd real después del outage | **bloqueado** |
-| S3/MinIO real | requiere Docker Desktop operativo | **bloqueado** |
+| ClamAV externo real clean/EICAR/offline | health, clean y EICAR reales; caída fail-closed | **PASS** |
+| S3/MinIO externo real | bucket SSE privado, streaming/hash, acceso anónimo/expirado denegados, URL temporal y cleanup | **PASS** |
+| EICAR por pipeline de ingesta | worker real: objeto `quarantined`/`infected`, `MALWARE_DETECTED`, cero CFDI y cleanup S3/DB | **PASS** |
+| cambio de tenant manual | detalle previo redirigido; tenant nuevo con 0 clientes y 0 procesos | **PASS** |
+| descarga manual con MFA | 3213 bytes, SHA-256 del fixture, grant de un uso y contrato sin `storage_key` | **PASS** |
 
 La validación PostgreSQL cubre incorporated, E, T, N, pagos/documentos,
 duplicate, conflicto, períodos, complemento desconocido, unsupported, foreign,
@@ -365,44 +414,58 @@ lease perdido y auditoría sin XML dentro de una transacción aislada.
 
 ## 12. Comandos y resultados
 
-Sólo se registran resultados observados. La regresión completa final se ejecutó
-una sola vez sobre el árbol cerrado; el único ajuste posterior fue alinear un
-fixture TypeScript con las constantes canónicas de versión del parser/XSD, y su
-única repetición de typecheck quedó verde.
+Sólo se registran resultados observados. Las regresiones finales de API y
+frontend se ejecutaron una sola vez sobre el árbol cerrado. `apps/api` no
+define un script `typecheck`: la invocación devolvió `Script not found` y no se
+repitió; el chequeo TypeScript directo usado por el repositorio ya había pasado
+después de las correcciones focales.
 
 | Comando o corrida | Resultado observado | Alcance |
 | ----------------- | ------------------- | ------- |
-| `npm test -- --runInBand` desde `apps/api` | PASS — 59 suites, 499 tests | regresión completa API |
-| `npm run lint` desde `apps/api` | PASS — 0 errores, 0 warnings | código y tests API |
-| `npx tsc -p tsconfig.json --noEmit` desde `apps/api` | PASS | compilación estática; una corrección focal y una repetición |
-| `npm run build` desde `apps/api` | PASS | artefacto NestJS |
+| `bun run lint` desde `apps/api` | PASS — exit 0 | código y tests API |
+| `bun run typecheck` desde `apps/api` | N/A — script no definido; sin repetición | el paquete usa chequeo TypeScript directo |
+| `npx tsc -p tsconfig.json --noEmit` desde `apps/api` | PASS | compilación estática focal posterior a las correcciones |
+| `bun run test` desde `apps/api` | PASS — 61 suites, 502 tests | regresión completa API, una sola corrida |
+| `bun run build` desde `apps/api` | PASS — exit 0 | artefacto NestJS |
 | parser CFDI focal | PASS — 44 tests | CFDI/TFD/Pagos/Nómina, seguridad y XSD local |
 | upload XML focal | PASS — 29 tests | streaming, idempotencia, abort y recovery |
 | `$env:NODE_ENV='test'; $env:CFDI_PHASE0_USE_TEST_DATABASE='true'; $env:CFDI_PHASE0_TEST_DATABASE='test_balanz_cfdi_phase1_final_20260903'; npm run test:integration:cfdi-domain` desde `apps/api` | PASS | 14 tablas/FORCE RLS, 27 policies, 9 columnas de procedencia, dominio y fencing |
 | `$env:NODE_ENV='test'; $env:CFDI_PHASE0_USE_TEST_DATABASE='true'; $env:CFDI_PHASE0_TEST_DATABASE='test_balanz_cfdi_phase1_final_20260903'; npm run test:integration:cfdi-worker-transitions` desde `apps/api` | PASS | interleavings, leases, cancelación, reinicios y terminalización |
-| `npm test` desde `apps/web` | PASS — 78 tests | regresión completa frontend, incluidos ingestion/CFDI |
-| `npm run lint` desde `apps/web` | PASS | frontend |
-| `npm run typecheck` desde `apps/web` | PASS | frontend |
-| `npm run build` desde `apps/web` | PASS | Next.js producción |
+| `bun run lint` desde `apps/web` | PASS — exit 0 | frontend |
+| `bun run typecheck` desde `apps/web` | PASS — exit 0 | frontend |
+| `bun run test` desde `apps/web` | PASS — 78 tests | regresión completa frontend, incluidos ingestion/CFDI |
+| `bun run build` desde `apps/web` | PASS — 14/14 páginas | Next.js producción |
 | integración filesystem local real | PASS — 1 test | stream/hash/cleanup |
 | integración ClamAV con socket cerrado | PASS — 1; clean/EICAR omitidos | fail-closed real |
 | integración Redis con destino cerrado | PASS — 1; online omitido | degradación/fallback |
 | `docker version` durante el outage | BLOCKED — cliente 29.7.2 disponible; daemon `dockerDesktopLinuxEngine` ausente | diagnóstico inicial |
 | `docker version` tras la recuperación | PASS — engine 29.7.2; PostgreSQL, Redis, MinIO y ClamAV healthy | infraestructura local disponible |
-| `migration:show`, `migration:preflight`, `migration:run`, `seed:run` sobre `balanz_cfdi_phase0_test` | PASS — migración 070 aplicada y seed idempotente | schema local de Fase 1 |
-| bootstrap local API/worker y readiness | PASS — HTTP 200; PostgreSQL, storage local, ClamAV y Redis disponibles | runtime real de desarrollo |
+| `migration:show`, `migration:preflight`, `migration:run` sobre `balanz_cfdi_phase0_test` | PASS — migraciones 070/071 aplicadas | schema local de Fase 1 |
+| bootstrap local API/worker y readiness | PASS — HTTP 200; PostgreSQL, MinIO/S3, ClamAV y Redis disponibles | runtime real de desarrollo |
 | tests focales de wiring `CfdiApiModule` | PASS — 2 suites, 10 tests | regresión de DI y contrato HTTP |
+| corrida externa focal de ClamAV | PASS — health, clean, EICAR y offline fail-closed | scanner real con cleanup |
+| corrida externa focal de MinIO | PASS — bucket SSE privado, stream/hash, acceso anónimo denegado, URL temporal y expiración denegada | adapter S3 real con cleanup |
+| migración `071` + pago CP01 | PASS — `incorporated`, 2 pagos, 3 documentos y 2 períodos | recorrido manual API/worker |
+| segunda carga del pago CP01 | PASS — `duplicate`, un único CFDI lógico | dedupe real |
+| EICAR por worker real | PASS — objeto `quarantined`/`infected`, `MALWARE_DETECTED`, 0 CFDI | cleanup S3/DB PASS |
+| navegador: MFA y descarga | PASS — 3213 bytes, SHA-256 del fixture y grant de un uso | respuesta pública sin `storage_key` |
+| navegador: cambio de tenant | PASS — detalle previo redirigido; tenant nuevo con 0 clientes/0 procesos | estado anterior descartado |
 
 ## 13. QA manual
 
-La inspección estática y las pruebas frontend confirman rutas, estados,
-progreso XHR, cancelación, polling, recuperación, limpieza de tenant y detalle
-protegido. Tras recuperar Docker se abrió la pantalla de login contra la API y
-worker reales, se verificó una sesión sintética y se aprovisionaron una cuenta,
-una entidad fiscal y el ejercicio 2026 mediante la API. Quedó pendiente que el
-usuario complete el recorrido manual de carga XML, polling, resultado, lista,
-detalle y descarga. Por esta razón no se afirma que la Definition of Done de
-producto esté cerrada.
+Con navegador, API y worker reales se verificaron login, progreso de upload,
+respuesta `202`, estados `queued`/`processing`, recarga y recuperación del mismo
+job. El worker recuperó el trabajo y, después de aplicar la migración `071`, el
+pago sintético CP01 terminó `incorporated`. Lista y detalle mostraron 2 pagos, 3
+documentos relacionados y participación en 2 períodos. La repetición del XML
+terminó `duplicate` y la consulta conservó un único CFDI lógico.
+
+El EICAR procesado por el worker real produjo `MALWARE_DETECTED`, dejó el objeto
+`quarantined`/`infected`, no generó CFDI y completó cleanup S3/DB. La descarga
+con MFA entregó 3213 bytes cuyo SHA-256 coincide con el fixture, consumió el
+grant una sola vez y no expuso `storage_key`. Al cambiar de tenant, el detalle
+anterior fue redirigido y el nuevo tenant mostró 0 clientes y 0 procesos. El QA
+manual end-to-end queda `PASS`.
 
 ## 14. Defectos corregidos
 
@@ -465,6 +528,14 @@ producto esté cerrada.
     sesión y auditoría requeridos por sus guards; se añadieron los imports
     directos y una regresión que compila e inicializa el módulo sin depender de
     infraestructura externa.
+25. `cfdis.usage_code` estaba limitado a `varchar(3)` y rechazaba el valor CFDI
+    válido `CP01`; la migración append-only `071` lo amplía a `varchar(4)` y el
+    pago sintético quedó incorporado en la repetición focal.
+26. El consumo del grant de descarga fallaba por la forma del `UPDATE` generado
+    por TypeORM bajo el perfil runtime; se corrigió la mutación y el navegador
+    confirmó MFA, descarga íntegra y rechazo de reutilización del grant.
+27. Topbar y notificaciones mostraban copy hardcodeado de contadores; se eliminó
+    para no presentar actividad ficticia.
 
 ## 15. Deuda, defectos y capacidades diferidas
 
@@ -473,7 +544,7 @@ diferidas:
 
 | Capacidad | Fase/estado |
 | --------- | ----------- |
-| ZIP | `PHASE_2_ZIP`, `NOT_AUTHORIZED` |
+| ZIP | `PHASE_2_ZIP`, `NOT_STARTED` |
 | reauth y e.firma | `PHASE_3_REAUTH_AND_EFIRMA`, `NOT_STARTED` |
 | descarga/sincronización SAT | `PHASE_4_SAT_ON_DEMAND`, `NOT_STARTED` |
 | mesa mensual, checklist y cierre | `PHASE_5_MONTHLY_WORKSPACE`, `NOT_STARTED` |
@@ -483,11 +554,9 @@ diferidas:
 | CFDI 3.3, PDF y reglas automáticas | posterior a F8 según el roadmap |
 | DIOT e IEPS | no asignados por el roadmap vigente; requieren decisión explícita |
 
-Los gaps abiertos para cerrar `DONE` son de validación:
-
-1. ClamAV real: health, archivo limpio y EICAR con el código final.
-2. S3/MinIO real: round-trip privado, integridad, acceso temporal y fallos.
-3. QA manual end-to-end desde navegador con API/worker reales.
+No quedan gaps funcionales conocidos de Fase 1. Para declarar `DONE` aún debe
+quedar verde el check requerido de PR #18 y completarse la integración
+secuencial después de desbloquear Fase 0.
 
 ## 16. Estado de los gates de Fase 0
 
@@ -497,7 +566,9 @@ histórico de Fase 0.
 
 | Gate | Estado | Efecto |
 | ---- | ------ | ------ |
-| `CI_RUNTIME_WORKER_STARTUP` | OPEN | obligatorio antes de merge/despliegue; no bloqueó desarrollo F1 |
-| `SHARED_VAULT_POSTGRES_RUNTIME_SECRETS` | OPEN | obligatorio antes de merge/despliegue; no bloqueó desarrollo F1 |
+| `CI_RUNTIME_WORKER_STARTUP` | FAIL — runtime env `EACCES` | bloquea PR #17 e integración secuencial |
+| `SHARED_VAULT_POSTGRES_RUNTIME_SECRETS` | BLOCKED — API/worker `NOT_FOUND` | `develop` auto-despliega; bloquea integración/release |
 
-No se hizo merge ni se modificó/cerró el PR #17. No se inició Fase 2.
+PR #17 permanece `DRAFT` con check requerido fallido. PR #18 permanece `DRAFT`
+con el check del validador de migraciones fallido por conteo exacto. No se hizo
+merge, no se modificó/cerró el PR #17 y no se inició Fase 2.
