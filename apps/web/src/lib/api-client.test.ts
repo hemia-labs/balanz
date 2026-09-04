@@ -1,13 +1,46 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  abortPendingApiRequests,
   ApiError,
   apiErrorMessage,
   classifyApiError,
   apiClient,
+  apiClientResponse,
+  apiResourceUrl,
+  registerPendingApiAbort,
   shouldNotifyUnauthorizedApi,
   subscribeToUnauthorizedApi,
 } from "./api-client";
+
+test("aborta transports XHR registrados antes de cambiar de tenant", () => {
+  let aborts = 0;
+  const unregister = registerPendingApiAbort(() => {
+    aborts += 1;
+  });
+
+  try {
+    abortPendingApiRequests();
+    assert.equal(aborts, 1);
+  } finally {
+    unregister();
+  }
+
+  abortPendingApiRequests();
+  assert.equal(aborts, 1);
+});
+
+test("resuelve descargas temporales únicamente en el origen de la API", () => {
+  assert.equal(
+    apiResourceUrl("/api/v1/cfdis/cfdi/content?token=one-time"),
+    "http://localhost:3021/api/v1/cfdis/cfdi/content?token=one-time",
+  );
+  assert.throws(
+    () => apiResourceUrl("https://example.invalid/steal-token"),
+    (error: unknown) =>
+      error instanceof ApiError && error.code === "INVALID_API_RESPONSE",
+  );
+});
 
 test("clasifica errores API y evita mensajes sensibles de rate limit", () => {
   assert.equal(
@@ -72,6 +105,25 @@ test("clasifica errores API y evita mensajes sensibles de rate limit", () => {
     apiErrorMessage(new ApiError(500, "database detail"), "fallback"),
     "Ocurrió un error inesperado. Intenta nuevamente.",
   );
+});
+
+test("expone ETag y Retry-After y acepta 304 para polling", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () =>
+    new Response(null, {
+      status: 304,
+      headers: { etag: '"job-v3"', "retry-after": "2" },
+    });
+  try {
+    const response = await apiClientResponse("/ingestions/job", {
+      headers: { "If-None-Match": '"job-v2"' },
+    });
+    assert.equal(response.status, 304);
+    assert.equal(response.headers.get("etag"), '"job-v3"');
+    assert.equal(response.headers.get("retry-after"), "2");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });
 
 test("normaliza errores de transporte conservando status y código", async () => {

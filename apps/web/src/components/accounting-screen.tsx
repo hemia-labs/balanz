@@ -11,18 +11,16 @@ import {
   isLivePeriodTabSupported,
   type ResolvedProductRoute,
 } from "@/lib/product-route";
+import { canAccessAccountScope } from "@/lib/permissions";
 import {
   AuditScreen,
   ClientsScreen,
   OrganizationHomeScreen,
   OrganizationSettingsScreen,
-  ProcessesScreen,
   TeamScreen,
 } from "@/components/screens/global-screens";
 import {
-  CfdiDetailScreen,
   ClientAlertsScreen,
-  ClientCfdiScreen,
   ClientOverviewScreen,
   ClientSettingsScreen,
   FiscalYearsScreen,
@@ -68,8 +66,33 @@ const PermissionAdministrationScreen = dynamic(() =>
   ),
 );
 
+const LiveProcessesScreen = dynamic(() =>
+  import("@/features/ingestions/live-processes-screen").then(
+    (module) => module.LiveProcessesScreen,
+  ),
+);
+
+const LiveClientCfdiScreen = dynamic(() =>
+  import("@/features/cfdi/live-cfdi-screens").then(
+    (module) => module.LiveClientCfdiScreen,
+  ),
+);
+
+const LiveCfdiDetailScreen = dynamic(() =>
+  import("@/features/cfdi/live-cfdi-screens").then(
+    (module) => module.LiveCfdiDetailScreen,
+  ),
+);
+
 export function AccountingScreen({ route }: { route: ResolvedProductRoute }) {
-  const { capabilities, isDemo, locale, membership, organization } =
+  const {
+    accountAccessMode,
+    capabilities,
+    isDemo,
+    locale,
+    membership,
+    organization,
+  } =
     useAccountingContext();
   const { organizationId, clientId } = route;
   if (!canOpenResolvedProductRoute(route, capabilities)) {
@@ -78,9 +101,39 @@ export function AccountingScreen({ route }: { route: ResolvedProductRoute }) {
   if (
     !isDemo &&
     route.clientId &&
-    !membership.assignedClientIds.includes(route.clientId)
+    !canAccessAccountScope(
+      accountAccessMode,
+      membership.assignedClientIds,
+      route.clientId,
+    )
   ) {
     return <LiveForbiddenScreen reason="out_of_scope" />;
+  }
+  if (route.screen === "processes") return <LiveProcessesScreen />;
+  if (route.screen === "client-cfdi")
+    return (
+      <LiveClientCfdiScreen
+        clientId={clientId!}
+        legalEntityId={route.legalEntityId}
+      />
+    );
+  if (route.screen === "cfdi-detail") {
+    if (!route.legalEntityId)
+      return (
+        <LiveUnavailableScreen
+          title="Selecciona primero un RFC"
+          description="Abre CFDI desde la lista de una entidad fiscal para conservar el alcance completo."
+          returnHref={`/${locale}/organizations/${encodeURIComponent(organization.slug)}/clients/${encodeURIComponent(clientId!)}/cfdi`}
+          returnLabel="Seleccionar RFC"
+        />
+      );
+    return (
+      <LiveCfdiDetailScreen
+        clientId={clientId!}
+        legalEntityId={route.legalEntityId}
+        cfdiId={route.cfdiId!}
+      />
+    );
   }
   if (!isDemo) {
     switch (route.screen) {
@@ -153,8 +206,6 @@ export function AccountingScreen({ route }: { route: ResolvedProductRoute }) {
       return <OrganizationHomeScreen organizationId={organizationId} />;
     case "clients":
       return <ClientsScreen organizationId={organizationId} />;
-    case "processes":
-      return <ProcessesScreen organizationId={organizationId} />;
     case "team":
       return <TeamScreen organizationId={organizationId} />;
     case "audit":
@@ -196,21 +247,6 @@ export function AccountingScreen({ route }: { route: ResolvedProductRoute }) {
           year={route.year!}
           period={route.period!}
           tab={route.tab!}
-        />
-      );
-    case "client-cfdi":
-      return (
-        <ClientCfdiScreen
-          organizationId={organizationId}
-          clientId={clientId!}
-        />
-      );
-    case "cfdi-detail":
-      return (
-        <CfdiDetailScreen
-          organizationId={organizationId}
-          clientId={clientId!}
-          uuid={route.uuid!}
         />
       );
     case "obligations":

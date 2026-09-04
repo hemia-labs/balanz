@@ -37,6 +37,22 @@
     "src/features/clients/types.ts",
     "src/features/session/unauthorized-navigation.ts",
     "src/features/session/unauthorized-navigation.test.ts",
-    "src/features/session/types.ts"
+    "src/features/session/types.ts",
+    "src/features/ingestions/upload-validation.ts",
+    "src/features/ingestions/upload-validation.test.ts",
+    "src/features/ingestions/polling.ts",
+    "src/features/ingestions/polling.test.ts",
+    "src/features/ingestions/recovery-store.ts",
+    "src/features/ingestions/recovery-store.test.ts",
+    "src/features/ingestions/types.ts",
+    "src/features/ingestions/types.test.ts",
+    "src/features/ingestions/upload-lifecycle.ts",
+    "src/features/ingestions/upload-lifecycle.test.ts",
+    "src/features/cfdi/exact-decimal.ts",
+    "src/features/cfdi/exact-decimal.test.ts",
+    "src/features/cfdi/cfdi-list-query.ts",
+    "src/features/cfdi/cfdi-list-query.test.ts",
+    "src/features/cfdi/types.ts",
+    "src/features/cfdi/types.test.ts"
   ]
 }

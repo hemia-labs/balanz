@@ -40,14 +40,20 @@ export function isClientNavigationItemActive(
   href: string,
 ) {
   if (isNavigationItemActive(pathname, href)) return true;
-  if (itemId !== "fiscal-years" || !href.endsWith("/fiscal-years")) {
+  if (
+    !["fiscal-years", "cfdi"].includes(itemId) ||
+    (!href.endsWith("/fiscal-years") && !href.endsWith("/cfdi"))
+  ) {
     return false;
   }
 
-  const clientHref = href.slice(0, -"/fiscal-years".length);
+  const suffix = itemId === "cfdi" ? "/cfdi" : "/fiscal-years";
+  const clientHref = href.slice(0, -suffix.length);
   const fiscalEntityPrefix = `${clientHref}/legal-entities/`;
   if (!pathname.startsWith(fiscalEntityPrefix)) return false;
 
   const entityRoute = pathname.slice(fiscalEntityPrefix.length);
-  return /^[^/]+\/fiscal-years(?:\/|$)/.test(entityRoute);
+  return itemId === "cfdi"
+    ? /^[^/]+\/cfdi(?:\/|$)/.test(entityRoute)
+    : /^[^/]+\/fiscal-years(?:\/|$)/.test(entityRoute);
 }

@@ -29,6 +29,7 @@ import {
 } from "@/lib/demo-data";
 import { resolveOrganizationRoute } from "@/lib/navigation-core";
 import { hasCapability } from "@/lib/permissions";
+import { clearIngestionRecovery } from "@/features/ingestions/recovery-store";
 
 interface AccountingContextValue {
   locale: string;
@@ -40,6 +41,8 @@ interface AccountingContextValue {
   clientId?: string;
   clientName?: string;
   capabilities: Capability[];
+  accountAccessMode: "tenant" | "assigned";
+  mfaVerifiedAt: string | null;
   context: "organization" | "client";
   isDemo: boolean;
   organizations: OrganizationSummary[];
@@ -98,6 +101,7 @@ export function AccountingContextProvider({
 
   const changeOrganization = useCallback(
     async (organizationId: string) => {
+      clearIngestionRecovery();
       setLiveClientIdentity(null);
       await switchTenant(organizationId);
       const target = organizations.find((item) => item.id === organizationId);
@@ -201,6 +205,11 @@ export function AccountingContextProvider({
       clientId,
       clientName,
       capabilities: resolvedCapabilities,
+      accountAccessMode:
+        authorization?.accountAccessMode ??
+        session?.accountAccessMode ??
+        "assigned",
+      mfaVerifiedAt: session?.mfaVerifiedAt ?? null,
       context: clientId ? ("client" as const) : ("organization" as const),
       isDemo,
       organizations,
