@@ -164,7 +164,7 @@ export class Cfdi {
   })
   receiverFiscalRegimeCode?: string | null;
 
-  @Column({ name: 'usage_code', type: 'varchar', length: 3, nullable: true })
+  @Column({ name: 'usage_code', type: 'varchar', length: 4, nullable: true })
   usageCode?: string | null;
 
   @Column({ type: 'varchar', length: 3 })

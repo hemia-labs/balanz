@@ -4,6 +4,7 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import * as dotenv from 'dotenv';
 import { DataSource, type EntityManager, type QueryRunner } from 'typeorm';
 import { PhaseOneCfdiDomain1787690700000 } from '../src/database/migrations/1787690700000-PhaseOneCfdiDomain';
+import { CfdiUsageCodeLength1787690710000 } from '../src/database/migrations/1787690710000-CfdiUsageCodeLength';
 import {
   WORKER_MEMBERSHIP_CONTEXT_ID,
   type FiscalTenantTransactionService,
@@ -88,11 +89,14 @@ async function validate(): Promise<void> {
 
     await queryRunner.startTransaction();
     const migration = new PhaseOneCfdiDomain1787690700000();
+    const usageCodeLength = new CfdiUsageCodeLength1787690710000();
+    await usageCodeLength.down(queryRunner);
     await migration.down(queryRunner);
     const down = await inspectDownState(queryRunner.manager);
     assertTrueValues(down, 'Phase 1 down');
 
     await migration.up(queryRunner);
+    await usageCodeLength.up(queryRunner);
     const restored = await inspectUpState(queryRunner.manager);
     assertUpState(restored);
     const workerPersistence = await validateWorkerPersistence(queryRunner);
@@ -185,6 +189,7 @@ async function validateWorkerPersistence(
 
   const [primaryState] = (await queryRunner.query(
     `SELECT cfdi.id,
+            cfdi.usage_code,
             (SELECT count(*)::integer FROM period_cfdis participation
               WHERE participation.cfdi_id = cfdi.id) AS periods,
             (SELECT count(*)::integer FROM cfdi_relations relation
@@ -206,6 +211,7 @@ async function validateWorkerPersistence(
     [scope.legalEntityId, primaryUuid],
   )) as Array<{
     id: string;
+    usage_code: string | null;
     periods: number;
     relations: number;
     relation_groups: number;
@@ -213,6 +219,7 @@ async function validateWorkerPersistence(
     max_documents_per_payment: number;
   }>;
   if (!primaryState) throw new Error('Incorporated CFDI was not persisted');
+  assertEqual(primaryState.usage_code, 'CP01', 'four-character UsoCFDI');
   assertEqual(primaryState.periods, 2, 'multi-period participation');
   assertEqual(primaryState.relations, 3, 'related CFDI observations');
   assertEqual(primaryState.relation_groups, 2, 'related CFDI groups');
@@ -1500,8 +1507,10 @@ function paymentDocument(
         syntheticPayment(`${year}-01-15T10:00:00`, 2),
         syntheticPayment(`${year}-02-16T11:00:00`),
       ];
+  const document = baseDocument(uuid, 'P', `${year}-01-01T09:00:00`, issuerRfc);
   return {
-    ...baseDocument(uuid, 'P', `${year}-01-01T09:00:00`, issuerRfc),
+    ...document,
+    receiver: { ...document.receiver, cfdiUse: 'CP01' },
     relations: [
       {
         relationGroupOrdinal: 1,
@@ -1777,6 +1786,11 @@ async function inspectUpState(
          WHERE table_schema = 'public' AND table_name = ANY($1::text[])
            AND (data_type IN ('real','double precision','json','jsonb')
              OR column_name ~ 'xml')) AS exact_normalized_values,
+       (SELECT character_maximum_length = 4
+          FROM information_schema.columns
+         WHERE table_schema = 'public'
+           AND table_name = 'cfdis'
+           AND column_name = 'usage_code') AS usage_code_supports_cp01,
        (SELECT tableowner = 'balanz_fiscal_owner' FROM pg_tables
          WHERE schemaname = 'public' AND tablename = 'cfdis') AS constrained_owner,
        NOT has_schema_privilege('balanz_fiscal_owner', 'public', 'CREATE')
@@ -1848,6 +1862,7 @@ function assertUpState(state: Record<string, unknown>): void {
         state.unbounded_item_attempt_evidence,
       ),
       exact_normalized_values: Boolean(state.exact_normalized_values),
+      usage_code_supports_cp01: Boolean(state.usage_code_supports_cp01),
       constrained_owner: Boolean(state.constrained_owner),
       owner_cannot_create: Boolean(state.owner_cannot_create),
       one_time_grant_acl: Boolean(state.one_time_grant_acl),

@@ -380,11 +380,14 @@ export class CfdiQueryService {
         throw notFound();
       }
       const consumed = await manager.query<Array<{ id: string }>>(
-        `UPDATE cfdi_access_grants
-            SET used_at = statement_timestamp()
-          WHERE id = $1 AND used_at IS NULL
-            AND expires_at > statement_timestamp()
-        RETURNING id`,
+        `WITH consumed AS (
+           UPDATE cfdi_access_grants
+              SET used_at = statement_timestamp()
+            WHERE id = $1 AND used_at IS NULL
+              AND expires_at > statement_timestamp()
+          RETURNING id
+         )
+         SELECT id FROM consumed`,
         [grant.id],
       );
       if (consumed.length !== 1) throw notFound();
