@@ -98,7 +98,7 @@ Endpoints bajo el prefijo global existente de la API:
 - `POST /legal-entities/:legalEntityId/fiscal-years`
 - `GET /fiscal-years/:fiscalYearId/periods`
 
-La cartera y las colecciones no acotadas —asignaciones, candidatos, responsables y entidades fiscales— tienen paginación con máximo 100, búsqueda escapada y orden estable. El detalle pagina sus entidades fiscales y sólo devuelve ejercicios de esa página; para deep links acepta un `legalEntityId` validado y resuelve exactamente esa entidad dentro del mismo tenant/scope. Períodos conserva exactamente 12 elementos y los ejercicios permanecen completos por entidad por su cota temporal. La cartera sólo agrega la entidad fiscal primaria, asignación primaria, último ejercicio y estado del mes actual; no fabrica métricas fiscales.
+La cartera y las colecciones no acotadas —asignaciones, candidatos, responsables y entidades fiscales— tienen paginación con máximo 100, búsqueda escapada y orden estable. El detalle pagina sus entidades fiscales y agrega `fiscalYearCount`; el frontend solicita el detalle ligero con `includeFiscalYears=false`. Durante la transición compatible de `/api/v1`, las solicitudes sin ese parámetro conservan `fiscalYears`. La colección de ejercicios conserva el array histórico por defecto y devuelve `{ items, meta }` cuando el consumidor solicita `paginated=true`; también acepta filtro por `year`. Para deep links, el detalle acepta un `legalEntityId` validado y resuelve exactamente esa entidad dentro del mismo tenant/scope. Los períodos conservan exactamente 12 elementos. La cartera sólo agrega la entidad fiscal primaria, asignación primaria, último ejercicio y estado del mes actual; no fabrica métricas fiscales.
 
 ### Permisos y defaults
 

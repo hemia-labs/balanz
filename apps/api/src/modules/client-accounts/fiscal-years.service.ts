@@ -61,6 +61,13 @@ export class FiscalYearsService {
       });
     if (query.year !== undefined)
       builder.andWhere('year.year = :year', { year: query.year });
+    if (!query.paginated) {
+      const years = await builder
+        .orderBy('year.year', 'DESC')
+        .addOrderBy('year.id', 'ASC')
+        .getMany();
+      return years.map((year) => this.response(year));
+    }
     const [years, total] = await builder
       .orderBy('year.year', 'DESC')
       .addOrderBy('year.id', 'ASC')

@@ -1,5 +1,5 @@
-import { Type } from 'class-transformer';
-import { IsInt, IsOptional, Max, Min } from 'class-validator';
+import { Transform, Type } from 'class-transformer';
+import { IsBoolean, IsInt, IsOptional, Max, Min } from 'class-validator';
 
 export class CreateFiscalYearDto {
   @Type(() => Number)
@@ -9,6 +9,11 @@ export class CreateFiscalYearDto {
 }
 
 export class ListFiscalYearsDto {
+  @Transform(({ value }) => value === true || value === 'true')
+  @IsOptional()
+  @IsBoolean({ message: 'El formato de respuesta no es válido.' })
+  paginated = false;
+
   @Type(() => Number)
   @IsInt({ message: 'La página debe ser un número entero.' })
   @Min(1, { message: 'La página debe ser 1 o mayor.' })

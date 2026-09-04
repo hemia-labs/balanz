@@ -35,20 +35,14 @@ export class PermissionAdministrationController {
   @Get('roles')
   @Permissions('organization.view')
   listRoles(@Res({ passthrough: true }) response: Response) {
-    response.setHeader(
-      'Cache-Control',
-      'private, max-age=300, stale-while-revalidate=60',
-    );
+    response.setHeader('Cache-Control', 'private, no-cache');
     return this.service.listRoles();
   }
 
   @Get('permissions')
   @Permissions('permissions.manage')
   listPermissions(@Res({ passthrough: true }) response: Response) {
-    response.setHeader(
-      'Cache-Control',
-      'private, max-age=300, stale-while-revalidate=60',
-    );
+    response.setHeader('Cache-Control', 'private, no-cache');
     return this.service.listPermissions();
   }
 

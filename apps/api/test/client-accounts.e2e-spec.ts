@@ -49,6 +49,7 @@ type ClientDetailResponse = {
     items: Array<{ id: string; fiscalYearCount: number }>;
     meta: { page: number; limit: number; total: number; totalPages: number };
   };
+  fiscalYears?: Array<{ id: string; legalEntityId: string }>;
 };
 
 describe('Client accounts domain (e2e)', () => {
@@ -321,7 +322,7 @@ describe('Client accounts domain (e2e)', () => {
 
     const fiscalYears = await request(app.getHttpServer())
       .get(
-        `${apiPrefix}/legal-entities/${mainClient.legalEntityId}/fiscal-years?page=1&limit=1`,
+        `${apiPrefix}/legal-entities/${mainClient.legalEntityId}/fiscal-years?paginated=true&page=1&limit=1`,
       )
       .set('Cookie', owner.cookie)
       .expect(200);
@@ -329,6 +330,15 @@ describe('Client accounts domain (e2e)', () => {
       items: [expect.objectContaining({ year: new Date().getFullYear() })],
       meta: { page: 1, limit: 1, total: 1, totalPages: 1 },
     });
+    const legacyFiscalYears = await request(app.getHttpServer())
+      .get(
+        `${apiPrefix}/legal-entities/${mainClient.legalEntityId}/fiscal-years`,
+      )
+      .set('Cookie', owner.cookie)
+      .expect(200);
+    expect(responseBody(legacyFiscalYears)).toEqual([
+      expect.objectContaining({ year: new Date().getFullYear() }),
+    ]);
 
     const deepLinkEntityResponse = await request(app.getHttpServer())
       .post(
@@ -656,10 +666,21 @@ describe('Client accounts domain (e2e)', () => {
         (entity) => entity.id === mainClient.legalEntityId,
       )?.fiscalYearCount,
     ).toBe(2);
+    expect(body.fiscalYears?.map((year) => year.id)).not.toContain(
+      archivedYearId,
+    );
+
+    const optimizedDetail = await request(app.getHttpServer())
+      .get(
+        `${apiPrefix}/client-accounts/${mainClient.clientAccountId}?includeFiscalYears=false`,
+      )
+      .set('Cookie', accountant.cookie)
+      .expect(200);
+    expect(responseBody(optimizedDetail)).not.toHaveProperty('fiscalYears');
 
     const fiscalYears = await request(app.getHttpServer())
       .get(
-        `${apiPrefix}/legal-entities/${mainClient.legalEntityId}/fiscal-years?page=1&limit=100`,
+        `${apiPrefix}/legal-entities/${mainClient.legalEntityId}/fiscal-years?paginated=true&page=1&limit=100`,
       )
       .set('Cookie', accountant.cookie)
       .expect(200);

@@ -343,37 +343,52 @@ export class ClientAccountsService {
         'Legal entity not found',
       );
     }
+    let fiscalYearsPromise: Promise<FiscalYear[]> = Promise.resolve([]);
     let fiscalYearCountsPromise: Promise<
       Array<{ legalEntityId: string; count: string }>
-    >;
-    if (legalEntities.length === 0) {
-      fiscalYearCountsPromise = Promise.resolve([]);
-    } else {
+    > = Promise.resolve([]);
+    if (legalEntities.length > 0) {
       const builder = this.fiscalYears
         .createQueryBuilder('year')
-        .select('year.legal_entity_id', 'legalEntityId')
-        .addSelect('COUNT(year.id)', 'count')
         .where(
           'year.organization_id = :organizationId AND year.client_account_id = :clientAccountId',
           { organizationId, clientAccountId },
         )
         .andWhere('year.legal_entity_id IN (:...legalEntityIds)', {
           legalEntityIds: legalEntities.map((entity) => entity.id),
-        })
-        .groupBy('year.legal_entity_id');
+        });
       if (!query.includeArchived)
         builder.andWhere('year.status <> :archivedYearStatus', {
           archivedYearStatus: FiscalYearStatus.ARCHIVED,
         });
-      fiscalYearCountsPromise = builder.getRawMany();
+      if (query.includeFiscalYears) {
+        fiscalYearsPromise = builder
+          .orderBy('year.year', 'DESC')
+          .addOrderBy('year.id', 'ASC')
+          .getMany();
+      } else {
+        fiscalYearCountsPromise = builder
+          .select('year.legal_entity_id', 'legalEntityId')
+          .addSelect('COUNT(year.id)', 'count')
+          .groupBy('year.legal_entity_id')
+          .getRawMany();
+      }
     }
-    const [primaryAssignments, fiscalYearCounts] = await Promise.all([
-      primaryAssignmentsPromise,
-      fiscalYearCountsPromise,
-    ]);
+    const [primaryAssignments, fiscalYears, fiscalYearCounts] =
+      await Promise.all([
+        primaryAssignmentsPromise,
+        fiscalYearsPromise,
+        fiscalYearCountsPromise,
+      ]);
     const fiscalYearCountByEntity = new Map(
       fiscalYearCounts.map((item) => [item.legalEntityId, Number(item.count)]),
     );
+    for (const year of fiscalYears) {
+      fiscalYearCountByEntity.set(
+        year.legalEntityId,
+        (fiscalYearCountByEntity.get(year.legalEntityId) ?? 0) + 1,
+      );
+    }
     return {
       account: this.accountResponse(account),
       legalEntities: {
@@ -396,6 +411,13 @@ export class ClientAccountsService {
           (item) => item.clientAccountId === clientAccountId,
         ),
       ),
+      ...(query.includeFiscalYears
+        ? {
+            fiscalYears: fiscalYears.map((year) =>
+              this.fiscalYearResponse(year),
+            ),
+          }
+        : {}),
     };
   }
 
