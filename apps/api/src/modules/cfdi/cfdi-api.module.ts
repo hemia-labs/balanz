@@ -1,9 +1,11 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { AuditModule } from '../audit/audit.module';
 import { ClientAccountsModule } from '../client-accounts/client-accounts.module';
 import { LegalEntity } from '../client-accounts/entities/legal-entity.entity';
 import { FiscalInfrastructureModule } from '../fiscal-platform/fiscal-infrastructure.module';
 import { IngestionModule } from '../ingestion/ingestion.module';
+import { SessionsModule } from '../sessions/sessions.module';
 import { CfdiController } from './controllers/cfdi.controller';
 import { IngestionQueryController } from './controllers/ingestion-query.controller';
 import { XmlIngestionController } from './controllers/xml-ingestion.controller';
@@ -15,8 +17,10 @@ import { XmlUploadService } from './services/xml-upload.service';
   imports: [
     TypeOrmModule.forFeature([LegalEntity]),
     ClientAccountsModule,
+    AuditModule,
     FiscalInfrastructureModule,
     IngestionModule,
+    SessionsModule,
   ],
   controllers: [
     XmlIngestionController,

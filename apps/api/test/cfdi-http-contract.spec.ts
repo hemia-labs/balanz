@@ -4,12 +4,14 @@ import {
   HttpStatus,
   UnauthorizedException,
 } from '@nestjs/common';
-import { HTTP_CODE_METADATA } from '@nestjs/common/constants';
+import { HTTP_CODE_METADATA, MODULE_METADATA } from '@nestjs/common/constants';
 import { Reflector } from '@nestjs/core';
 import { validate } from 'class-validator';
 import type { Response } from 'express';
 import { PERMISSIONS_KEY } from '../src/common/decorators/permissions.decorator';
 import { PermissionsGuard } from '../src/common/guards/permissions.guard';
+import { AuditModule } from '../src/modules/audit/audit.module';
+import { CfdiApiModule } from '../src/modules/cfdi/cfdi-api.module';
 import { CfdiController } from '../src/modules/cfdi/controllers/cfdi.controller';
 import { IngestionQueryController } from '../src/modules/cfdi/controllers/ingestion-query.controller';
 import { XmlIngestionController } from '../src/modules/cfdi/controllers/xml-ingestion.controller';
@@ -18,6 +20,7 @@ import type { CfdiQueryService } from '../src/modules/cfdi/services/cfdi-query.s
 import type { IngestionQueryService } from '../src/modules/cfdi/services/ingestion-query.service';
 import type { XmlUploadService } from '../src/modules/cfdi/services/xml-upload.service';
 import type { SessionAuthorizationContext } from '../src/modules/sessions/session.types';
+import { SessionsModule } from '../src/modules/sessions/sessions.module';
 
 const jobId = '11111111-1111-4111-8111-111111111111';
 
@@ -58,6 +61,17 @@ function executionContext(request: Record<string, unknown>): ExecutionContext {
 }
 
 describe('Phase 1 CFDI HTTP contract', () => {
+  it('imports the providers required by its runtime guards', () => {
+    const imports = Reflect.getMetadata(
+      MODULE_METADATA.IMPORTS,
+      CfdiApiModule,
+    ) as unknown[];
+
+    expect(imports).toEqual(
+      expect.arrayContaining([AuditModule, SessionsModule]),
+    );
+  });
+
   it('declares least-privilege permissions on every public operation', () => {
     expect(permissions(XmlIngestionController.prototype, 'upload')).toEqual([
       'ingestion.create',

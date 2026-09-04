@@ -10,13 +10,14 @@ validación y extracción CFDI 4.0, persistencia fiscal con RLS, períodos,
 incidencias, consultas, acceso temporal al original y pantallas reales.
 
 El estado de cierre es `PARTIALLY_COMPLETE`, no `DONE`. Después de la
-interrupción eléctrica, Docker Desktop no pudo restablecer su socket interno;
-por ello no se repitieron con el código final las pruebas de ClamAV real
-clean/EICAR ni S3/MinIO real. Tampoco se completó el recorrido manual
-navegador–API–worker–scanner–storage de extremo a extremo. Las pruebas de
-dependencia caída sí comprobaron el comportamiento fail-closed. Esta falta de
-evidencia no se sustituye con mocks ni con las validaciones históricas de Fase
-0.
+interrupción eléctrica se recuperaron Docker Desktop y los servicios locales,
+se aplicó la migración de Fase 1 y se verificó el arranque real de API y worker
+contra PostgreSQL, Redis, ClamAV y almacenamiento privado local. Aún no se han
+ejecutado con el código final las pruebas clean/EICAR de ClamAV ni el round-trip
+S3/MinIO, y tampoco se completó una carga manual XML de extremo a extremo desde
+el navegador. Las pruebas de dependencia caída sí comprobaron el comportamiento
+fail-closed. Esta falta de evidencia no se sustituye con mocks ni con las
+validaciones históricas de Fase 0.
 
 ```text
 RESULT: PHASE_1_XML_PARTIALLY_COMPLETE
@@ -386,15 +387,22 @@ fixture TypeScript con las constantes canónicas de versión del parser/XSD, y s
 | integración filesystem local real | PASS — 1 test | stream/hash/cleanup |
 | integración ClamAV con socket cerrado | PASS — 1; clean/EICAR omitidos | fail-closed real |
 | integración Redis con destino cerrado | PASS — 1; online omitido | degradación/fallback |
-| `docker version` posterior al outage | BLOCKED — cliente 29.7.2 disponible; daemon `dockerDesktopLinuxEngine` ausente (`The system cannot find the file specified`) | impide clamd y MinIO reales |
+| `docker version` durante el outage | BLOCKED — cliente 29.7.2 disponible; daemon `dockerDesktopLinuxEngine` ausente | diagnóstico inicial |
+| `docker version` tras la recuperación | PASS — engine 29.7.2; PostgreSQL, Redis, MinIO y ClamAV healthy | infraestructura local disponible |
+| `migration:show`, `migration:preflight`, `migration:run`, `seed:run` sobre `balanz_cfdi_phase0_test` | PASS — migración 070 aplicada y seed idempotente | schema local de Fase 1 |
+| bootstrap local API/worker y readiness | PASS — HTTP 200; PostgreSQL, storage local, ClamAV y Redis disponibles | runtime real de desarrollo |
+| tests focales de wiring `CfdiApiModule` | PASS — 2 suites, 10 tests | regresión de DI y contrato HTTP |
 
 ## 13. QA manual
 
 La inspección estática y las pruebas frontend confirman rutas, estados,
 progreso XHR, cancelación, polling, recuperación, limpieza de tenant y detalle
-protegido. Quedó pendiente el recorrido manual completo en navegador con API,
-worker, PostgreSQL, storage y ClamAV reales por la indisponibilidad de Docker.
-Por esta razón no se afirma que la Definition of Done de producto esté cerrada.
+protegido. Tras recuperar Docker se abrió la pantalla de login contra la API y
+worker reales, se verificó una sesión sintética y se aprovisionaron una cuenta,
+una entidad fiscal y el ejercicio 2026 mediante la API. Quedó pendiente que el
+usuario complete el recorrido manual de carga XML, polling, resultado, lista,
+detalle y descarga. Por esta razón no se afirma que la Definition of Done de
+producto esté cerrada.
 
 ## 14. Defectos corregidos
 
@@ -453,6 +461,10 @@ Por esta razón no se afirma que la Definition of Done de producto esté cerrada
     recuperación fuera de scope.
 23. Un filtro UUID malformado llegaba al cast PostgreSQL; ahora el DTO lo rechaza
     antes de consultar la base.
+24. El arranque productivo de `CfdiApiModule` no podía resolver los servicios de
+    sesión y auditoría requeridos por sus guards; se añadieron los imports
+    directos y una regresión que compila e inicializa el módulo sin depender de
+    infraestructura externa.
 
 ## 15. Deuda, defectos y capacidades diferidas
 
