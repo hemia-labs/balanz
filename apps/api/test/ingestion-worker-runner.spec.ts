@@ -77,7 +77,12 @@ describe('IngestionWorkerRunner durable semantics', () => {
       reconcile: jest.fn().mockResolvedValue(emptyReconciliation),
     };
     const wakeups = {
-      subscribe: jest.fn().mockReturnValue(jest.fn()),
+      subscribe: jest
+        .fn<
+          ReturnType<RedisWakeupService['subscribe']>,
+          Parameters<RedisWakeupService['subscribe']>
+        >()
+        .mockReturnValue(jest.fn()),
     };
     const events = eventLogger ?? { write: jest.fn() };
     const metrics = new FiscalMetricsService();
@@ -90,6 +95,7 @@ describe('IngestionWorkerRunner durable semantics', () => {
       backoffSeconds: [10, 30, 120],
       backoffJitterPercent: 20,
       pollIntervalMs: 60_000,
+      queueMetricsIntervalMs: 30_000,
       reconcileIntervalMs: 60_000,
       shutdownGraceMs: 1_000,
       healthHost: '127.0.0.1',
@@ -115,6 +121,71 @@ describe('IngestionWorkerRunner durable semantics', () => {
     );
     return { runner, jobs, wakeups, events, metrics };
   }
+
+  it.each([false, true])(
+    'samples queue ages across wakeups, including failed attempts=%s',
+    async (failFirst) => {
+      jest.useFakeTimers();
+      const { runner, jobs, wakeups, metrics } = createRunner();
+      jobs.claimNext.mockReset().mockResolvedValue(null);
+      if (failFirst)
+        jobs.queueAges.mockRejectedValueOnce(new Error('query unavailable'));
+      try {
+        runner.onApplicationBootstrap();
+        await jest.advanceTimersByTimeAsync(0);
+        const wakeup = wakeups.subscribe.mock.calls[0][0];
+        expect(jobs.queueAges).toHaveBeenCalledTimes(1);
+        for (let tick = 0; tick < 5; tick += 1) {
+          await jest.advanceTimersByTimeAsync(5_000);
+          wakeup();
+          await jest.advanceTimersByTimeAsync(0);
+        }
+        expect(jobs.queueAges).toHaveBeenCalledTimes(1);
+        expect(jobs.claimNext.mock.calls.length).toBeGreaterThan(5);
+        await jest.advanceTimersByTimeAsync(5_000);
+        wakeup();
+        await jest.advanceTimersByTimeAsync(0);
+        expect(jobs.queueAges).toHaveBeenCalledTimes(2);
+        expect(metrics.render()).toContain(
+          'ingestion_queue_refresh_duration_seconds_count{outcome="success"}',
+        );
+        if (failFirst)
+          expect(metrics.render()).toContain(
+            'ingestion_queue_refresh_duration_seconds_count{outcome="failed"} 1',
+          );
+      } finally {
+        await runner.onApplicationShutdown();
+        jest.useRealTimers();
+      }
+    },
+  );
+
+  it('shares a slow queue query between reconciliation and claim cycles', async () => {
+    jest.useFakeTimers();
+    const { runner, jobs, wakeups } = createRunner();
+    jobs.claimNext.mockReset().mockResolvedValue(null);
+    let finish = () => {};
+    jobs.queueAges.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finish = () => resolve([]);
+        }),
+    );
+    try {
+      runner.onApplicationBootstrap();
+      await jest.advanceTimersByTimeAsync(0);
+      await jest.advanceTimersByTimeAsync(30_001);
+      const wakeup = wakeups.subscribe.mock.calls[0][0];
+      wakeup();
+      await jest.advanceTimersByTimeAsync(0);
+      expect(jobs.queueAges).toHaveBeenCalledTimes(1);
+    } finally {
+      finish();
+      await jest.advanceTimersByTimeAsync(0);
+      await runner.onApplicationShutdown();
+      jest.useRealTimers();
+    }
+  });
 
   it('claims through PostgreSQL polling even when no Redis event arrives', async () => {
     const handler: IngestionJobHandler = {
@@ -259,7 +330,7 @@ describe('IngestionWorkerRunner durable semantics', () => {
           }),
       ),
     };
-    const { runner, jobs } = createRunner(handler, 'cancel_requested');
+    const { runner, jobs, metrics } = createRunner(handler, 'cancel_requested');
     runner.onApplicationBootstrap();
     await eventually(() =>
       jobs.complete.mock.calls.some(([, status]) => status === 'cancelled'),
@@ -271,6 +342,9 @@ describe('IngestionWorkerRunner durable semantics', () => {
       'cancelled',
     );
     expect(jobs.scheduleRetry).not.toHaveBeenCalled();
+    expect(metrics.render()).toContain(
+      'worker_heartbeats_total{outcome="cancel_requested",source="manual_xml"} 1',
+    );
     await runner.onApplicationShutdown();
   });
 

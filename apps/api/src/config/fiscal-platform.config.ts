@@ -44,6 +44,7 @@ export interface FiscalPlatformConfig {
     backoffSeconds: readonly number[];
     backoffJitterPercent: number;
     pollIntervalMs: number;
+    queueMetricsIntervalMs: number;
     reconcileIntervalMs: number;
     shutdownGraceMs: number;
     healthHost: string;
@@ -66,14 +67,6 @@ export interface FiscalPlatformConfig {
     xmlBytes: number;
     directUploadXmlCount: number;
     zipBytes: number;
-    zipEntries: number;
-    zipUncompressedBytes: number;
-    zipCompressionRatio: number;
-    zipDepth: number;
-    normalizedPathCharacters: number;
-    allowNestedArchives: boolean;
-    allowEncryptedArchives: boolean;
-    allowArchiveLinks: boolean;
     xmlDepth: number;
     xmlNodes: number;
     xmlAttributes: number;
@@ -94,6 +87,7 @@ export interface FiscalPlatformConfig {
   };
   health: {
     timeoutMs: number;
+    storageProbeIntervalMs: number;
   };
 }
 
@@ -179,6 +173,10 @@ export default registerAs('fiscalPlatform', (): FiscalPlatformConfig => {
         20,
       ),
       pollIntervalMs: envNumber(process.env.WORKER_POLL_INTERVAL_MS, 5_000),
+      queueMetricsIntervalMs: envNumber(
+        process.env.WORKER_QUEUE_METRICS_INTERVAL_MS,
+        30_000,
+      ),
       reconcileIntervalMs: envNumber(
         process.env.WORKER_RECONCILE_INTERVAL_MS,
         60_000,
@@ -230,32 +228,6 @@ export default registerAs('fiscalPlatform', (): FiscalPlatformConfig => {
         process.env.INGESTION_ZIP_MAX_BYTES,
         50 * 1024 * 1024,
       ),
-      zipEntries: envNumber(process.env.INGESTION_ZIP_MAX_ENTRIES, 2_000),
-      zipUncompressedBytes: envNumber(
-        process.env.INGESTION_ZIP_MAX_UNCOMPRESSED_BYTES,
-        250 * 1024 * 1024,
-      ),
-      zipCompressionRatio: envNumber(
-        process.env.INGESTION_ZIP_MAX_COMPRESSION_RATIO,
-        50,
-      ),
-      zipDepth: envNumber(process.env.INGESTION_ZIP_MAX_DEPTH, 2),
-      normalizedPathCharacters: envNumber(
-        process.env.INGESTION_ZIP_MAX_PATH_CHARACTERS,
-        240,
-      ),
-      allowNestedArchives: envBoolean(
-        process.env.INGESTION_ZIP_ALLOW_NESTED,
-        false,
-      ),
-      allowEncryptedArchives: envBoolean(
-        process.env.INGESTION_ZIP_ALLOW_ENCRYPTED,
-        false,
-      ),
-      allowArchiveLinks: envBoolean(
-        process.env.INGESTION_ZIP_ALLOW_LINKS,
-        false,
-      ),
       xmlDepth: envNumber(process.env.INGESTION_XML_MAX_DEPTH, 64),
       xmlNodes: envNumber(process.env.INGESTION_XML_MAX_NODES, 200_000),
       xmlAttributes: envNumber(
@@ -294,6 +266,10 @@ export default registerAs('fiscalPlatform', (): FiscalPlatformConfig => {
     },
     health: {
       timeoutMs: envNumber(process.env.HEALTH_CHECK_TIMEOUT_MS, 2_000),
+      storageProbeIntervalMs: envNumber(
+        process.env.HEALTH_STORAGE_PROBE_INTERVAL_MS,
+        30_000,
+      ),
     },
   };
 });

@@ -121,6 +121,7 @@ convierte el archivo en clean ni activa bypass.
 | `WORKER_BACKOFF_SECONDS`        | lista exacta |             `10,30,120` | igual                            | no      | Precede los reintentos automáticos 1/2/3, cada valor con jitter.             |
 | `WORKER_BACKOFF_JITTER_PERCENT` | 0–50         |                    `20` | explícito                        | no      | Jitter aplicado por intento.                                                 |
 | `WORKER_POLL_INTERVAL_MS`       | 100–60000    |                  `5000` | explícito según SLO/carga        | no      | Polling siempre activo aun con Redis.                                        |
+| `WORKER_QUEUE_METRICS_INTERVAL_MS` | 1000–300000 | `30000` | según carga y frescura requerida | no | Intervalo mínimo entre intentos de consultar edad de cola por worker; no limita claims. |
 | `WORKER_RECONCILE_INTERVAL_MS`  | 1000–3600000 |                 `60000` | explícito                        | no      | Reconciliadores idempotentes.                                                |
 | `WORKER_SHUTDOWN_GRACE_MS`      | 1000–120000  |                 `30000` | menor que ventana de orquestador | no      | Deja de reclamar y cierra seguro.                                            |
 | `WORKER_HEALTH_HOST`            | host         |             `127.0.0.1` | interfaz privada                 | no      | No exponer probes públicamente.                                              |
@@ -143,7 +144,7 @@ ambiente.
 
 | Variable/política                   | Tipo        | Valor F0                                            | Estado/alcance                                                             |
 | ----------------------------------- | ----------- | --------------------------------------------------- | -------------------------------------------------------------------------- |
-| `INGESTION_INCOMPLETE_UPLOAD_HOURS` | entero fijo | `24`                                                | Upload incompleto; valor normativo del prompt maestro.                     |
+| `INGESTION_INCOMPLETE_UPLOAD_HOURS` | entero fijo | `24`                                                | Upload incompleto; valor del plan de Fase 0.                                |
 | `INGESTION_DUPLICATE_BYTES_HOURS`   | entero fijo | `24`                                                | Byte redundante de duplicate; consumidor F1 reservado.                     |
 | `INGESTION_ORPHAN_GRACE_MINUTES`    | entero fijo | `60`                                                | Edad mínima bloqueada; el worker no puede reducirla al reconciliar.        |
 | `INGESTION_INVALID_OBJECT_DAYS`     | entero fijo | `7`                                                 | Invalid/foreign; consumidor F1 reservado.                                  |
@@ -167,15 +168,7 @@ declarar Fase 0 terminada.
 | ------------------------------------------ | ------------ | --------------------: | ----------------------------------- | ------------------------ |
 | `INGESTION_XML_MAX_BYTES`                  | entero fijo  |     `5242880` (5 MiB) | XML individual                      | F1 `NOT_STARTED`         |
 | `INGESTION_DIRECT_XML_MAX_COUNT`           | entero fijo  |                   `1` | multipart futuro                    | F1 `NOT_STARTED`         |
-| `INGESTION_ZIP_MAX_BYTES`                  | entero fijo  |   `52428800` (50 MiB) | ZIP comprimido                      | F2 `NOT_STARTED`         |
-| `INGESTION_ZIP_MAX_UNCOMPRESSED_BYTES`     | entero fijo  | `262144000` (250 MiB) | extractor                           | F2 `NOT_STARTED`         |
-| `INGESTION_ZIP_MAX_ENTRIES`                | entero fijo  |                `2000` | extractor                           | F2 `NOT_STARTED`         |
-| `INGESTION_ZIP_MAX_COMPRESSION_RATIO`      | entero fijo  |                  `50` | extractor                           | F2 `NOT_STARTED`         |
-| `INGESTION_ZIP_MAX_DEPTH`                  | entero fijo  |                   `2` | extractor                           | F2 `NOT_STARTED`         |
-| `INGESTION_ZIP_MAX_PATH_CHARACTERS`        | entero fijo  |                 `240` | extractor                           | F2 `NOT_STARTED`         |
-| `INGESTION_ZIP_ALLOW_NESTED`               | boolean fijo |               `false` | extractor                           | F2 `NOT_STARTED`         |
-| `INGESTION_ZIP_ALLOW_ENCRYPTED`            | boolean fijo |               `false` | extractor                           | F2 `NOT_STARTED`         |
-| `INGESTION_ZIP_ALLOW_LINKS`                | boolean fijo |               `false` | extractor                           | F2 `NOT_STARTED`         |
+| `INGESTION_ZIP_MAX_BYTES`                  | entero fijo  |   `52428800` (50 MiB) | adapters local/S3 y validación de capacidad ClamAV | F0 activo; extractor F2 pendiente |
 | `INGESTION_XML_MAX_DEPTH`                  | entero fijo  |                  `64` | parser seguro                       | F1 `NOT_STARTED`         |
 | `INGESTION_XML_MAX_NODES`                  | entero fijo  |              `200000` | parser seguro                       | F1 `NOT_STARTED`         |
 | `INGESTION_XML_MAX_ATTRIBUTES`             | entero fijo  |              `100000` | parser seguro                       | F1 `NOT_STARTED`         |
@@ -189,6 +182,15 @@ declarar Fase 0 terminada.
 Las últimas políticas pueden implementarse como constantes validadas en F0 si
 no se exponen como variables. No se permite elevar límites por request, tenant
 o header. Registrarlos no añade parser/extractor ni una ruta de carga.
+
+Las ocho opciones del extractor ZIP sin consumidor se retiraron de la
+configuración runtime de Fase 0. El contrato previsto para Fase 2 conserva:
+250 MiB descomprimidos, 2.000 entradas, ratio máximo 50, profundidad 2,
+rutas de hasta 240 caracteres y prohibición de archivos anidados, cifrados
+o enlaces. Fase 2 deberá implementar y probar esas restricciones junto con
+el extractor antes de exponer configuración operativa. El límite comprimido
+de 50 MiB permanece porque ya protege los adapters de storage y la capacidad
+del scanner. Esta retirada no habilita procesamiento ZIP/SAT.
 
 ## 8. RLS
 
@@ -220,6 +222,7 @@ de los procesos API/worker y no autorizan `DROP DATABASE`.
 | `METRICS_ENABLED`          | boolean locked          | `true`            | `true` obligatorio                        | no           | `false` falla validación: observabilidad de Fase 0 no puede deshabilitarse. |
 | `METRICS_PATH`             | valor locked            | `/metrics`        | `/metrics` obligatorio; protegido por red | no           | Otro valor falla validación; no incluye query ni credenciales.              |
 | `HEALTH_CHECK_TIMEOUT_MS`  | 100–10000               | `2000`            | explícito según red/SLO                   | no           | Timeout de una dependencia produce resultado técnico, no fuga de detalle.   |
+| `HEALTH_STORAGE_PROBE_INTERVAL_MS` | 1000–300000 | `30000` | según costo y latencia de detección | no | Vigencia máxima del éxito de storage físico; un resultado vencido se verifica antes de responder. Fallos reintentan con caché breve. |
 | `DB_CONNECTION_TIMEOUT_MS` | 100–30000               | `2000`            | no mayor que health timeout               | no           | Acota adquisición del pool; no puede exceder `HEALTH_CHECK_TIMEOUT_MS`.     |
 | formato de log             | constante               | JSON estructurado | JSON estructurado                         | no           | No serializar request/config/error crudo.                                   |
 | correlation ID             | header/context validado | generado si falta | propagado                                 | dato técnico | Longitud/formato acotados.                                                  |
@@ -235,6 +238,7 @@ ingestion_items_total
 ingestion_items_by_result
 ingestion_duration_seconds
 ingestion_queue_age_seconds
+ingestion_queue_refresh_duration_seconds
 ingestion_upload_bytes_total
 ingestion_hash_conflicts_total
 ingestion_cross_tenant_denials_total
@@ -242,6 +246,7 @@ ingestion_scanner_failures_total
 ingestion_parser_failures_total
 worker_active_jobs
 worker_heartbeat_lag_seconds
+worker_heartbeats_total
 worker_lease_reclaims_total
 object_storage_failures_total
 redis_wakeup_failures_total

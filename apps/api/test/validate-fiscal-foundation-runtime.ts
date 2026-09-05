@@ -666,6 +666,11 @@ async function validateFiscalFoundationRuntime(): Promise<void> {
     const lease = claimed[0];
     if (!lease) throw new Error('Expected one claimed job');
     assertEqual(await jobs.heartbeat(lease), 'renewed', 'repository heartbeat');
+    assertEqual(
+      await jobs.heartbeat(lease),
+      'renewed',
+      'repeated lease renewal',
+    );
     const leaseState = await admin.query(
       `SELECT extract(epoch FROM lease_expires_at - clock_timestamp())::integer AS seconds
          FROM ingestion_jobs
@@ -731,8 +736,8 @@ async function validateFiscalFoundationRuntime(): Promise<void> {
     );
     assertEqual(
       Number(heartbeatAudits[0]?.count),
-      2,
-      'renewed and cancel heartbeat audit events',
+      0,
+      'lease evaluations do not append heartbeat audit events',
     );
     const counterDirtyRace = await validateCounterDirtyRace(
       admin,
@@ -1548,6 +1553,7 @@ function runtimeConfig(
       backoffSeconds: [10, 30, 120],
       backoffJitterPercent: 0,
       pollIntervalMs: overrides.pollIntervalMs ?? 1_000,
+      queueMetricsIntervalMs: 30_000,
       reconcileIntervalMs: 60_000,
       shutdownGraceMs: 5_000,
       healthHost: '127.0.0.1',

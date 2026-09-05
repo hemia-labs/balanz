@@ -1,5 +1,10 @@
 # Reporte de validación CFDI — Fase 0
 
+Las evidencias `Full` y de infraestructura de las secciones 1–21 corresponden
+al cierre del 3 de septiembre de 2026 y a los SHAs allí indicados. El seguimiento
+de revisión del 4 de septiembre, sus cambios y sus límites de validación se
+registran por separado en la sección 22; no renueva aquella evidencia `Full`.
+
 ## 1. Resultado ejecutivo
 
 La plataforma fiscal compartida de Fase 0 quedó implementada y validada con
@@ -403,10 +408,12 @@ Health/readiness implementado:
 
 - API liveness y readiness;
 - worker liveness, readiness y estado del supervisor;
-- PostgreSQL, storage y scanner como dependencias requeridas;
+- PostgreSQL y storage requeridos en ambos procesos; scanner requerido en
+  worker y observado como degradación en API para mantener consultas;
 - Redis como dependencia observada pero no requerida;
-- probes requeridos con single-flight, caché TTL de hasta un segundo y timeout
-  acotado; el cleanup S3 también queda acotado de forma independiente.
+- probes con single-flight, caché lógica de hasta un segundo y timeout acotado;
+  el éxito de storage físico tiene una ventana independiente de 30 s por
+  defecto, sin reutilización después del vencimiento; cleanup S3 sigue acotado.
 
 Observabilidad implementada:
 
@@ -790,3 +797,60 @@ ejecutar los probes runtime contra la misma base existente `accounting_dev`.
 La aclaración documental no acredita ese aprovisionamiento. Hasta entonces,
 el PR sólo puede permanecer en borrador y `codex/cfdis` no debe fusionarse a
 `develop`. El trabajo se detiene antes de Fase 1.
+
+## 22. Seguimiento de revisión de PR #17 — 2026-09-04
+
+Se evaluó el [comentario consolidado](https://github.com/hemia-labs/balanz/pull/17#issuecomment-5548845726)
+contra la rama de esta PR, `codex/cfdis`, partiendo de
+`0a615a0e997cb8953b37358e93ba0ec34a7bd9ea`. El alcance sigue siendo Fase 0.
+
+| Hallazgo | Decisión y evidencia |
+| --- | --- |
+| 1. Gate acoplado a un conteo fijo de migraciones | No se reprodujo en este SHA. `migration-manifest.ts` define identidades canónicas y un subconjunto separado `PHASE_ZERO_MIGRATION_NAMES`; preflight compara nombres/timestamps y comprueba las invariantes fundacionales. No hay una aserción de cantidad numérica fija que deba relajarse. Una nueva migración debe incorporarse al manifiesto junto con sus expectativas de QA; rechazar archivos desconocidos conserva la integridad del catálogo. |
+| 2. Parser, persistencia y upload XML demasiado grandes | Fuera del diff de esta PR: no contiene estos servicios de Fase 1. No se trasladan refactors de otra rama a Fase 0. |
+| 3. Inserts fila por fila de hijos XML | Fuera del diff por el mismo motivo. El análisis de lotes, fixtures grandes y fencing corresponde a la PR que incorpore la persistencia XML. |
+| 4. Scanner en readiness | Aplicado al health disponible: ClamAV es requerido para worker; API informa `degraded`/200 si falla únicamente scanner. El campo `scanner.required` explicita la política. La admisión de futuras cargas debe impedir procesamiento sin escaneo; todavía no hay endpoint de intake XML en esta PR. |
+| 5. Costo de sondeo físico de storage | Aplicado: éxito reutilizable durante 30 s por defecto, configurable entre 1 y 300 s. PostgreSQL/scanner conservan caché breve; storage vencido debe comprobarse antes de responder. Fallos reintentan con la ventana breve, manteniendo el control de concurrencia y abort/cleanup existente. |
+| 6. Consulta de edad de cola por ciclo | Aplicado: intervalo mínimo de 30 s por worker, configurable entre 1 y 300 s, y una sola consulta simultánea. También limita los intentos fallidos. Se añade histograma de duración/resultado y se conserva el polling de claims. No constituye un benchmark de la consulta con backlog grande. |
+| 7. Auditoría continua de heartbeat | Aplicado: se retira únicamente el INSERT de heartbeat y se añade `worker_heartbeats_total`. La renovación con tenant/lease token, el bloqueo de fila y las auditorías de cambios de estado permanecen. |
+| 8. Backfill histórico de reintentos | Riesgo de volumen aceptado como seguimiento, no declarado resuelto. La migración 062 ya filtra por `object_type` y dos acciones antes del agregado, pero eso no garantiza evitar un escaneo físico grande. Está aplicada en `accounting_dev` según la evidencia previa. No se reescribe una migración ejecutada ni se divide la transacción sin un plan que mantenga consistente el presupuesto de reintentos. Falta medir el plan con cardinalidad representativa antes de otro despliegue sobre auditoría grande y decidir índice/lotes a partir de esa evidencia. |
+
+Limpieza aplicada:
+
+- Se elimina el prompt maestro de implementación obsoleto; su contenido queda
+  en Git. El plan y la matriz dejan de referenciarlo como autoridad vigente.
+- Los snapshots `CFDI_DOWNLOAD_INGESTION_CURRENT_STATE.md` y
+  `CFDI_DOWNLOAD_INGESTION_DECISION_INPUTS.md` se archivan sin alterar su
+  contenido en `docs/archive/cfdi/2026-08-28/`, con un índice de fuentes vigentes.
+- El documento de producto se renombra a
+  `docs/architecture/CONTROL_MENSUAL_CFDI_V3_3.md` y se actualiza su enlace.
+- Se retiran ocho opciones ZIP sin consumidor de runtime, validación y ejemplo
+  de entorno. Sus límites previstos quedan documentados para Fase 2.
+  `INGESTION_ZIP_MAX_BYTES` permanece: ya limita storage local/S3 y participa
+  en la comprobación de capacidad de ClamAV. No se encontró configuración SAT
+  operativa adicional que retirar.
+
+Se conservan los tres scripts de cutover: la condición de retirada exige una
+transición del host completada y documentada, que esta revisión no acredita.
+Tampoco se retira el adapter local, usado en desarrollo/pruebas. Worker, RLS,
+Redis, S3, ClamAV, migraciones y pruebas permanecen; XSD/parser de Fase 1 no
+forman parte de este árbol. La consolidación del deploy se mantiene para después
+de estabilizar la transición, conservando rollback y limpieza de credenciales.
+
+Validación incremental ejecutada con Node 24.19.0:
+
+- API Jest: 52 suites / 377 pruebas, PASS. Incluye scanner API frente a worker,
+  expiración de caché física incluso esperando PostgreSQL, fallo/recuperación de storage, consultas de
+  cola compartidas y limitadas incluso tras error, y métrica de heartbeat.
+- Build del API: PASS.
+- ESLint de los TypeScript modificados: PASS.
+- `git diff --check`: PASS.
+
+Se actualiza el validador PostgreSQL runtime para comprobar renovaciones
+repetidas y ausencia de eventos de auditoría de heartbeat. No se pudo ejecutar
+en este seguimiento: Docker Desktop falla al inicializar su backend por un
+socket `sailor-ingest.sock` inaccesible y no ofrece el engine Linux. No se
+reinicializaron datos ni volúmenes para sortear ese fallo. Quedan pendientes
+la integración PostgreSQL de este cambio, la repetición `Full` y los planes de
+cola/backfill con volumen representativo. Los resultados históricos no se
+presentan como ejecución de estos cambios. `TD-004` no se cierra con esta revisión.

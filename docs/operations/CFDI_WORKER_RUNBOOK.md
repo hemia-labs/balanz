@@ -227,6 +227,28 @@ Fase 0 no debe crear un job ficticio para que el arranque “se vea activo”.
 
 - Liveness responde sin consultar Redis.
 - Readiness confirma PostgreSQL y adapters autoritativos/obligatorios.
+- API requiere PostgreSQL y storage; scanner caído produce `degraded`/HTTP 200
+  para mantener consultas existentes. Worker requiere también scanner y su
+  supervisor; scanner caído produce HTTP 503. La respuesta del scanner incluye
+  `required` para distinguir ambos procesos. Los futuros handlers/endpoints de
+  carga deben aplicar admisión y escaneo fail-closed; readiness no los sustituye.
+- `HEALTH_STORAGE_PROBE_INTERVAL_MS` limita a 30 s por defecto la reutilización
+  de una sonda física exitosa. Al vencer, readiness espera una sonda nueva y
+  falla si expira o falla. PostgreSQL/scanner mantienen caché de hasta 1 s.
+  Storage fallido reintenta con esa ventana breve, conservando una sola sonda
+  física en curso, incluso durante timeout/cleanup.
+- Con sondas sanas cada 30 s, S3 ejecuta unas 14.400 solicitudes por proceso/día
+  (cinco operaciones por sonda), frente a 86.400 con consultas cada 5 s sin esa
+  caché. Es una estimación sin reintentos; mide frecuencia y duración mediante
+  `object_storage_operation_duration_seconds{stage="health"}`.
+- `WORKER_QUEUE_METRICS_INTERVAL_MS` muestrea la edad de cola cada 30 s por
+  proceso, incluidos intentos fallidos. Polling, wakeups y reconciliación
+  comparten la consulta en curso; los claims mantienen su frecuencia original.
+  `ingestion_queue_refresh_duration_seconds` mide duración, cantidad y resultado.
+- `worker_heartbeats_total` contabiliza renovaciones, cancelaciones, pérdida de
+  lease y fallos; no se inserta `ingestion.job.heartbeat` por cada evaluación.
+  La renovación y su fencing siguen en PostgreSQL; cancelación, completion,
+  retries y reconciliación conservan sus eventos de auditoría.
 - Métrica/log muestra polling activo y capacidad libre.
 - Redis disponible produce wakeup rápido; apagado conserva claims por polling.
 - No hay errores `RLS_CONTEXT_*`, leases vencidos repetidos ni handler faltante.
@@ -283,6 +305,8 @@ ingestion_scanner_failures_total
 ingestion_parser_failures_total
 worker_active_jobs
 worker_heartbeat_lag_seconds
+worker_heartbeats_total
+ingestion_queue_refresh_duration_seconds
 worker_lease_reclaims_total
 object_storage_failures_total
 redis_wakeup_failures_total

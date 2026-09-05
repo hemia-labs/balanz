@@ -8,24 +8,24 @@
 | Fecha de corte      | 2026-09-03 (`America/Mexico_City`)                                                |
 | Rama de trabajo     | `codex/cfdis`                                                                     |
 | SHA base integrada  | `origin/develop` en `e3d4f432dca1df6bbd0877d86e60bd52d8c15325`                    |
-| Autoridad operativa | Este plan, subordinado al prompt maestro y al override de alcance de la ejecución |
+| Autoridad operativa | Este plan y los ADRs, dentro del alcance aprobado de Fase 0 |
 | Fase en ejecución   | `PHASE_0_SHARED_FISCAL_PLATFORM`                                                  |
 | Estado de Fase 0    | `PHASE_0_BLOCKED`                                                                 |
 | Estado de Fases 1–8 | `NOT_STARTED`                                                                     |
 | Regla de cierre     | No declarar `DONE` sin evidencia ejecutada de toda la Definition of Done          |
 
-Este archivo es la fuente de verdad operativa del programa CFDI. El override de
-esta ejecución limita la implementación a la Fase 0. Toda referencia histórica
-del prompt maestro que ordene iniciar o terminar la Fase 1 queda sustituida por:
+Este archivo es la fuente de verdad operativa del programa CFDI. El alcance
+aprobado de esta PR limita la implementación a la Fase 0. El prompt de
+implementación histórico se conserva en Git; el límite vigente es:
 **detenerse al cerrar y reportar Fase 0; Fase 1 permanece `NOT_STARTED`**.
 
 ## 1. Autoridad, contexto y límites
 
 Orden de autoridad aplicado:
 
-1. Prompt maestro y override explícito de Fase 0 de esta ejecución.
+1. Alcance aprobado de Fase 0 y sus ADRs.
 2. Código, migraciones, pruebas y configuración ejecutable del repositorio.
-3. `control_mensual_cfdi` 3.3.
+3. [Control mensual CFDI 3.3](../architecture/CONTROL_MENSUAL_CFDI_V3_3.md).
 4. `docs/architecture/ARCHITECTURE.md`.
 5. Este plan maestro.
 6. `CORRECTED_POSTGRESQL_DATA_MODEL.md`, corregido por los ADR de este programa.
@@ -336,10 +336,18 @@ fiscal, nombre, filename, ID técnico de alta cardinalidad u object key.
 Health:
 
 - API liveness: proceso responde.
-- API readiness: PostgreSQL y dependencias necesarias para aceptar trabajo.
+- API readiness: PostgreSQL y storage requeridos; scanner caído se informa
+  como degradado para mantener consultas. Los futuros endpoints de carga deben
+  controlar admisión por separado y conservar el escaneo obligatorio.
 - Worker liveness: event loop/proceso y loop de supervisión activos.
 - Worker readiness: PostgreSQL, storage y scanner requeridos; Redis sólo se
   reporta como degradado y no hace fallar readiness.
+
+Storage físico se verifica al primer acceso y al vencer una ventana de 30 s
+configurable, sin reutilizar un éxito vencido. PostgreSQL/scanner conservan
+caché lógica breve y timeouts. La edad de cola se muestrea cada 30 s por worker,
+independientemente de los wakeups; los heartbeats se contabilizan como métricas
+y las transiciones durables conservan su auditoría.
 
 ## 11. Estrategia de pruebas de Fase 0
 

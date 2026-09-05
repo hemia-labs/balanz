@@ -351,6 +351,11 @@ const baseEnvVarsSchema = Joi.object({
     .min(1_000)
     .max(3_600_000)
     .default(60_000),
+  WORKER_QUEUE_METRICS_INTERVAL_MS: Joi.number()
+    .integer()
+    .min(1_000)
+    .max(300_000)
+    .default(30_000),
   WORKER_SHUTDOWN_GRACE_MS: Joi.number()
     .integer()
     .min(1_000)
@@ -381,35 +386,6 @@ const baseEnvVarsSchema = Joi.object({
     .integer()
     .valid(50 * 1024 * 1024)
     .default(50 * 1024 * 1024),
-  INGESTION_ZIP_MAX_ENTRIES: Joi.number().integer().valid(2_000).default(2_000),
-  INGESTION_ZIP_MAX_UNCOMPRESSED_BYTES: Joi.number()
-    .integer()
-    .valid(250 * 1024 * 1024)
-    .default(250 * 1024 * 1024),
-  INGESTION_ZIP_MAX_COMPRESSION_RATIO: Joi.number()
-    .integer()
-    .valid(50)
-    .default(50),
-  INGESTION_ZIP_MAX_DEPTH: Joi.number().integer().valid(2).default(2),
-  INGESTION_ZIP_MAX_PATH_CHARACTERS: Joi.number()
-    .integer()
-    .valid(240)
-    .default(240),
-  INGESTION_ZIP_ALLOW_NESTED: Joi.boolean()
-    .truthy('true')
-    .falsy('false')
-    .valid(false)
-    .default(false),
-  INGESTION_ZIP_ALLOW_ENCRYPTED: Joi.boolean()
-    .truthy('true')
-    .falsy('false')
-    .valid(false)
-    .default(false),
-  INGESTION_ZIP_ALLOW_LINKS: Joi.boolean()
-    .truthy('true')
-    .falsy('false')
-    .valid(false)
-    .default(false),
   INGESTION_XML_MAX_DEPTH: Joi.number().integer().valid(64).default(64),
   INGESTION_XML_MAX_NODES: Joi.number()
     .integer()
@@ -445,6 +421,11 @@ const baseEnvVarsSchema = Joi.object({
     .min(100)
     .max(10_000)
     .default(2_000),
+  HEALTH_STORAGE_PROBE_INTERVAL_MS: Joi.number()
+    .integer()
+    .min(1_000)
+    .max(300_000)
+    .default(30_000),
   // Email (SESv2). AWS_REGION sólo se usa sin Vault; las demás credenciales
   // se resuelven con la cadena estándar del SDK.
   AWS_REGION: Joi.string().trim().min(1).default('us-east-2'),

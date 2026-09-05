@@ -28,6 +28,19 @@ const production = {
 };
 
 describe('CFDI Phase 0 environment policy', () => {
+  it.each([
+    'HEALTH_STORAGE_PROBE_INTERVAL_MS',
+    'WORKER_QUEUE_METRICS_INTERVAL_MS',
+  ])('bounds the independent sampling interval %s', (key) => {
+    for (const value of [0, 999, 300_001]) {
+      expect(
+        envVarsSchema.validate({ ...base, [key]: value }).error,
+      ).toBeDefined();
+    }
+    expect(
+      envVarsSchema.validate({ ...base, [key]: 30_000 }).error,
+    ).toBeUndefined();
+  });
   it('resolves the local storage root from the repository, not process cwd', () => {
     expect(resolveLocalStorageRoot('.local/fiscal-object-storage')).toBe(
       resolve(__dirname, '..', '..', '..', '.local', 'fiscal-object-storage'),
@@ -81,7 +94,7 @@ describe('CFDI Phase 0 environment policy', () => {
     ['WORKER_MAX_RETRIES', 2],
     ['WORKER_BACKOFF_SECONDS', '10,30'],
     ['INGESTION_XML_MAX_BYTES', 6 * 1024 * 1024],
-    ['INGESTION_ZIP_MAX_ENTRIES', 2_001],
+    ['INGESTION_ZIP_MAX_BYTES', 51 * 1024 * 1024],
     ['WORKER_MEMORY_TARGET_MIB', 512],
     ['REDIS_WAKEUP_TIMEOUT_MS', 49],
     ['REDIS_WAKEUP_TIMEOUT_MS', 5_001],

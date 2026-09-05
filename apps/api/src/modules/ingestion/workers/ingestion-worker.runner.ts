@@ -63,6 +63,8 @@ export class IngestionWorkerRunner
   private drainRequested = false;
   private drainPromise?: Promise<void>;
   private reconciliationPromise?: Promise<void>;
+  private queueMetricsPromise?: Promise<void>;
+  private queueMetricsLastAttemptAt = Number.NEGATIVE_INFINITY;
   private pollingTimer?: NodeJS.Timeout;
   private reconciliationTimer?: NodeJS.Timeout;
   private unsubscribeWakeup?: () => void;
@@ -309,6 +311,10 @@ export class IngestionWorkerRunner
       const cycle = this.jobs
         .heartbeat(claim)
         .then((outcome) => {
+          this.metrics.increment('worker_heartbeats_total', {
+            source: claim.sourceType,
+            outcome,
+          });
           this.metrics.setGauge(
             'worker_heartbeat_lag_seconds',
             { source: claim.sourceType },
@@ -324,6 +330,10 @@ export class IngestionWorkerRunner
           abort.abort(new Error('LEASE_LOST'));
         })
         .catch(() => {
+          this.metrics.increment('worker_heartbeats_total', {
+            source: claim.sourceType,
+            outcome: 'failed',
+          });
           execution.lostLease = true;
           abort.abort(new Error('LEASE_HEARTBEAT_FAILED'));
         })
@@ -548,17 +558,44 @@ export class IngestionWorkerRunner
     this.metrics.setGauge('worker_active_jobs', { source }, count);
   }
 
-  private async refreshQueueAges(
+  private refreshQueueAges(
     supportedSources: readonly IngestionJobSourceType[],
   ): Promise<void> {
-    const ages = await this.jobs.queueAges(supportedSources);
-    for (const age of ages) {
-      this.metrics.setGauge(
-        'ingestion_queue_age_seconds',
-        { source: age.sourceType },
-        age.queueAgeSeconds,
-      );
+    if (this.queueMetricsPromise) return this.queueMetricsPromise;
+    const startedAt = Date.now();
+    if (
+      startedAt - this.queueMetricsLastAttemptAt <
+      this.worker.queueMetricsIntervalMs
+    ) {
+      return Promise.resolve();
     }
+    // Throttle failed attempts too, so a backlog or outage cannot turn wakeups
+    // and job completions into a metrics-query retry loop.
+    this.queueMetricsLastAttemptAt = startedAt;
+    let outcome = 'failed';
+    const refresh = this.jobs
+      .queueAges(supportedSources)
+      .then((ages) => {
+        for (const age of ages) {
+          this.metrics.setGauge(
+            'ingestion_queue_age_seconds',
+            { source: age.sourceType },
+            age.queueAgeSeconds,
+          );
+        }
+        outcome = 'success';
+      })
+      .finally(() => {
+        this.metrics.observe(
+          'ingestion_queue_refresh_duration_seconds',
+          { outcome },
+          (Date.now() - startedAt) / 1_000,
+        );
+        if (this.queueMetricsPromise === refresh)
+          this.queueMetricsPromise = undefined;
+      });
+    this.queueMetricsPromise = refresh;
+    return refresh;
   }
 
   private incrementIfPositive(

@@ -256,25 +256,6 @@ export class IngestionJobRepository {
             WHERE job.id = owned.id
               AND owned.status = 'processing'
            RETURNING job.id
-         ),
-         audited AS (
-           INSERT INTO audit_events (
-             organization_id, actor_type, service_principal,
-             client_account_id, legal_entity_id, action, decision,
-             object_type, object_id, reason, correlation_id, metadata
-           )
-           SELECT
-             owned.organization_id, 'service', 'cfdi-worker',
-             owned.client_account_id, owned.legal_entity_id,
-             'ingestion.job.heartbeat', 'ALLOW',
-             'ingestion_job', owned.id, 'Worker lease heartbeat evaluated.',
-             owned.correlation_id,
-             jsonb_build_object(
-               'outcome', CASE WHEN owned.status = 'cancel_requested'
-                 THEN 'cancel_requested' ELSE 'renewed' END
-             )
-           FROM owned
-           RETURNING 1
          )
          SELECT CASE
            WHEN owned.status = 'cancel_requested' THEN 'cancel_requested'
