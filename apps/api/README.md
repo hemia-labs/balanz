@@ -308,8 +308,12 @@ aceptan `page` (máximo 10 000), `limit` (máximo 100) y `search`, y devuelven
 El detalle usa `legalEntityPage`, `legalEntityLimit` y `legalEntitySearch` para
 su página anidada. Un deep link fiscal puede enviar `legalEntityId`; en ese modo
 el backend devuelve sólo esa entidad, siempre bajo el mismo scope de cuenta y
-tenant. Los períodos permanecen como una lista fija de 12 y los ejercicios como
-una lista temporalmente acotada por entidad.
+tenant. Para mantener compatibilidad en `/api/v1`, el detalle incluye
+`fiscalYears` por defecto; el frontend nuevo envía `includeFiscalYears=false` y
+usa `fiscalYearCount` por entidad para reducir el payload. Los ejercicios
+devuelven el array histórico por defecto y aceptan `paginated=true`, `page`,
+`limit` y `year` para responder `{ items, meta }`. Los períodos permanecen como
+una lista fija de 12.
 
 Las mutaciones por cookie exigen un `Origin` exacto autorizado o, si falta,
 un `Referer` cuyo origin sea exacto. Cada respuesta expone

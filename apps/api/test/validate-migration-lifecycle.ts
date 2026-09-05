@@ -321,22 +321,6 @@ async function validatePhaseZeroSchema(
             'created_at', 'updated_at', 'counters_reconciled_at',
             'automatic_retry_count'
           )) = 21 AS durable_job_columns,
-      (SELECT count(*) = 11
-                AND bool_and(
-                  cardinality(conkey) >= 2
-                  AND cardinality(conkey) = cardinality(confkey)
-                  AND pg_get_constraintdef(oid) ~
-                    '^FOREIGN KEY \\(organization_id,.*REFERENCES .+\\(organization_id,'
-                )
-         FROM pg_constraint
-        WHERE connamespace = 'public'::regnamespace
-          AND conrelid IN (
-            'public.stored_objects'::regclass,
-            'public.ingestion_uploads'::regclass,
-            'public.ingestion_jobs'::regclass,
-            'public.ingestion_items'::regclass
-          )
-          AND contype = 'f') AS composite_foreign_keys,
       (SELECT count(*)::integer
          FROM pg_indexes
         WHERE schemaname = 'public'
@@ -363,7 +347,106 @@ async function validatePhaseZeroSchema(
           AND NOT tgisinternal) AS counter_dirty_trigger
   `);
   assertAllTrue(migrationShape, 'Phase 0 migration shape');
-  report.phaseZeroSchema = { ...state, ...migrationShape };
+  const foreignKeys = await inspectPhaseZeroForeignKeys(manager);
+  assertAllTrue(foreignKeys, 'Phase 0 foreign keys');
+  report.phaseZeroSchema = { ...state, ...migrationShape, ...foreignKeys };
+  await validatePhaseZeroForeignKeyRegressions(manager);
+  report.phaseZeroForeignKeyRegressions = {
+    additionalScopedForeignKeyAccepted: true,
+    missingFoundationForeignKeyRejected: true,
+    additionalUnscopedForeignKeyRejected: true,
+  };
+}
+
+async function inspectPhaseZeroForeignKeys(manager: EntityManager) {
+  const [state] = await manager.query(`
+    WITH expected(table_name, constraint_name) AS (
+      VALUES
+        ('stored_objects', 'fk_stored_objects_legal_entity'),
+        ('ingestion_uploads', 'fk_ingestion_uploads_legal_entity'),
+        ('ingestion_uploads', 'fk_ingestion_uploads_object'),
+        ('ingestion_uploads', 'fk_ingestion_uploads_created_by'),
+        ('ingestion_jobs', 'fk_ingestion_jobs_legal_entity'),
+        ('ingestion_jobs', 'fk_ingestion_jobs_root_object'),
+        ('ingestion_jobs', 'fk_ingestion_jobs_upload'),
+        ('ingestion_jobs', 'fk_ingestion_jobs_requested_by'),
+        ('ingestion_jobs', 'fk_ingestion_jobs_retry_of'),
+        ('ingestion_items', 'fk_ingestion_items_job'),
+        ('ingestion_items', 'fk_ingestion_items_object')
+    ), actual AS (
+      SELECT constraint_row.*
+      FROM pg_constraint AS constraint_row
+      WHERE connamespace = 'public'::regnamespace
+        AND conrelid IN (
+          'public.stored_objects'::regclass,
+          'public.ingestion_uploads'::regclass,
+          'public.ingestion_jobs'::regclass,
+          'public.ingestion_items'::regclass
+        )
+        AND contype = 'f'
+    )
+    SELECT
+      NOT EXISTS (
+        SELECT 1 FROM expected
+        WHERE NOT EXISTS (
+          SELECT 1 FROM actual
+          WHERE actual.conname = expected.constraint_name
+            AND actual.conrelid = to_regclass('public.' || expected.table_name)
+        )
+      ) AS foundation_foreign_keys,
+      (SELECT bool_and(
+         cardinality(conkey) >= 2
+         AND cardinality(conkey) = cardinality(confkey)
+         AND pg_get_constraintdef(oid) ~
+           '^FOREIGN KEY \\(organization_id,.*REFERENCES .+\\(organization_id,'
+       ) FROM actual) AS composite_foreign_keys
+  `);
+  return state as {
+    foundation_foreign_keys: boolean;
+    composite_foreign_keys: boolean;
+  };
+}
+
+async function validatePhaseZeroForeignKeyRegressions(manager: EntityManager) {
+  await manager.query('SAVEPOINT phase_zero_foreign_key_validation');
+  try {
+    // Later phases may add scoped FKs to foundation tables, as Phase 1 does.
+    await manager.query(`
+      ALTER TABLE ingestion_items ADD CONSTRAINT qa_additional_scoped_fk
+      FOREIGN KEY (organization_id, client_account_id, legal_entity_id, ingestion_job_id)
+      REFERENCES ingestion_jobs(organization_id, client_account_id, legal_entity_id, id)
+    `);
+    assertAllTrue(
+      await inspectPhaseZeroForeignKeys(manager),
+      'additional scoped foreign key',
+    );
+    await manager.query(`
+      ALTER TABLE ingestion_items RENAME CONSTRAINT fk_ingestion_items_job
+      TO qa_missing_foundation_fk
+    `);
+    assertEqual(
+      (await inspectPhaseZeroForeignKeys(manager)).foundation_foreign_keys,
+      false,
+      'an extra FK must not hide a missing foundation FK',
+    );
+    await manager.query(
+      'ROLLBACK TO SAVEPOINT phase_zero_foreign_key_validation',
+    );
+    await manager.query(`
+      ALTER TABLE ingestion_items ADD CONSTRAINT qa_unscoped_item_job
+      FOREIGN KEY (ingestion_job_id) REFERENCES ingestion_jobs(id)
+    `);
+    assertEqual(
+      (await inspectPhaseZeroForeignKeys(manager)).composite_foreign_keys,
+      false,
+      'new foreign keys must retain organization scope',
+    );
+  } finally {
+    await manager.query(
+      'ROLLBACK TO SAVEPOINT phase_zero_foreign_key_validation',
+    );
+    await manager.query('RELEASE SAVEPOINT phase_zero_foreign_key_validation');
+  }
 }
 
 const PHASE_ONE_CFDI_TABLES = [

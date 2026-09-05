@@ -597,10 +597,7 @@ function AssignmentManager({
 }
 
 export type LiveClientDetailSection =
-  | "overview"
-  | "data"
-  | "responsibles"
-  | "access";
+  "overview" | "data" | "responsibles" | "access";
 
 export function LiveClientDetailScreen({
   clientId,
@@ -905,7 +902,10 @@ function LiveClientDetailContent({
               ? [
                   {
                     label: "Ejercicios en esta página",
-                    value: detail.fiscalYears.length,
+                    value: detail.legalEntities.items.reduce(
+                      (total, entity) => total + (entity.fiscalYearCount ?? 0),
+                      0,
+                    ),
                   },
                 ]
               : []),
@@ -1016,10 +1016,7 @@ function LiveClientDetailContent({
               {
                 id: "years",
                 header: "Ejercicios",
-                render: (entity) =>
-                  detail.fiscalYears.filter(
-                    (year) => year.legalEntityId === entity.id,
-                  ).length,
+                render: (entity) => entity.fiscalYearCount ?? 0,
               },
             ]}
           />
@@ -1122,18 +1119,14 @@ function LiveClientDetailContent({
             {
               id: "years",
               header: "Ejercicios",
-              render: (entity) =>
-                detail.fiscalYears
-                  .filter((year) => year.legalEntityId === entity.id)
-                  .map((year) => (
-                    <Link
-                      key={year.id}
-                      className="mr-2 font-semibold text-primary hover:underline"
-                      href={`${base}/legal-entities/${entity.id}/fiscal-years/${year.year}${entityContextSuffix(entityPageNumber, debouncedEntitySearch)}`}
-                    >
-                      {year.year}
-                    </Link>
-                  )),
+              render: (entity) => (
+                <Link
+                  className="font-semibold text-primary hover:underline"
+                  href={`${base}/legal-entities/${entity.id}/fiscal-years${entityContextSuffix(entityPageNumber, debouncedEntitySearch)}`}
+                >
+                  {entity.fiscalYearCount ?? 0} ejercicios
+                </Link>
+              ),
             },
             {
               id: "open",

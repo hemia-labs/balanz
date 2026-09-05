@@ -7,7 +7,7 @@
 | Programa            | Plataforma CFDI de Balanz                                                         |
 | Fecha de corte      | 2026-09-03 (`America/Mexico_City`)                                                |
 | Rama de trabajo     | `codex/cfdi-phase1-xml`                                                           |
-| SHA base integrada  | `origin/codex/cfdis` en `a4d71bd77fe0db1cdd8f7f747ec1a18ab3db1a7d`               |
+| SHA base integrada  | `origin/codex/cfdis` en `9dbdb14f0e58d12bf98d2cd1f3041eb2029524fb`               |
 | Autoridad operativa | Este plan, los ADR vigentes y la decisión de inicio de Fase 1                     |
 | Fase en ejecución   | `PHASE_1_XML`                                                                     |
 | Desarrollo Fase 0   | `ACCEPTED`                                                                        |
@@ -35,7 +35,7 @@ Orden de autoridad aplicado:
 1. Decisión explícita vigente de inicio y alcance de Fase 1.
 2. Este roadmap y los ADR `ADR-CFDI-001` a `ADR-CFDI-005` vigentes.
 3. Código, migraciones, pruebas y configuración ejecutable del repositorio.
-4. `control_mensual_cfdi` 3.3.
+4. [Control mensual CFDI 3.3](../architecture/CONTROL_MENSUAL_CFDI_V3_3.md).
 5. `docs/architecture/ARCHITECTURE.md`.
 6. `CORRECTED_POSTGRESQL_DATA_MODEL.md`, corregido por los ADR de este programa.
 7. UI actual como contrato visual, nunca como prueba de capacidad.
@@ -347,10 +347,18 @@ fiscal, nombre, filename, ID técnico de alta cardinalidad u object key.
 Health:
 
 - API liveness: proceso responde.
-- API readiness: PostgreSQL y dependencias necesarias para aceptar trabajo.
+- API readiness: PostgreSQL y storage requeridos; scanner caído se informa
+  como degradado para mantener consultas. Los futuros endpoints de carga deben
+  controlar admisión por separado y conservar el escaneo obligatorio.
 - Worker liveness: event loop/proceso y loop de supervisión activos.
 - Worker readiness: PostgreSQL, storage y scanner requeridos; Redis sólo se
   reporta como degradado y no hace fallar readiness.
+
+Storage físico se verifica al primer acceso y al vencer una ventana de 30 s
+configurable, sin reutilizar un éxito vencido. PostgreSQL/scanner conservan
+caché lógica breve y timeouts. La edad de cola se muestrea cada 30 s por worker,
+independientemente de los wakeups; los heartbeats se contabilizan como métricas
+y las transiciones durables conservan su auditoría.
 
 ## 11. Estrategia de pruebas de Fase 0
 
@@ -389,6 +397,16 @@ expirada denegados, URL temporal y cleanup. Persisten dos gates de integración:
 los secretos canónicos `database/postgres-api` y `database/postgres-worker`
 están `NOT_FOUND`, y el check runtime de PR #17 falla por `EACCES` al cargar el
 entorno. Como `develop` auto-despliega API/worker, no se permite integrar Fase 0.
+
+El único control externo pendiente es el aprovisionamiento de los secretos
+canónicos de runtime `database/postgres-api` y `database/postgres-worker` en
+Vault. Ambos están `NOT_FOUND` y el AppRole disponible responde
+`ACCESS_DENIED` para crearlos. Por ello no puede completarse todavía la prueba
+de login de API/worker contra la base compartida de desarrollo. Ambos secretos
+deben apuntar a la misma base existente `accounting_dev`, con LOGINs distintos
+y permisos de `balanz_api` o `balanz_worker`, respectivamente. `TD-004` no
+requiere crear otra base de datos. La ejecución final de cierre no se declara
+`PASS` en este plan; su resultado y evidencia pertenecen al reporte QA.
 
 ## 12. Riesgos del programa
 

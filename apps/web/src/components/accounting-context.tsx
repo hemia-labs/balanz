@@ -15,18 +15,18 @@ import {
   capabilities,
   type Capability,
   type DemoAccount,
-  type DemoClient,
   type DemoMembership,
   type DemoOrganization,
 } from "@/lib/accounting-types";
 import {
   clientById,
   clientsFor,
-  demoData,
+  demoAccount,
   membershipFor,
   organizationById,
   organizationBySlug,
-} from "@/lib/demo-data";
+  type DemoClientShell,
+} from "@/lib/demo-shell-data";
 import { resolveOrganizationRoute } from "@/lib/navigation-core";
 import { hasCapability } from "@/lib/permissions";
 import { clearIngestionRecovery } from "@/features/ingestions/recovery-store";
@@ -36,8 +36,8 @@ interface AccountingContextValue {
   account: DemoAccount;
   organization: DemoOrganization;
   membership: DemoMembership;
-  clients: DemoClient[];
-  client?: DemoClient;
+  clients: DemoClientShell[];
+  client?: DemoClientShell;
   clientId?: string;
   clientName?: string;
   capabilities: Capability[];
@@ -197,7 +197,7 @@ export function AccountingContextProvider({
         : undefined);
     return {
       locale,
-      account: session?.account ?? (isDemo ? demoData.account : { id: session?.userId ?? "", name: "Cuenta global", email: "" }),
+      account: session?.account ?? (isDemo ? demoAccount : { id: session?.userId ?? "", name: "Cuenta global", email: "" }),
       organization,
       membership,
       clients: isDemo ? clientsFor(organization.id) : [],

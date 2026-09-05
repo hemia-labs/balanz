@@ -45,7 +45,7 @@ export interface FiscalReadinessResult {
   dependencies: {
     postgres: DependencyHealth;
     storage: ObjectStorageHealth;
-    scanner: MalwareScannerHealth;
+    scanner: MalwareScannerHealth & { required: boolean };
     redisWakeup: {
       status: 'up' | 'down' | 'disabled';
       required: false;
@@ -77,6 +77,11 @@ export interface WorkerSupervisorHealth {
 export class FiscalReadinessService {
   private readonly timeoutMs: number;
   private readonly requiredDependencyCacheTtlMs: number;
+  private readonly storageProbeIntervalMs: number;
+  private storageHealthCache?: {
+    expiresAt: number;
+    value: ObjectStorageHealth;
+  };
   private readonly supervisorStaleAfterMs: number;
   private readonly storageProvider: 'local' | 's3';
   private requiredDependencyProbe?: Promise<RequiredDependencyHealth>;
@@ -99,6 +104,7 @@ export class FiscalReadinessService {
   ) {
     const fiscal = config.getOrThrow<FiscalPlatformConfig>('fiscalPlatform');
     this.timeoutMs = fiscal.health.timeoutMs;
+    this.storageProbeIntervalMs = fiscal.health.storageProbeIntervalMs;
     this.requiredDependencyCacheTtlMs = Math.min(
       this.timeoutMs,
       MAX_REQUIRED_DEPENDENCY_CACHE_TTL_MS,
@@ -138,20 +144,20 @@ export class FiscalReadinessService {
     const requiredReady =
       postgres.status === 'up' &&
       storage.status === 'up' &&
-      scanner.status !== 'down' &&
+      (process === 'api' || scanner.status !== 'down') &&
       (workerSupervisor?.status ?? 'up') === 'up';
 
     return {
       status: !requiredReady
         ? 'down'
-        : redisStatus === 'down'
+        : redisStatus === 'down' || scanner.status === 'down'
           ? 'degraded'
           : 'up',
       process,
       dependencies: {
         postgres,
         storage,
-        scanner,
+        scanner: { ...scanner, required: process === 'worker' },
         redisWakeup: { status: redisStatus, required: false },
         ...(workerSupervisor ? { workerSupervisor } : {}),
       },
@@ -160,7 +166,12 @@ export class FiscalReadinessService {
 
   private requiredDependenciesHealth(): Promise<RequiredDependencyHealth> {
     const cached = this.requiredDependencyCache;
-    if (cached && cached.expiresAt > Date.now()) {
+    if (
+      cached &&
+      cached.expiresAt > Date.now() &&
+      this.storageHealthCache &&
+      this.storageHealthCache.expiresAt > Date.now()
+    ) {
       return Promise.resolve(cached.value);
     }
     if (this.requiredDependencyProbe) return this.requiredDependencyProbe;
@@ -185,12 +196,7 @@ export class FiscalReadinessService {
   private async probeRequiredDependencies(): Promise<RequiredDependencyHealth> {
     const [postgres, storage, scanner] = await Promise.all([
       this.postgresHealth(),
-      this.withAbortTimeout(this.storagePhysicalHealthProbe(), {
-        status: 'down',
-        provider: this.storageProvider,
-        durationMs: this.timeoutMs,
-        errorCode: 'OBJECT_STORAGE_HEALTH_TIMEOUT',
-      }),
+      this.storageHealth(),
       this.withAbortTimeout(this.scannerPhysicalHealthProbe(), {
         status: 'down',
         scanner: 'clamav',
@@ -198,7 +204,39 @@ export class FiscalReadinessService {
         errorCode: 'MALWARE_SCANNER_HEALTH_TIMEOUT',
       }),
     ]);
-    return { postgres, storage, scanner };
+    // A slow PostgreSQL/scanner probe can outlive storage's cached success.
+    // Revalidate it before publishing the combined readiness result.
+    const currentStorage =
+      storage.status === 'up' &&
+      (this.storageHealthCache?.expiresAt ?? 0) <= Date.now()
+        ? await this.storageHealth()
+        : storage;
+    return { postgres, storage: currentStorage, scanner };
+  }
+
+  private async storageHealth(): Promise<ObjectStorageHealth> {
+    const cached = this.storageHealthCache;
+    if (cached && cached.expiresAt > Date.now()) return cached.value;
+    const value = await this.withAbortTimeout(
+      this.storagePhysicalHealthProbe(),
+      {
+        status: 'down',
+        provider: this.storageProvider,
+        durationMs: this.timeoutMs,
+        errorCode: 'OBJECT_STORAGE_HEALTH_TIMEOUT',
+      },
+    );
+    // Never serve expired success. Failures retry on the short logical-health
+    // window; the physical gate still serializes timeout/cleanup work.
+    this.storageHealthCache = {
+      expiresAt:
+        Date.now() +
+        (value.status === 'up'
+          ? this.storageProbeIntervalMs
+          : this.requiredDependencyCacheTtlMs),
+      value,
+    };
+    return value;
   }
 
   private workerSupervisorHealth(): WorkerSupervisorHealth {

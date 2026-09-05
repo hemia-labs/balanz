@@ -57,6 +57,17 @@ const DEFINITIONS = {
     kind: 'gauge',
     labels: ['source'],
   },
+  ingestion_queue_refresh_duration_seconds: {
+    help: 'Duration and outcome of sampled PostgreSQL queue-age queries.',
+    kind: 'histogram',
+    labels: ['outcome'],
+    buckets: [0.01, 0.05, 0.1, 0.5, 1, 5, 15, 30],
+  },
+  worker_heartbeats_total: {
+    help: 'Lease heartbeat evaluations by source and outcome.',
+    kind: 'counter',
+    labels: ['source', 'outcome'],
+  },
   ingestion_upload_bytes_total: {
     help: 'Bytes accepted by the foundational upload pipeline.',
     kind: 'counter',
@@ -185,6 +196,9 @@ const SAFE_VALUES_BY_LABEL: Readonly<Record<string, ReadonlySet<string>>> = {
     'internal_error',
   ]),
   outcome: new Set([
+    'renewed',
+    'cancel_requested',
+    'lost',
     'claimed',
     'retryable',
     'final',

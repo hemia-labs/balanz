@@ -23,6 +23,7 @@ describe('FiscalReadinessService', () => {
       workerState?: 'running' | 'stopping' | 'stopped';
       workerLastActivityAt?: string;
       healthTimeoutMs?: number;
+      storageProbeIntervalMs?: number;
       postgresFoundationProbe?: () => Promise<
         Array<{ foundation_ready: boolean }>
       >;
@@ -127,7 +128,11 @@ describe('FiscalReadinessService', () => {
     } as unknown as RedisWakeupService;
     const config = {
       getOrThrow: jest.fn().mockReturnValue({
-        health: { timeoutMs: options.healthTimeoutMs ?? 100 },
+        health: {
+          timeoutMs: options.healthTimeoutMs ?? 100,
+          storageProbeIntervalMs:
+            options.storageProbeIntervalMs ?? options.healthTimeoutMs ?? 100,
+        },
         storage: { driver: 's3' },
         worker: { pollIntervalMs: 1_000 },
       }),
@@ -199,7 +204,6 @@ describe('FiscalReadinessService', () => {
   it.each([
     ['PostgreSQL', { postgres: 'down' as const }],
     ['object storage', { storage: 'down' as const }],
-    ['malware scanner', { scanner: 'down' as const }],
   ])(
     'fails readiness when required dependency %s is down',
     async (_name, state) => {
@@ -210,6 +214,113 @@ describe('FiscalReadinessService', () => {
       expect(response.status).toHaveBeenCalledWith(503);
     },
   );
+
+  it('keeps API queries ready when the scanner is down but rejects worker readiness', async () => {
+    const readiness = service({ scanner: 'down' });
+    const api = await readiness.check('api');
+    expect(api).toMatchObject({
+      status: 'degraded',
+      dependencies: {
+        scanner: { status: 'down', required: false },
+      },
+    });
+    const response = { status: jest.fn() } as unknown as Response;
+    applyReadinessStatus(response, api);
+    expect(response.status).toHaveBeenCalledWith(200);
+    const worker = await readiness.check('worker');
+    expect(worker).toMatchObject({
+      status: 'down',
+      dependencies: {
+        scanner: { status: 'down', required: true },
+      },
+    });
+    applyReadinessStatus(response, worker);
+    expect(response.status).toHaveBeenLastCalledWith(503);
+  });
+
+  it('samples physical storage independently and never serves expired success', async () => {
+    jest.useFakeTimers();
+    const storageHealth = jest
+      .fn()
+      .mockResolvedValue({ status: 'up', provider: 's3', durationMs: 1 });
+    const postgresFoundationProbe = jest
+      .fn()
+      .mockResolvedValue([{ foundation_ready: true }]);
+    try {
+      const readiness = service({
+        storageHealth,
+        postgresFoundationProbe,
+        storageProbeIntervalMs: 30_000,
+      });
+      await readiness.check('api');
+      storageHealth.mockResolvedValue({
+        status: 'down',
+        provider: 's3',
+        durationMs: 1,
+      });
+      for (let poll = 0; poll < 5; poll += 1) {
+        jest.advanceTimersByTime(5_000);
+        await expect(readiness.check('api')).resolves.toMatchObject({
+          status: 'up',
+        });
+      }
+      expect(storageHealth).toHaveBeenCalledTimes(1);
+      expect(postgresFoundationProbe).toHaveBeenCalledTimes(6);
+      jest.advanceTimersByTime(4_999);
+      await expect(readiness.check('api')).resolves.toMatchObject({
+        status: 'up',
+      });
+      jest.advanceTimersByTime(1);
+      await expect(readiness.check('api')).resolves.toMatchObject({
+        status: 'down',
+      });
+      expect(storageHealth).toHaveBeenCalledTimes(2);
+      storageHealth.mockResolvedValue({
+        status: 'up',
+        provider: 's3',
+        durationMs: 1,
+      });
+      jest.advanceTimersByTime(101);
+      await expect(readiness.check('api')).resolves.toMatchObject({
+        status: 'up',
+      });
+      expect(storageHealth).toHaveBeenCalledTimes(3);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('rechecks cached storage if it expires while waiting for PostgreSQL', async () => {
+    jest.useFakeTimers();
+    const storageHealth = jest
+      .fn()
+      .mockResolvedValueOnce({ status: 'up', provider: 's3', durationMs: 1 })
+      .mockResolvedValue({ status: 'down', provider: 's3', durationMs: 1 });
+    const postgresFoundationProbe = jest
+      .fn()
+      .mockResolvedValueOnce([{ foundation_ready: true }])
+      .mockImplementation(
+        () =>
+          new Promise((resolve) => {
+            setTimeout(() => resolve([{ foundation_ready: true }]), 50);
+          }),
+      );
+    try {
+      const readiness = service({
+        storageHealth,
+        postgresFoundationProbe,
+        storageProbeIntervalMs: 30_000,
+      });
+      await readiness.check('api');
+      jest.advanceTimersByTime(29_999);
+      const pending = readiness.check('api');
+      await jest.advanceTimersByTimeAsync(50);
+      await expect(pending).resolves.toMatchObject({ status: 'down' });
+      expect(storageHealth).toHaveBeenCalledTimes(2);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
 
   it('allows an explicit development scanner bypass without hiding it', async () => {
     await expect(
@@ -434,7 +545,9 @@ describe('FiscalReadinessService', () => {
         const first = readiness.check('api');
         await jest.advanceTimersByTimeAsync(10);
         const firstResult = await first;
-        expect(firstResult.status).toBe('down');
+        expect(firstResult.status).toBe(
+          dependency === 'scanner' ? 'degraded' : 'down',
+        );
         expect(firstResult.dependencies[dependency]).toMatchObject({
           status: 'down',
           errorCode:
