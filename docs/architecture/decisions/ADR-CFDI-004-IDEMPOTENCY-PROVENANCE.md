@@ -3,6 +3,7 @@
 - Estado: `ACCEPTED`
 - Fecha: 2026-08-28
 - Alcance: plataforma de ingesta desde Fase 0
+- Implementación XML: Fase 1 `IN_PROGRESS`
 
 ## Contexto
 
@@ -29,11 +30,20 @@ fingerprint devuelve el mismo resultado durable; la misma key con fingerprint
 distinto devuelve `IDEMPOTENCY_CONFLICT` sin revelar datos de la solicitud
 original. La comparación no depende de filename ni de orden JSON accidental.
 
+En el upload XML manual, la recepción larga no conserva una conexión ni un
+advisory lock de sesión de PostgreSQL mientras fluye el multipart. La fila de
+`ingestion_uploads` cerca al receptor mediante estado, versión y actividad
+durable; heartbeats optimistas permiten recuperar un receptor abandonado sin
+crear otra intención. Un replay confirmado vuelve a calcular el hash/tamaño de
+la solicitud, y la recuperación de una caída posterior al `put` reabre el
+objeto privado y verifica sus bytes antes de confirmar. Así, unos bytes nuevos
+nunca pueden quedar asociados a la metadata de un objeto anterior.
+
 Cada `stored_object` tiene key opaca, hash y tamaño. Upload, job e item conservan
 FKs compuestas y referencias al objeto observado. Un objeto confirmado es
 inmutable. Los reintentos apuntan al intento/origen anterior mediante relaciones
-explícitas; no sobrescriben procedencia ni reinician `attempt_count`. Duplicado
-fiscal por UUID/hash será una decisión adicional de Fase 1 y no reemplaza la
+explícitas; no sobrescriben procedencia ni reinician `attempt_count`. El dedupe
+fiscal por UUID/hash de Fase 1 es una decisión separada y no reemplaza la
 idempotencia HTTP/plataforma.
 
 Los fingerprints e idempotency keys se consideran metadatos sensibles: logs y
@@ -67,8 +77,10 @@ política coordinada y auditable.
 - Hash/tamaño se verifican antes de marcar objeto disponible.
 - No aparecen keys, fingerprints completos ni datos fiscales en logs/métricas.
 
-## Límite de fase
+## Evolución por fase
 
-Fase 0 implementa estructura e invariantes con datos sintéticos. La llave
-idempotente del endpoint XML, la canonicalización del multipart y el dedupe
-UUID/hash se activan en Fase 1, actualmente `NOT_STARTED`.
+Fase 0 implementó estructura e invariantes con datos sintéticos. Fase 1 activa
+la llave del endpoint XML, canonicalización `manual_xml_upload_v1`, admisión
+concurrente y dedupe UUID/hash, conservando upload, objeto, job e item como
+observaciones inmutables. ZIP y otras operaciones definirán fingerprints
+propios en su fase.

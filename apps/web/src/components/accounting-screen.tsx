@@ -11,6 +11,7 @@ import {
   isLivePeriodTabSupported,
   type ResolvedProductRoute,
 } from "@/lib/product-route";
+import { canAccessAccountScope } from "@/lib/permissions";
 
 const LiveClientsScreen = dynamic(() =>
   import("@/features/clients/live-clients-screen").then(
@@ -42,8 +43,26 @@ const PermissionAdministrationScreen = dynamic(() =>
   ),
 );
 
+const LiveProcessesScreen = dynamic(() =>
+  import("@/features/ingestions/live-processes-screen").then(
+    (module) => module.LiveProcessesScreen,
+  ),
+);
+
+const LiveClientCfdiScreen = dynamic(() =>
+  import("@/features/cfdi/live-cfdi-screens").then(
+    (module) => module.LiveClientCfdiScreen,
+  ),
+);
+
+const LiveCfdiDetailScreen = dynamic(() =>
+  import("@/features/cfdi/live-cfdi-screens").then(
+    (module) => module.LiveCfdiDetailScreen,
+  ),
+);
+
 export function AccountingScreen({ route }: { route: ResolvedProductRoute }) {
-  const { capabilities, locale, membership, organization } =
+  const { accountAccessMode, capabilities, locale, membership, organization } =
     useAccountingContext();
   const { clientId } = route;
   if (!canOpenResolvedProductRoute(route, capabilities)) {
@@ -51,11 +70,41 @@ export function AccountingScreen({ route }: { route: ResolvedProductRoute }) {
   }
   if (
     route.clientId &&
-    !membership.assignedClientIds.includes(route.clientId)
+    !canAccessAccountScope(
+      accountAccessMode,
+      membership.assignedClientIds,
+      route.clientId,
+    )
   ) {
     return <LiveForbiddenScreen reason="out_of_scope" />;
   }
   switch (route.screen) {
+    case "processes":
+      return <LiveProcessesScreen />;
+    case "client-cfdi":
+      return (
+        <LiveClientCfdiScreen
+          clientId={clientId!}
+          legalEntityId={route.legalEntityId}
+        />
+      );
+    case "cfdi-detail":
+      if (!route.legalEntityId)
+        return (
+          <LiveUnavailableScreen
+            title="Selecciona primero un RFC"
+            description="Abre CFDI desde la lista de una entidad fiscal para conservar el alcance completo."
+            returnHref={`/${locale}/organizations/${encodeURIComponent(organization.slug)}/clients/${encodeURIComponent(clientId!)}/cfdi`}
+            returnLabel="Seleccionar RFC"
+          />
+        );
+      return (
+        <LiveCfdiDetailScreen
+          clientId={clientId!}
+          legalEntityId={route.legalEntityId}
+          cfdiId={route.cfdiId!}
+        />
+      );
     case "clients":
       return <LiveClientsScreen />;
     case "team":

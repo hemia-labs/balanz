@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { labelBackendRole } from "./permissions";
+import { canAccessAccountScope, labelBackendRole } from "./permissions";
 
 test("traduce las claves de rol del backend", () => {
   assert.equal(labelBackendRole("owner"), "Titular");
@@ -11,4 +11,16 @@ test("traduce las claves de rol del backend", () => {
 
 test("conserva las claves de rol desconocidas", () => {
   assert.equal(labelBackendRole("new-role"), "new-role");
+});
+
+test("aplica accountAccessMode sin inferir alcance por nombre de rol", () => {
+  assert.equal(canAccessAccountScope("tenant", [], "account-b"), true);
+  assert.equal(
+    canAccessAccountScope("assigned", ["account-a"], "account-a"),
+    true,
+  );
+  assert.equal(
+    canAccessAccountScope("assigned", ["account-a"], "account-b"),
+    false,
+  );
 });

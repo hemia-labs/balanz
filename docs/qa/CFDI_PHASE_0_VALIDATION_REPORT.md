@@ -14,6 +14,10 @@ al cierre del 3 de septiembre de 2026 y a los SHAs allí indicados. El seguimien
 de revisión del 4 de septiembre, sus cambios y sus límites de validación se
 registran por separado en la sección 22; no renueva aquella evidencia `Full`.
 
+La evidencia focal previa de Fase 1 se conserva en la sección 24 como corte
+histórico. Los estados de CI se reevalúan al integrar las ramas; el release
+sigue sujeto a los gates de la PR y los secretos runtime compartidos.
+
 ## 1. Resultado ejecutivo
 
 La plataforma fiscal compartida de Fase 0 quedó implementada y validada con
@@ -879,3 +883,45 @@ web 53 pruebas, lint, TypeScript y build con Webpack PASS. Se usa Webpack
 porque los node_modules del worktree se comparten mediante junctions y
 Turbopack limita la resolución fuera de su raíz. `git diff --check` PASS.
 No se repite la infraestructura Full ni se acredita el cierre de `TD-004`.
+
+## 24. Evidencia histórica focal de Fase 1 — 2026-09-03
+
+En aquella corrida Docker estaba operativo. La revalidación externa focal confirmó nuevamente el
+adapter final contra servicios reales, sin sustituirlos por mocks:
+
+```text
+DOCKER_DAEMON: PASS
+CLAMAV_HEALTH: PASS
+CLAMAV_CLEAN: PASS
+CLAMAV_EICAR: PASS
+CLAMAV_OFFLINE_FAIL_CLOSED: PASS
+MINIO_HEALTH: PASS
+PRIVATE_BUCKET_SSE: PASS
+STREAM_ROUNDTRIP: PASS
+HASH_INTEGRITY: PASS
+PUBLIC_ACCESS_DENIED: PASS
+TEMPORARY_ACCESS: PASS
+EXPIRED_ACCESS_DENIED: PASS
+EXTERNAL_ADAPTER_CLEANUP: PASS
+```
+
+Esta evidencia no desbloquea la integración. `develop` despliega
+automáticamente API/worker y los secretos compartidos
+`database/postgres-api` y `database/postgres-worker` continúan `NOT_FOUND`.
+Además, el check de PR #17 falla al iniciar el runtime por `EACCES` en la
+carga del entorno. No se agregó fallback a migrator/admin.
+
+```text
+PHASE_0_DEVELOPMENT_STATUS: ACCEPTED
+PHASE_0_INTEGRATION_STATUS: BLOCKED
+PHASE_0_RELEASE_STATUS: BLOCKED
+CI_RUNTIME_WORKER_STARTUP: FAIL - runtime env EACCES
+SHARED_VAULT_POSTGRES_RUNTIME_SECRETS: BLOCKED - API/worker NOT_FOUND
+DEVELOP_AUTO_DEPLOY: YES
+PR_17_STATE: DRAFT
+PR_17_REQUIRED_CHECKS: FAIL
+PR_17_MERGE: NO
+PHASE_1_VALIDATION_STATUS: PASS
+PHASE_1_INTEGRATION_STATUS: BLOCKED - PR #18 required check
+PHASE_2_ZIP: NOT_STARTED
+```

@@ -53,8 +53,9 @@ export default async function ProductRoutePage({
   }
   if (
     route.screen === "cfdi-detail" &&
+    !route.legalEntityId &&
     !demoData.cfdi.some(
-      (item) => item.clientId === route.clientId && item.uuid === route.uuid,
+      (item) => item.clientId === route.clientId && item.uuid === route.cfdiId,
     )
   )
     notFound();

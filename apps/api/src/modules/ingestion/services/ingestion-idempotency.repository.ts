@@ -86,6 +86,15 @@ export class JobInputConflictError extends Error {
   }
 }
 
+export class IngestionAdmissionLimitError extends Error {
+  readonly code = 'INGESTION_ACTIVE_JOB_LIMIT';
+
+  constructor(readonly dimension: 'user' | 'tenant') {
+    super('The active ingestion job limit was reached');
+    this.name = 'IngestionAdmissionLimitError';
+  }
+}
+
 export interface IdempotentResult<T> {
   outcome: 'created' | 'replayed';
   value: T;
@@ -94,9 +103,26 @@ export interface IdempotentResult<T> {
 export interface UploadIntentRecord {
   uploadId: string;
   objectId: string;
+  objectKey: string;
+  originalFilename: string | null;
+  declaredMimeType: string | null;
   state: string;
+  actualSizeBytes: string | null;
+  actualSha256: string | null;
+  storageEtag: string | null;
+  storageVersionId: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+  version: number;
+  /** Present only for the request that currently owns the receiving fence. */
+  receiverVersion: number | null;
   responseStatus: number;
   responseReference: string;
+}
+
+export interface UploadReceiverClaim {
+  outcome: 'claimed' | 'busy';
+  value: UploadIntentRecord;
 }
 
 export interface CreateUploadIntentInput {
@@ -133,6 +159,9 @@ export interface ConfirmUploadInput {
   actualSha256: string;
   storageEtag?: string | null;
   storageVersionId?: string | null;
+  detectedMimeType?: string | null;
+  /** Optimistic fence held by the streaming request. */
+  receiverVersion?: number;
 }
 
 export interface JobReservationRecord {
@@ -156,12 +185,29 @@ export interface CreateJobReservationInput {
   requestedByMembershipId?: string | null;
   retryOfJobId?: string | null;
   jobId?: string;
+  initialItem?: {
+    id?: string;
+    objectId: string;
+    ordinal?: number;
+    safeFilename?: string | null;
+    sha256: string;
+  };
 }
 
 interface UploadIntentRow {
   id: string;
   object_id: string;
+  object_key: string;
+  original_filename: string | null;
+  declared_mime_type: string | null;
   state: string;
+  actual_size_bytes: string | null;
+  actual_sha256: string | null;
+  storage_etag: string | null;
+  storage_version_id: string | null;
+  created_at: Date;
+  updated_at: Date;
+  version: number;
   init_request_fingerprint: string;
   init_response_status: number | null;
   init_response_reference: string | null;
@@ -169,15 +215,11 @@ interface UploadIntentRow {
   idempotency_valid: boolean;
 }
 
-interface ConfirmReplayRow {
-  id: string;
-  object_id: string;
-  state: string;
+interface ConfirmReplayRow extends UploadIntentRow {
   confirm_request_fingerprint: string;
   confirm_response_status: number | null;
   confirm_response_reference: string | null;
   confirm_idempotency_expires_at: Date;
-  idempotency_valid: boolean;
 }
 
 interface ConfirmableUploadRow {
@@ -193,6 +235,14 @@ interface ConfirmableUploadRow {
   upload_not_expired: boolean;
   confirm_idempotency_key: string | null;
   object_lifecycle_state: string;
+  object_key: string;
+  original_filename: string | null;
+  declared_mime_type: string | null;
+  storage_etag: string | null;
+  storage_version_id: string | null;
+  created_at: Date;
+  updated_at: Date;
+  version: number;
 }
 
 interface ConfirmedUploadRow {
@@ -201,6 +251,8 @@ interface ConfirmedUploadRow {
   state: string;
   confirm_response_status: number;
   confirm_response_reference: string;
+  updated_at: Date;
+  version: number;
 }
 
 interface JobReservationRow {
@@ -222,6 +274,9 @@ function mutationRows<T>(result: MutationQueryResult<T>): T[] {
 @Injectable()
 export class IngestionIdempotencyRepository {
   private readonly incompleteUploadHours: number;
+  private readonly activeJobsPerUser: number;
+  private readonly activeJobsPerTenant: number;
+  private readonly receiverLeaseSeconds: number;
 
   constructor(
     private readonly tenantTransactions: FiscalTenantTransactionService,
@@ -230,13 +285,19 @@ export class IngestionIdempotencyRepository {
     private readonly objectKeys: OpaqueObjectKeyFactory,
     config: ConfigService,
   ) {
-    this.incompleteUploadHours =
-      config.getOrThrow<FiscalPlatformConfig>(
-        'fiscalPlatform',
-      ).retention.incompleteUploadHours;
+    const platform = config.getOrThrow<FiscalPlatformConfig>('fiscalPlatform');
+    this.incompleteUploadHours = platform.retention.incompleteUploadHours;
+    this.activeJobsPerUser = platform.limits.activeJobsPerUser;
+    this.activeJobsPerTenant = platform.limits.activeJobsPerTenant;
+    this.receiverLeaseSeconds = platform.worker.leaseSeconds;
     if (this.incompleteUploadHours !== 24) {
       throw new Error(
         'INGESTION_INCOMPLETE_UPLOAD_HOURS must remain fixed at 24 hours',
+      );
+    }
+    if (this.activeJobsPerUser !== 2 || this.activeJobsPerTenant !== 4) {
+      throw new Error(
+        'INGESTION_ACTIVE_JOBS_PER_USER/TENANT must remain fixed at 2/4',
       );
     }
   }
@@ -287,6 +348,14 @@ export class IngestionIdempotencyRepository {
         input.idempotencyExpiresAt,
       );
 
+      if (input.workflow === 'direct' && input.uploadType === 'manual_xml') {
+        await this.assertManualIngestionCapacity(
+          manager,
+          input.scope,
+          input.scope.membershipId,
+        );
+      }
+
       await manager.query(
         `INSERT INTO stored_objects (
            id, organization_id, client_account_id, legal_entity_id,
@@ -310,21 +379,25 @@ export class IngestionIdempotencyRepository {
       const rows = await manager.query<UploadIntentRow[]>(
         `INSERT INTO ingestion_uploads (
            id, organization_id, client_account_id, legal_entity_id,
-           workflow, upload_type,
+           workflow, upload_type, state,
            init_idempotency_key, init_request_fingerprint,
            init_response_status, init_response_reference,
            init_idempotency_expires_at, object_id,
            expected_size_bytes, expected_sha256, upload_expires_at,
            created_by_membership_id, correlation_id
          ) VALUES (
-           $1,$2,$3,$4,$5,$6,$7,$8,201,$1::uuid::text,$9,$10,$11,$12,
+           $1,$2,$3,$4,$5::varchar,$6::varchar,
+           CASE WHEN $5::varchar = 'direct' AND $6::varchar = 'manual_xml'
+             THEN 'receiving' ELSE 'pending' END,
+           $7,$8,201,$1::uuid::text,$9,$10,$11,$12,
            clock_timestamp() + make_interval(hours => $13),$14,$15
          )
-         RETURNING
-           id, object_id, state, init_request_fingerprint,
-           init_response_status, init_response_reference,
-           init_idempotency_expires_at,
-           init_idempotency_expires_at > clock_timestamp() AS idempotency_valid`,
+          RETURNING
+            id, object_id, state, actual_size_bytes, actual_sha256,
+            created_at, updated_at, version, init_request_fingerprint,
+            init_response_status, init_response_reference,
+            init_idempotency_expires_at,
+            init_idempotency_expires_at > clock_timestamp() AS idempotency_valid`,
         [
           uploadId,
           input.scope.organizationId,
@@ -351,7 +424,133 @@ export class IngestionIdempotencyRepository {
         objectId: uploadId,
         correlationId: input.correlationId,
       });
-      return { outcome: 'created', value: this.uploadIntentValue(rows[0]) };
+      return {
+        outcome: 'created',
+        value: this.uploadIntentValue(
+          {
+            ...rows[0],
+            object_key: input.object.objectKey,
+            original_filename: input.object.originalFilename ?? null,
+            declared_mime_type: input.object.declaredMimeType ?? null,
+            storage_etag: null,
+            storage_version_id: null,
+          },
+          Number(rows[0].version),
+        ),
+      };
+    });
+  }
+
+  /**
+   * Reclaims a stalled direct XML receiver without retaining a database
+   * connection while request bytes are in flight. `version` is the fence:
+   * an older receiver cannot confirm or delete bytes after a takeover.
+   */
+  claimUploadReceiver(
+    scope: FiscalIngestionScope,
+    uploadId: string,
+  ): Promise<UploadReceiverClaim> {
+    this.assertScope(scope);
+    this.assertUuid(uploadId, 'upload ID');
+    return this.tenantTransactions.run(scope, async (manager) => {
+      const rows = await manager.query<UploadIntentRow[]>(
+        `WITH claimed AS (
+           UPDATE ingestion_uploads
+              SET state = 'receiving',
+                  updated_at = clock_timestamp(),
+                  version = version + 1
+            WHERE id = $1
+              AND organization_id = $2
+              AND client_account_id = $3
+              AND legal_entity_id = $4
+              AND workflow = 'direct'
+              AND upload_type = 'manual_xml'
+              AND upload_expires_at > clock_timestamp()
+              AND (
+                state = 'pending'
+                OR (
+                  state = 'receiving'
+                  AND updated_at <= clock_timestamp()
+                    - make_interval(secs => $5)
+                )
+              )
+          RETURNING *
+         )
+         SELECT
+           claimed.id, claimed.object_id, object.object_key,
+           object.original_filename, object.declared_mime_type, claimed.state,
+           claimed.actual_size_bytes, claimed.actual_sha256,
+           object.storage_etag, object.storage_version_id,
+           claimed.created_at, claimed.updated_at, claimed.version,
+           claimed.init_request_fingerprint,
+           claimed.init_response_status, claimed.init_response_reference,
+           claimed.init_idempotency_expires_at,
+           claimed.init_idempotency_expires_at > clock_timestamp()
+             AS idempotency_valid
+         FROM claimed
+         INNER JOIN stored_objects object
+           ON object.organization_id = claimed.organization_id
+          AND object.client_account_id = claimed.client_account_id
+          AND object.legal_entity_id = claimed.legal_entity_id
+          AND object.id = claimed.object_id`,
+        [
+          uploadId,
+          scope.organizationId,
+          scope.clientAccountId,
+          scope.legalEntityId,
+          this.receiverLeaseSeconds,
+        ],
+      );
+      if (rows[0]) {
+        return {
+          outcome: 'claimed',
+          value: this.uploadIntentValue(rows[0], Number(rows[0].version)),
+        };
+      }
+
+      const current = await this.findUploadIntentById(manager, scope, uploadId);
+      if (!current) {
+        throw new Error('Upload does not exist in the tenant scope');
+      }
+      return { outcome: 'busy', value: this.uploadIntentValue(current) };
+    });
+  }
+
+  async renewUploadReceiver(
+    scope: FiscalIngestionScope,
+    uploadId: string,
+    receiverVersion: number,
+  ): Promise<number | null> {
+    this.assertScope(scope);
+    this.assertUuid(uploadId, 'upload ID');
+    this.assertPositiveVersion(receiverVersion);
+    return this.tenantTransactions.run(scope, async (manager) => {
+      const rows = await manager.query<Array<{ version: number }>>(
+        `WITH renewed AS (
+           UPDATE ingestion_uploads
+              SET updated_at = clock_timestamp(),
+                  version = version + 1
+            WHERE id = $1
+              AND organization_id = $2
+              AND client_account_id = $3
+              AND legal_entity_id = $4
+              AND workflow = 'direct'
+              AND upload_type = 'manual_xml'
+              AND state = 'receiving'
+              AND version = $5
+              AND upload_expires_at > clock_timestamp()
+          RETURNING version
+         )
+         SELECT version FROM renewed`,
+        [
+          uploadId,
+          scope.organizationId,
+          scope.clientAccountId,
+          scope.legalEntityId,
+          receiverVersion,
+        ],
+      );
+      return rows[0] ? Number(rows[0].version) : null;
     });
   }
 
@@ -363,6 +562,9 @@ export class IngestionIdempotencyRepository {
     this.assertUuid(input.correlationId, 'correlation ID');
     this.assertIdempotency(input.idempotencyKey, input.requestFingerprint);
     this.assertHash(input.actualSha256);
+    if (input.receiverVersion !== undefined) {
+      this.assertPositiveVersion(input.receiverVersion);
+    }
     if (!/^\d+$/.test(input.actualSizeBytes)) {
       throw new Error('Actual size must be a non-negative integer');
     }
@@ -379,15 +581,29 @@ export class IngestionIdempotencyRepository {
       );
       const replayRows = await manager.query<ConfirmReplayRow[]>(
         `SELECT
-           id, object_id, state, confirm_request_fingerprint,
-           confirm_response_status, confirm_response_reference,
-           confirm_idempotency_expires_at,
-           confirm_idempotency_expires_at > clock_timestamp() AS idempotency_valid
-         FROM ingestion_uploads
-         WHERE organization_id = $1
-           AND legal_entity_id = $2
-           AND confirm_idempotency_key = $3
-         FOR UPDATE`,
+           upload.id, upload.object_id, object.object_key,
+           object.original_filename, object.declared_mime_type, upload.state,
+           upload.actual_size_bytes, upload.actual_sha256,
+           object.storage_etag, object.storage_version_id,
+           upload.created_at, upload.updated_at, upload.version,
+           upload.init_request_fingerprint,
+           upload.init_response_status, upload.init_response_reference,
+           upload.init_idempotency_expires_at,
+           upload.confirm_request_fingerprint,
+           upload.confirm_response_status, upload.confirm_response_reference,
+           upload.confirm_idempotency_expires_at,
+           upload.confirm_idempotency_expires_at > clock_timestamp()
+             AS idempotency_valid
+         FROM ingestion_uploads upload
+         INNER JOIN stored_objects object
+           ON object.organization_id = upload.organization_id
+          AND object.client_account_id = upload.client_account_id
+          AND object.legal_entity_id = upload.legal_entity_id
+          AND object.id = upload.object_id
+         WHERE upload.organization_id = $1
+           AND upload.legal_entity_id = $2
+           AND upload.confirm_idempotency_key = $3
+         FOR UPDATE OF upload, object`,
         [
           input.scope.organizationId,
           input.scope.legalEntityId,
@@ -406,9 +622,7 @@ export class IngestionIdempotencyRepository {
         return {
           outcome: 'replayed',
           value: {
-            uploadId: replay.id,
-            objectId: replay.object_id,
-            state: replay.state,
+            ...this.uploadIntentValue(replay),
             responseStatus: replay.confirm_response_status ?? 200,
             responseReference: replay.confirm_response_reference ?? replay.id,
           },
@@ -422,7 +636,11 @@ export class IngestionIdempotencyRepository {
            upload.actual_size_bytes, upload.actual_sha256,
            upload.upload_expires_at, upload.confirm_idempotency_key,
            upload.upload_expires_at > clock_timestamp() AS upload_not_expired,
-           object.lifecycle_state AS object_lifecycle_state
+           object.lifecycle_state AS object_lifecycle_state,
+           object.object_key, object.original_filename,
+           object.declared_mime_type,
+           object.storage_etag, object.storage_version_id,
+           upload.created_at, upload.updated_at, upload.version
          FROM ingestion_uploads AS upload
          INNER JOIN stored_objects AS object
            ON object.organization_id = upload.organization_id
@@ -450,6 +668,13 @@ export class IngestionIdempotencyRepository {
         !['pending', 'receiving', 'uploaded'].includes(upload.state) ||
         !upload.upload_not_expired ||
         upload.object_lifecycle_state !== 'pending_upload'
+      ) {
+        throw new IngestionStateConflictError('UPLOAD_NOT_CONFIRMABLE');
+      }
+      if (
+        input.receiverVersion !== undefined &&
+        (upload.state !== 'receiving' ||
+          Number(upload.version) !== input.receiverVersion)
       ) {
         throw new IngestionStateConflictError('UPLOAD_NOT_CONFIRMABLE');
       }
@@ -485,6 +710,7 @@ export class IngestionIdempotencyRepository {
                 lifecycle_state = 'uploaded',
                 uploaded_at = clock_timestamp(),
                 updated_at = clock_timestamp(),
+                detected_mime_type = $9,
                 version = version + 1
           WHERE id = $1
             AND organization_id = $2
@@ -501,6 +727,7 @@ export class IngestionIdempotencyRepository {
           input.actualSha256,
           input.storageEtag ?? null,
           input.storageVersionId ?? null,
+          input.detectedMimeType ?? null,
         ],
       );
       const updatedObjects = mutationRows(updatedObjectsResult);
@@ -527,7 +754,12 @@ export class IngestionIdempotencyRepository {
             AND organization_id = $2
             AND client_account_id = $3
             AND legal_entity_id = $4
-          RETURNING id, object_id, state, confirm_response_status, confirm_response_reference`,
+            AND (
+              $10::integer IS NULL
+              OR (state = 'receiving' AND version = $10::integer)
+            )
+          RETURNING id, object_id, state, confirm_response_status,
+                    confirm_response_reference, updated_at, version`,
         [
           input.uploadId,
           input.scope.organizationId,
@@ -538,6 +770,7 @@ export class IngestionIdempotencyRepository {
           input.idempotencyKey,
           input.requestFingerprint,
           input.idempotencyExpiresAt,
+          input.receiverVersion ?? null,
         ],
       );
       const confirmed = mutationRows(confirmedResult);
@@ -558,7 +791,18 @@ export class IngestionIdempotencyRepository {
         value: {
           uploadId: confirmed[0].id,
           objectId: confirmed[0].object_id,
+          objectKey: upload.object_key,
+          originalFilename: upload.original_filename,
+          declaredMimeType: upload.declared_mime_type,
           state: confirmed[0].state,
+          actualSizeBytes: input.actualSizeBytes,
+          actualSha256: input.actualSha256,
+          storageEtag: input.storageEtag ?? upload.storage_etag,
+          storageVersionId: input.storageVersionId ?? upload.storage_version_id,
+          createdAt: upload.created_at,
+          updatedAt: confirmed[0].updated_at,
+          version: Number(confirmed[0].version),
+          receiverVersion: null,
           responseStatus: confirmed[0].confirm_response_status,
           responseReference: confirmed[0].confirm_response_reference,
         },
@@ -588,6 +832,13 @@ export class IngestionIdempotencyRepository {
       this.assertUuid(input.requestedByMembershipId, 'request membership ID');
     }
     if (input.retryOfJobId) this.assertUuid(input.retryOfJobId, 'retry job ID');
+    if (input.initialItem) {
+      this.assertUuid(input.initialItem.objectId, 'item object ID');
+      this.assertHash(input.initialItem.sha256);
+      if ((input.initialItem.ordinal ?? 1) < 1) {
+        throw new Error('The ingestion item ordinal must be positive');
+      }
+    }
     const isManualSource =
       input.sourceType === 'manual_xml' || input.sourceType === 'manual_zip';
     if (
@@ -605,6 +856,7 @@ export class IngestionIdempotencyRepository {
       ? input.scope.membershipId
       : (input.requestedByMembershipId ?? null);
     const jobId = input.jobId ?? randomUUID();
+    const itemId = input.initialItem?.id ?? randomUUID();
 
     const result = await this.tenantTransactions.run<
       IdempotentResult<JobReservationRecord>
@@ -651,6 +903,15 @@ export class IngestionIdempotencyRepository {
         input.idempotencyExpiresAt,
       );
 
+      if (isManualSource) {
+        await this.assertManualIngestionCapacity(
+          manager,
+          input.scope,
+          input.scope.membershipId,
+          input.uploadId ?? null,
+        );
+      }
+
       if (input.status === 'queued') {
         await this.assertJobInputReady(manager, input);
       }
@@ -662,14 +923,15 @@ export class IngestionIdempotencyRepository {
            requested_by_membership_id, retry_of_job_id,
            idempotency_key, request_fingerprint,
            response_status, response_reference, idempotency_expires_at,
-           status, next_attempt_at, correlation_id
+           status, next_attempt_at, correlation_id,
+           total_items, pending_items
          ) VALUES (
            $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,202,$1::uuid::text,$12,$13::varchar,
            CASE
              WHEN $13::varchar = 'queued' THEN COALESCE($14::timestamptz, clock_timestamp())
              ELSE $14::timestamptz
            END,
-           $15
+           $15,$16,$16
          )
          RETURNING
            id, status, request_fingerprint, response_status,
@@ -691,8 +953,28 @@ export class IngestionIdempotencyRepository {
           input.status,
           input.nextAttemptAt ?? null,
           input.correlationId,
+          input.initialItem ? 1 : 0,
         ],
       );
+      if (input.initialItem) {
+        await manager.query(
+          `INSERT INTO ingestion_items (
+             id, organization_id, client_account_id, legal_entity_id,
+             ingestion_job_id, object_id, ordinal, safe_filename, sha256
+           ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+          [
+            itemId,
+            input.scope.organizationId,
+            input.scope.clientAccountId,
+            input.scope.legalEntityId,
+            jobId,
+            input.initialItem.objectId,
+            input.initialItem.ordinal ?? 1,
+            input.initialItem.safeFilename ?? null,
+            input.initialItem.sha256,
+          ],
+        );
+      }
       await this.audit(manager, {
         scope: input.scope,
         membershipId: requestedByMembershipId,
@@ -717,6 +999,81 @@ export class IngestionIdempotencyRepository {
     return result;
   }
 
+  async failUpload(
+    scope: FiscalIngestionScope,
+    uploadId: string,
+    errorCode: string,
+    correlationId: string,
+    receiverVersion: number,
+  ): Promise<boolean> {
+    this.assertScope(scope);
+    this.assertUuid(uploadId, 'upload ID');
+    this.assertUuid(correlationId, 'correlation ID');
+    this.assertPositiveVersion(receiverVersion);
+    if (!/^[A-Z][A-Z0-9_]{2,79}$/.test(errorCode)) {
+      throw new Error('Upload error code is invalid');
+    }
+    return this.tenantTransactions.run(scope, async (manager) => {
+      const rows = await manager.query<Array<{ object_id: string }>>(
+        `WITH failed AS (
+           UPDATE ingestion_uploads
+              SET state = 'failed',
+                  last_error_code = $5,
+                  updated_at = clock_timestamp(),
+                  version = version + 1
+            WHERE id = $1
+              AND organization_id = $2
+              AND client_account_id = $3
+              AND legal_entity_id = $4
+              AND state = 'receiving'
+              AND version = $6
+          RETURNING object_id
+         )
+         SELECT object_id FROM failed`,
+        [
+          uploadId,
+          scope.organizationId,
+          scope.clientAccountId,
+          scope.legalEntityId,
+          errorCode,
+          receiverVersion,
+        ],
+      );
+      if (rows[0]) {
+        await manager.query(
+          `UPDATE stored_objects
+              SET lifecycle_state = 'deleted',
+                  quarantine_reason_code = $5,
+                  deleted_at = clock_timestamp(),
+                  updated_at = clock_timestamp(),
+                  version = version + 1
+            WHERE id = $1
+              AND organization_id = $2
+              AND client_account_id = $3
+              AND legal_entity_id = $4
+              AND lifecycle_state = 'pending_upload'`,
+          [
+            rows[0].object_id,
+            scope.organizationId,
+            scope.clientAccountId,
+            scope.legalEntityId,
+            errorCode,
+          ],
+        );
+        await this.audit(manager, {
+          scope,
+          membershipId: scope.membershipId,
+          action: 'ingestion.upload.failed',
+          objectType: 'ingestion_upload',
+          objectId: uploadId,
+          correlationId,
+        });
+        return true;
+      }
+      return false;
+    });
+  }
+
   private async assertJobInputReady(
     manager: EntityManager,
     input: CreateJobReservationInput,
@@ -728,8 +1085,10 @@ export class IngestionIdempotencyRepository {
       if (!input.uploadId || !input.rootObjectId) {
         throw new JobInputConflictError();
       }
-      const rows = await manager.query<Array<{ id: string }>>(
-        `SELECT upload.id
+      const rows = await manager.query<
+        Array<{ id: string; lifecycle_state: string }>
+      >(
+        `SELECT upload.id, object.lifecycle_state
            FROM ingestion_uploads AS upload
            INNER JOIN stored_objects AS object
              ON object.organization_id = upload.organization_id
@@ -756,6 +1115,16 @@ export class IngestionIdempotencyRepository {
         ],
       );
       if (rows.length !== 1) throw new JobInputConflictError();
+      // Check under the object lock, after idempotency replay: a lost response
+      // can recover an accepted retry, but a new key cannot reprocess XML that
+      // another retry already published. The worker also protects old queued retries.
+      if (
+        input.sourceType === 'manual_xml' &&
+        input.retryOfJobId &&
+        rows[0].lifecycle_state === 'available'
+      ) {
+        throw new JobInputConflictError();
+      }
       return;
     }
 
@@ -793,6 +1162,71 @@ export class IngestionIdempotencyRepository {
     );
   }
 
+  /**
+   * Serializes producer admission per organization. Both counters are read
+   * while this transaction-scoped lock is held, so concurrent API instances
+   * cannot all observe the same remaining slot and oversubscribe it.
+   */
+  private async assertManualIngestionCapacity(
+    manager: EntityManager,
+    scope: FiscalIngestionScope,
+    membershipId: string,
+    convertingUploadId: string | null = null,
+  ): Promise<void> {
+    await manager.query(
+      `SELECT pg_advisory_xact_lock(hashtextextended($1, 84732))`,
+      [`${scope.organizationId}:manual_ingestion_admission`],
+    );
+    const rows = await manager.query<
+      Array<{ tenant_active_jobs: number; user_active_jobs: number }>
+    >(
+      `WITH active_jobs AS (
+         SELECT requested_by_membership_id
+           FROM ingestion_jobs
+          WHERE organization_id = $1
+            AND status IN (
+              'awaiting_upload', 'queued', 'processing',
+              'failed_retryable', 'cancel_requested'
+            )
+       ), unbound_uploads AS (
+         SELECT upload.created_by_membership_id
+           FROM ingestion_uploads upload
+          WHERE upload.organization_id = $1
+            AND upload.upload_type = 'manual_xml'
+            AND upload.state IN ('pending','receiving','uploaded','confirmed')
+            AND ($3::uuid IS NULL OR upload.id <> $3::uuid)
+            AND NOT EXISTS (
+              SELECT 1
+                FROM ingestion_jobs job
+               WHERE job.organization_id = upload.organization_id
+                 AND job.upload_id = upload.id
+            )
+       )
+       SELECT
+         (
+           (SELECT count(*) FROM active_jobs) +
+           (SELECT count(*) FROM unbound_uploads)
+         )::integer AS tenant_active_jobs,
+         (
+           (SELECT count(*) FROM active_jobs
+             WHERE requested_by_membership_id = $2) +
+           (SELECT count(*) FROM unbound_uploads
+             WHERE created_by_membership_id = $2)
+         )::integer AS user_active_jobs`,
+      [scope.organizationId, membershipId, convertingUploadId],
+    );
+    const counts = rows[0] ?? {
+      tenant_active_jobs: 0,
+      user_active_jobs: 0,
+    };
+    if (Number(counts.user_active_jobs) >= this.activeJobsPerUser) {
+      throw new IngestionAdmissionLimitError('user');
+    }
+    if (Number(counts.tenant_active_jobs) >= this.activeJobsPerTenant) {
+      throw new IngestionAdmissionLimitError('tenant');
+    }
+  }
+
   private async findUploadIntent(
     manager: EntityManager,
     scope: FiscalIngestionScope,
@@ -800,16 +1234,63 @@ export class IngestionIdempotencyRepository {
   ): Promise<UploadIntentRow | undefined> {
     const rows = await manager.query<UploadIntentRow[]>(
       `SELECT
-         id, object_id, state, init_request_fingerprint,
-         init_response_status, init_response_reference,
-         init_idempotency_expires_at,
-         init_idempotency_expires_at > clock_timestamp() AS idempotency_valid
-       FROM ingestion_uploads
-       WHERE organization_id = $1
-         AND legal_entity_id = $2
-         AND init_idempotency_key = $3
-       FOR UPDATE`,
+         upload.id, upload.object_id, object.object_key,
+         object.original_filename, object.declared_mime_type, upload.state,
+         upload.actual_size_bytes, upload.actual_sha256,
+         object.storage_etag, object.storage_version_id,
+         upload.created_at, upload.updated_at, upload.version,
+         upload.init_request_fingerprint,
+         upload.init_response_status, upload.init_response_reference,
+         upload.init_idempotency_expires_at,
+         upload.init_idempotency_expires_at > clock_timestamp() AS idempotency_valid
+       FROM ingestion_uploads upload
+       INNER JOIN stored_objects object
+         ON object.organization_id = upload.organization_id
+        AND object.client_account_id = upload.client_account_id
+        AND object.legal_entity_id = upload.legal_entity_id
+        AND object.id = upload.object_id
+       WHERE upload.organization_id = $1
+         AND upload.legal_entity_id = $2
+         AND upload.init_idempotency_key = $3
+       FOR UPDATE OF upload, object`,
       [scope.organizationId, scope.legalEntityId, key],
+    );
+    return rows[0];
+  }
+
+  private async findUploadIntentById(
+    manager: EntityManager,
+    scope: FiscalIngestionScope,
+    uploadId: string,
+  ): Promise<UploadIntentRow | undefined> {
+    const rows = await manager.query<UploadIntentRow[]>(
+      `SELECT
+         upload.id, upload.object_id, object.object_key,
+         object.original_filename, object.declared_mime_type, upload.state,
+         upload.actual_size_bytes, upload.actual_sha256,
+         object.storage_etag, object.storage_version_id,
+         upload.created_at, upload.updated_at, upload.version,
+         upload.init_request_fingerprint,
+         upload.init_response_status, upload.init_response_reference,
+         upload.init_idempotency_expires_at,
+         upload.init_idempotency_expires_at > clock_timestamp()
+           AS idempotency_valid
+       FROM ingestion_uploads upload
+       INNER JOIN stored_objects object
+         ON object.organization_id = upload.organization_id
+        AND object.client_account_id = upload.client_account_id
+        AND object.legal_entity_id = upload.legal_entity_id
+        AND object.id = upload.object_id
+       WHERE upload.id = $1
+         AND upload.organization_id = $2
+         AND upload.client_account_id = $3
+         AND upload.legal_entity_id = $4`,
+      [
+        uploadId,
+        scope.organizationId,
+        scope.clientAccountId,
+        scope.legalEntityId,
+      ],
     );
     return rows[0];
   }
@@ -843,11 +1324,25 @@ export class IngestionIdempotencyRepository {
     }
   }
 
-  private uploadIntentValue(row: UploadIntentRow): UploadIntentRecord {
+  private uploadIntentValue(
+    row: UploadIntentRow,
+    receiverVersion: number | null = null,
+  ): UploadIntentRecord {
     return {
       uploadId: row.id,
       objectId: row.object_id,
+      objectKey: row.object_key,
+      originalFilename: row.original_filename,
+      declaredMimeType: row.declared_mime_type,
       state: row.state,
+      actualSizeBytes: row.actual_size_bytes,
+      actualSha256: row.actual_sha256,
+      storageEtag: row.storage_etag,
+      storageVersionId: row.storage_version_id,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+      version: Number(row.version),
+      receiverVersion,
       responseStatus: row.init_response_status ?? 201,
       responseReference: row.init_response_reference ?? row.id,
     };
@@ -910,6 +1405,12 @@ export class IngestionIdempotencyRepository {
   private assertHash(value: string): void {
     if (!SHA256_PATTERN.test(value)) {
       throw new Error('SHA-256 fingerprint is invalid');
+    }
+  }
+
+  private assertPositiveVersion(value: number): void {
+    if (!Number.isSafeInteger(value) || value < 1) {
+      throw new Error('A positive upload receiver version is required');
     }
   }
 

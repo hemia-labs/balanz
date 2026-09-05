@@ -122,8 +122,32 @@ El worker vive en el mismo monorepo y release, pero arranca como proceso
 separado desde `worker.ts`. PostgreSQL conserva cola, intentos, leases,
 heartbeats, cancelación y recovery; Redis sólo publica una señal best-effort
 después del commit. Storage y scanner son puertos externos reales, con timeouts
-y readiness. Fase 1 permanece `NOT_STARTED`: no existe controller de upload,
-parser XML, persistencia del dominio CFDI ni UI de carga.
+y readiness. El desarrollo de Fase 0 está `ACCEPTED`; sus gates de release
+continúan bloqueados sin impedir la implementación autorizada de Fase 1.
+
+### Vertical XML individual — Fase 1
+
+Fase 1 añade `CfdiApiModule`, `CfdiProcessingModule` y `CfdiParserModule` sin
+crear una segunda cola ni otro storage. La API recibe un único XML por
+multipart streaming, resuelve el scope fiscal desde sesión/asignación, almacena
+bytes privados y crea upload, item y job `manual_xml` idempotentes. El worker
+existente reclama el job, escanea con ClamAV, abre de nuevo el objeto, parsea
+CFDI 4.0 de forma endurecida y publica el dominio en una transacción RLS cercada
+por lease.
+
+La migración append-only `1787690700000-PhaseOneCfdiDomain.ts` agrega CFDI,
+conceptos, impuestos, relaciones, pagos, documentos relacionados, nómina core,
+participaciones de período, incidentes y grants temporales. Todas las tablas
+fiscales conservan el scope compuesto organización/cuenta/entidad y
+`ENABLE/FORCE RLS`. Lista, detalle y procesos devuelven DTOs explícitos. La
+descarga original exige `cfdi.view`, `cfdi.download`, MFA, scope vigente y un
+grant breve de un solo uso; nunca expone la object key.
+
+La identidad lógica es `legal_entity_id + normalized_uuid`. Igual hash produce
+duplicate con nueva observación; hash distinto preserva el original y pone el
+conflictivo en cuarentena con incidente alto. Foreign/invalid/unsupported no
+crean CFDI. Un complemento desconocido conserva el core y abre incidente. ZIP,
+e.firma, SAT, exportaciones y mesa mensual permanecen fuera de Fase 1.
 
 ## 3. Estructura que debe seguir cada módulo
 

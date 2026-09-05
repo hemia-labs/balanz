@@ -1,6 +1,8 @@
 import {
   BadRequestException,
   InternalServerErrorException,
+  ServiceUnavailableException,
+  UnauthorizedException,
 } from '@nestjs/common';
 import { captureException } from '@hemia/horus';
 import { AllExceptionsFilter } from '../src/common/filters/all-exceptions.filter';
@@ -45,6 +47,30 @@ describe('AllExceptionsFilter', () => {
       }),
     );
     expect(captureException).not.toHaveBeenCalled();
+  });
+
+  it('deriva un código estable sólo cuando el mensaje simple está allowlisted', () => {
+    const json = jest.fn();
+    const response = { status: jest.fn(() => ({ json })) };
+    const host = {
+      switchToHttp: () => ({
+        getResponse: () => response,
+        getRequest: () => ({
+          method: 'POST',
+          path: '/api/v1/cfdis/id/access-url',
+          correlationId: '550e8400-e29b-41d4-a716-446655440000',
+        }),
+      }),
+    } as never;
+
+    new AllExceptionsFilter().catch(
+      new UnauthorizedException('MFA_REQUIRED'),
+      host,
+    );
+
+    expect(json).toHaveBeenCalledWith(
+      expect.objectContaining({ code: 'MFA_REQUIRED' }),
+    );
   });
 
   it('conserva errores de campo seguros', () => {
@@ -157,6 +183,44 @@ describe('AllExceptionsFilter', () => {
     expect(responsePayload).not.toContain(secretCanary);
     expect(responsePayload).not.toContain(sqlCanary);
     expect(responsePayload).not.toContain('private-error-canary');
+  });
+
+  it('preserva sólo el código fiscal allowlisted de un 503 redactado', () => {
+    const json = jest.fn();
+    const response = { status: jest.fn(() => ({ json })) };
+    const filter = new AllExceptionsFilter();
+    Object.defineProperty(filter, 'logger', {
+      value: { error: jest.fn() },
+    });
+    const host = {
+      switchToHttp: () => ({
+        getResponse: () => response,
+        getRequest: () => ({
+          method: 'POST',
+          path: '/api/v1/legal-entities/id/ingestions/xml',
+          headers: {},
+          correlationId: '550e8400-e29b-41d4-a716-446655440000',
+        }),
+      }),
+    } as never;
+
+    filter.catch(
+      new ServiceUnavailableException({
+        code: 'OBJECT_STORAGE_UNAVAILABLE',
+        message: 'private-storage-host-canary',
+      }),
+      host,
+    );
+
+    expect(json).toHaveBeenCalledWith(
+      expect.objectContaining({
+        code: 'OBJECT_STORAGE_UNAVAILABLE',
+        message: 'Ocurrió un error inesperado. Intenta de nuevo.',
+      }),
+    );
+    expect(JSON.stringify(json.mock.calls)).not.toContain(
+      'private-storage-host-canary',
+    );
   });
 
   it('rechaza metadata no allowlisted antes de logs y telemetría', async () => {

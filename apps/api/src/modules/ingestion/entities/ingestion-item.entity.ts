@@ -44,6 +44,12 @@ export type IngestionItemResult =
   ['organizationId', 'clientAccountId', 'legalEntityId', 'id'],
   { name: 'fk_ingestion_items_object', onDelete: 'RESTRICT' },
 )
+@ForeignKey(
+  'cfdis',
+  ['organizationId', 'clientAccountId', 'legalEntityId', 'cfdiId'],
+  ['organizationId', 'clientAccountId', 'legalEntityId', 'id'],
+  { name: 'fk_ingestion_items_cfdi', onDelete: 'RESTRICT' },
+)
 @Unique('uq_ingestion_items_org_id', ['organizationId', 'id'])
 @Unique('uq_ingestion_items_scope_id', [
   'organizationId',
@@ -62,7 +68,7 @@ export type IngestionItemResult =
   "product_result IS NULL OR product_result IN ('incorporated','duplicate','foreign','invalid','unsupported','internal_error')",
 )
 @Check('ck_ingestion_items_hash', "sha256 IS NULL OR sha256 ~ '^[0-9a-f]{64}$'")
-@Check('ck_ingestion_items_attempt_count', 'attempt_count BETWEEN 0 AND 4')
+@Check('ck_ingestion_items_attempt_count', 'attempt_count >= 0')
 @Check(
   'ck_ingestion_items_terminal_state',
   "(technical_status = 'terminal' AND product_result IS NOT NULL AND processed_at IS NOT NULL) OR (technical_status <> 'terminal' AND product_result IS NULL AND processed_at IS NULL)",
@@ -79,6 +85,14 @@ export type IngestionItemResult =
   'ck_ingestion_items_safe_filename',
   "safe_filename IS NULL OR (safe_filename = btrim(safe_filename) AND char_length(safe_filename) BETWEEN 1 AND 255 AND position('/' in safe_filename) = 0 AND position(chr(92) in safe_filename) = 0 AND safe_filename !~ '[[:cntrl:]]')",
 )
+@Check(
+  'ck_ingestion_items_parser_metadata',
+  '(parser_completed_at IS NULL AND parser_version IS NULL AND schema_version IS NULL AND parsed_cfdi_version IS NULL) OR (parser_completed_at IS NOT NULL AND parser_version IS NOT NULL AND schema_version IS NOT NULL)',
+)
+@Check(
+  'ck_ingestion_items_cfdi_metadata',
+  "(document_type IS NULL OR document_type IN ('I','E','T','N','P')) AND (issuer_rfc IS NULL OR issuer_rfc = upper(btrim(issuer_rfc))) AND (receiver_rfc IS NULL OR receiver_rfc = upper(btrim(receiver_rfc)))",
+)
 @Check('ck_ingestion_items_version', 'version > 0')
 @Index('ix_ingestion_items_job_status', [
   'organizationId',
@@ -94,6 +108,8 @@ export type IngestionItemResult =
 // The physical index is partial (object_id IS NOT NULL). TypeORM cannot
 // represent the predicate portably, so migrations remain its sole owner.
 @Index('ix_ingestion_items_object', { synchronize: false })
+@Index('ix_ingestion_items_cfdi', { synchronize: false })
+@Index('ix_ingestion_items_observed_uuid', { synchronize: false })
 @Entity('ingestion_items')
 export class IngestionItem {
   @PrimaryColumn('uuid')
@@ -163,6 +179,48 @@ export class IngestionItem {
 
   @Column({ name: 'processed_at', type: 'timestamptz', nullable: true })
   processedAt?: Date | null;
+
+  @Column({ name: 'cfdi_id', type: 'uuid', nullable: true })
+  cfdiId?: string | null;
+
+  @Column({
+    name: 'parser_version',
+    type: 'varchar',
+    length: 64,
+    nullable: true,
+  })
+  parserVersion?: string | null;
+
+  @Column({
+    name: 'schema_version',
+    type: 'varchar',
+    length: 64,
+    nullable: true,
+  })
+  schemaVersion?: string | null;
+
+  @Column({
+    name: 'parsed_cfdi_version',
+    type: 'varchar',
+    length: 10,
+    nullable: true,
+  })
+  parsedCfdiVersion?: string | null;
+
+  @Column({ name: 'normalized_uuid', type: 'uuid', nullable: true })
+  normalizedUuid?: string | null;
+
+  @Column({ name: 'issuer_rfc', type: 'varchar', length: 13, nullable: true })
+  issuerRfc?: string | null;
+
+  @Column({ name: 'receiver_rfc', type: 'varchar', length: 13, nullable: true })
+  receiverRfc?: string | null;
+
+  @Column({ name: 'document_type', type: 'char', length: 1, nullable: true })
+  documentType?: string | null;
+
+  @Column({ name: 'parser_completed_at', type: 'timestamptz', nullable: true })
+  parserCompletedAt?: Date | null;
 
   @VersionColumn({ type: 'integer', default: 1 })
   version: number;

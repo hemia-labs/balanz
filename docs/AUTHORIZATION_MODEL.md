@@ -11,16 +11,21 @@ el frontend. La implementación se realiza en las subtareas posteriores.
   admitidos: `admin`, `accountant` o `collaborator`.
 - **Permiso**: acción atómica, estable y auditable. Nunca contiene IDs, RFCs ni
   nombres de cuentas.
-- **Alcance**: cuentas cliente sobre las que una membresía puede operar. Se
-  obtiene exclusivamente de `account_assignments`.
+- **Alcance**: cuentas cliente sobre las que una membresía puede operar. El
+  titular real tiene alcance fiscal `tenant-wide`; `admin` no titular,
+  `accountant` y `collaborator` lo obtienen exclusivamente de
+  `account_assignments` activas.
 - **Condición de seguridad**: estado de sesión, tenant, membresía y recurso,
   MFA y reautenticación.
 - **Entitlement**: límite comercial del plan. Puede restringir una operación,
   pero nunca concede permiso ni alcance.
 
-El titular no es un rol. Se determina comparando el usuario con
-`organizations.owner_user_id`. `admin` tampoco es un bypass: pasa por la misma
-política que los demás roles.
+El titular no es un rol. Se determina exclusivamente mediante
+`user_id == organizations.owner_user_id` y tiene alcance fiscal `tenant-wide`.
+El nombre de rol no concede ese alcance: `admin` no titular, `accountant` y
+`collaborator` requieren una `account_assignment` activa. El titular también
+debe superar las validaciones de sesión, tenant, membresía, permiso, recurso
+activo y, cuando corresponda, MFA o reautenticación.
 
 ## Identificadores de permisos
 
@@ -240,12 +245,14 @@ Orden obligatorio de evaluación:
 
 1. Validar sesión activa, no expirada y no revocada.
 2. Validar tenant seleccionado y organización activa.
-3. Validar membresía activa y MFA verificado.
+3. Validar membresía activa y MFA cuando corresponda.
 4. Resolver un override `deny` vigente; si existe, terminar con `DENY`.
 5. Resolver un override `grant` vigente.
 6. Sin override, resolver el default habilitado y vigente del rol.
 7. Validar que el permiso esté `active`.
-8. Para recursos fiscales, validar `account_assignments` activa.
+8. Para recursos fiscales, conceder alcance `tenant-wide` únicamente cuando
+   `user_id == organizations.owner_user_id`; para `admin` no titular,
+   `accountant` y `collaborator`, validar `account_assignments` activa.
 9. Validar estado del recurso, entitlement y reautenticación.
 10. Emitir la decisión y auditar cuando corresponda.
 
@@ -303,10 +310,9 @@ tenant cancela solicitudes pendientes, descarta sesión, autorización e
 identidad de cuenta anteriores y navega al inicio del nuevo tenant.
 
 La ruta personal `/es/authorization` permite consultar organización,
-membresía, rol, permisos efectivos y `assignedAccountIds`. La ruta
-`/es/security` permite ejecutar la reautenticación TOTP real mediante
-`POST /auth/session/reauthenticate`; los controles sensibles enlazan a ese
-flujo cuando el contrato los marca como sujetos a reautenticación.
+membresía, rol, permisos efectivos y `assignedAccountIds`. El contrato futuro
+de reautenticación reserva `POST /auth/session/reauthenticate`; cuando se
+implemente por completo, los controles sensibles enlazarán a ese flujo.
 
 La evidencia automatizada transversal de política, HTTP, workers, objetos,
 URLs privadas, auditoría, navegación y cambio de tenant se mantiene en
@@ -350,9 +356,10 @@ firmadas permanentes.
 
 La existencia de `roles` no habilita CRUD ni roles personalizados en el MVP.
 TA-P0-003-02 implementa la evaluación efectiva en backend, la revalidación de
-workers, las transiciones de períodos, los trabajos SAT/exportación y los
-grants efímeros para objetos privados. La navegación basada en este contexto
-corresponde a TA-P0-003-03 y la matriz automatizada completa a TA-P0-003-04.
+workers, las transiciones de períodos y los grants efímeros para objetos
+privados. Los trabajos SAT y las exportaciones permanecen diferidos. La
+navegación basada en este contexto corresponde a TA-P0-003-03 y la matriz
+automatizada completa a TA-P0-003-04.
 
 ### Administración del catálogo y membresías
 
@@ -376,16 +383,22 @@ cambio queda auditado. Revocar un override conserva su historial mediante
 - Cada petición puede reutilizar la sesión de Redis, pero vuelve a resolver en
   PostgreSQL tenant, membresía, rol, defaults y overrides; los permisos
   efectivos no quedan confiados a una copia cacheada.
-- El titular no recibe alcance fiscal global: también requiere una fila activa
-  en `account_assignments`.
-- `POST /auth/session/reauthenticate` verifica TOTP, actualiza
-  `mfa_verified_at` y rota el token de sesión. La ventana sensible es de 15
-  minutos.
+- El titular real, determinado exclusivamente mediante
+  `user_id == organizations.owner_user_id`, recibe alcance fiscal
+  `tenant-wide`. `admin` no titular, `accountant` y `collaborator` requieren una
+  fila activa en `account_assignments`. Todos requieren sesión, tenant,
+  membresía, permiso y recurso activos, además de MFA o reautenticación cuando
+  aplique.
+- La reautenticación completa es una capacidad futura. Su contrato exige una
+  ventana de 10 minutos ligada conjuntamente a `session_id`,
+  `organization_id` y `purpose`; una marca temporal genérica de sesión no
+  satisface esta política.
 - `POST /periods/{periodId}/close` y `reopen` bloquean la fila, validan estado y
   auditan la transición dentro de la misma transacción.
-- `POST /sat-download-jobs` y `POST /exports` crean una operación durable con
-  expiración corta. El consumidor llama `authorizeWorker` antes de reclamarla;
-  la reclamación es condicional para impedir doble ejecución.
+- `POST /sat-download-jobs`: **FUTURE / NOT_STARTED**. No es una capacidad
+  productiva activa.
+- `POST /exports`: **FUTURE / NOT_STARTED**. No es una capacidad productiva
+  activa.
 - `POST /objects/{objectId}/access-url` crea un grant de un solo uso con cinco
   minutos de vigencia. `GET /objects/{objectId}/content` vuelve a evaluar la
   política y entrega la ruta únicamente mediante `X-Accel-Redirect`; ni la URL

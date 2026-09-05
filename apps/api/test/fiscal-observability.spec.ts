@@ -92,6 +92,54 @@ describe('Fiscal Phase 0 observability', () => {
     ).toThrow('event must be a safe structured-log token');
   });
 
+  it('never serializes an XML fragment supplied as structured-log metadata', () => {
+    const xmlCanary =
+      '<cfdi:Comprobante Descripcion="SYNTHETIC_XML_LOG_CANARY" />';
+    const emitted: string[] = [];
+    jest.spyOn(Logger.prototype, 'log').mockImplementation((message) => {
+      emitted.push(String(message));
+    });
+    jest.spyOn(Logger.prototype, 'warn').mockImplementation((message) => {
+      emitted.push(String(message));
+    });
+    jest.spyOn(Logger.prototype, 'error').mockImplementation((message) => {
+      emitted.push(String(message));
+    });
+    jest.spyOn(Logger.prototype, 'debug').mockImplementation((message) => {
+      emitted.push(String(message));
+    });
+    const logger = new FiscalEventLogger();
+
+    for (const event of [
+      { event: xmlCanary, service: 'worker' as const },
+      {
+        event: 'ingestion_job_started',
+        service: 'worker' as const,
+        stage: xmlCanary,
+      },
+      {
+        event: 'ingestion_job_finished',
+        service: 'worker' as const,
+        result: xmlCanary,
+      },
+      {
+        event: 'ingestion_job_finished',
+        service: 'worker' as const,
+        errorCode: xmlCanary,
+      },
+      {
+        event: 'ingestion_job_started',
+        service: 'worker' as const,
+        objectId: xmlCanary,
+      },
+    ]) {
+      expect(() => logger.write('error', event)).toThrow();
+    }
+
+    expect(emitted).toEqual([]);
+    expect(JSON.stringify(emitted)).not.toContain(xmlCanary);
+  });
+
   it('emits a canonical durable handler error code without a secondary logging failure', () => {
     const emitted: string[] = [];
     jest.spyOn(Logger.prototype, 'error').mockImplementation((message) => {

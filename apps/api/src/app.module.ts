@@ -18,6 +18,7 @@ import { ObservabilityModule } from './common/observability/observability.module
 import { FiscalHealthModule } from './modules/health/fiscal-health.module';
 import { FiscalOperationsModule } from './modules/fiscal-operations/fiscal-operations.module';
 import { PermissionsModule } from './modules/permissions/permissions.module';
+import { CfdiApiModule } from './modules/cfdi/cfdi-api.module';
 
 @Module({
   imports: [
@@ -50,6 +51,7 @@ import { PermissionsModule } from './modules/permissions/permissions.module';
     ClientAccountsModule,
     FiscalOperationsModule,
     PermissionsModule,
+    CfdiApiModule,
   ],
   controllers: [AppController],
   providers: [AppService, { provide: APP_GUARD, useClass: CsrfGuard }],

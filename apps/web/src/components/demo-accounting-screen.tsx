@@ -95,7 +95,7 @@ export function DemoAccountingScreen({
         <CfdiDetailScreen
           organizationId={organizationId}
           clientId={clientId!}
-          uuid={route.uuid!}
+          uuid={route.cfdiId!}
         />
       );
     case "obligations":
