@@ -1,5 +1,6 @@
 import { notFound, redirect } from "next/navigation";
 import { AccountingScreen } from "@/components/accounting-screen";
+import { DemoAccountingScreen } from "@/components/demo-accounting-screen";
 import {
   clientById,
   demoData,
@@ -67,5 +68,5 @@ export default async function ProductRoutePage({
     !demoData.periods.some((item) => item.slug === route.period)
   )
     notFound();
-  return <AccountingScreen route={route} />;
+  return <DemoAccountingScreen route={route} />;
 }

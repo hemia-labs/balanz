@@ -64,6 +64,7 @@ export function getClient(
         query.includeArchived === undefined
           ? undefined
           : String(query.includeArchived),
+      includeFiscalYears: "false",
       legalEntityId: query.legalEntityId,
       legalEntitySearch:
         normalizeDomainSearch(query.legalEntitySearch) || undefined,
@@ -228,9 +229,13 @@ export function revokeAssignment(
   );
 }
 
-export function getFiscalYears(legalEntityId: string, signal?: AbortSignal) {
-  return apiClient<FiscalYear[]>(
-    `/legal-entities/${encodeURIComponent(legalEntityId)}/fiscal-years`,
+export function getFiscalYears(
+  legalEntityId: string,
+  query: { page?: number; limit?: number; year?: number } = {},
+  signal?: AbortSignal,
+) {
+  return apiClient<CollectionPage<FiscalYear>>(
+    `/legal-entities/${encodeURIComponent(legalEntityId)}/fiscal-years${queryString({ paginated: "true", ...query })}`,
     { signal },
   );
 }

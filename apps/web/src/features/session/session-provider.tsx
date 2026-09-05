@@ -66,6 +66,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
   const navigationRef = useRef({ pathname, search });
   const requestVersion = useRef(0);
   const redirectingUnauthorized = useRef(false);
+  const authorizationRefreshRef = useRef<Promise<void> | null>(null);
   const [status, setStatus] = useState<SessionState>("checking");
   const [session, setSession] = useState<SessionDetails | null>(null);
   const [authorization, setAuthorization] =
@@ -207,11 +208,28 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     [invalidateSession, loadSession],
   );
 
-  const refreshAuthorization = useCallback(async () => {
-    const permissions = await getAuthorization();
-    if (permissions.organizationId === session?.organizationId) {
-      setAuthorization(permissions);
-    }
+  const refreshAuthorization = useCallback(() => {
+    const organizationId = session?.organizationId;
+    if (!organizationId) return Promise.resolve();
+    if (authorizationRefreshRef.current)
+      return authorizationRefreshRef.current;
+
+    const version = requestVersion.current;
+    const request = getAuthorization()
+      .then((permissions) => {
+        if (
+          requestVersion.current === version &&
+          permissions.organizationId === organizationId
+        ) {
+          setAuthorization(permissions);
+        }
+      })
+      .finally(() => {
+        if (authorizationRefreshRef.current === request)
+          authorizationRefreshRef.current = null;
+      });
+    authorizationRefreshRef.current = request;
+    return request;
   }, [session?.organizationId]);
 
   useEffect(() => {
@@ -219,12 +237,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     let active = true;
     const refresh = () => {
       if (document.visibilityState !== "visible") return;
-      void getAuthorization()
-        .then((next) => {
-          if (active && next.organizationId === session.organizationId) {
-            setAuthorization(next);
-          }
-        })
+      void refreshAuthorization()
         .catch((cause) => {
           // Authentication failures are handled globally by apiClient. A
           // revoked membership must fail closed; transient failures retain the
@@ -246,7 +259,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       globalThis.removeEventListener("focus", refresh);
       document.removeEventListener("visibilitychange", onVisibilityChange);
     };
-  }, [session?.organizationId, status]);
+  }, [refreshAuthorization, session?.organizationId, status]);
 
   const value = useMemo<SessionContextValue>(
     () => ({
