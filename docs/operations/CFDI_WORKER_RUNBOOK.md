@@ -121,6 +121,23 @@ ejecuta únicamente sobre una DB `test_*`/`*_test` con
 
 ### 3.4 LOGINs runtime de desarrollo
 
+API y worker se conectan a la misma base PostgreSQL existente: `accounting_dev`
+en desarrollo compartido. `database/postgres-api` y `database/postgres-worker`
+son paths de secretos en Vault; cada uno contiene una identidad de conexión
+distinta a esa base. El aislamiento se aplica mediante LOGINs y permisos por
+proceso. Cerrar `TD-004` no requiere crear otra base de datos.
+
+| Proceso | Path de Vault | LOGIN dedicado de ejemplo | Grupo de permisos | Base compartida |
+| --- | --- | --- | --- | --- |
+| API | `database/postgres-api` | `balanz_api_login` | `balanz_api` | `accounting_dev` |
+| Worker | `database/postgres-worker` | `balanz_worker_login` | `balanz_worker` | `accounting_dev` |
+
+Un administrador debe crear ambos secretos con el mismo `db_host`, `db_port`
+y `db_database` que usa el migrator, y con `db_username` y `db_password`
+distintos entre API y worker. El provisionador comprueba esa coincidencia y
+rechaza credenciales que apunten a otro destino. Cada runtime recibe acceso
+únicamente a su propio secreto.
+
 Las migraciones crean únicamente los grupos `NOLOGIN` `balanz_api` y
 `balanz_worker`. Después de aplicar 060/061/062/063, aprovisiona los LOGINs dedicados
 con el script dev-only e idempotente:

@@ -375,9 +375,11 @@ El único control externo pendiente es el aprovisionamiento de los secretos
 canónicos de runtime `database/postgres-api` y `database/postgres-worker` en
 Vault. Ambos están `NOT_FOUND` y el AppRole disponible responde
 `ACCESS_DENIED` para crearlos. Por ello no puede completarse todavía la prueba
-de login de API/worker contra la base compartida de desarrollo. La ejecución
-final de cierre no se declara `PASS` en este plan; su resultado y evidencia
-pertenecen al reporte QA.
+de login de API/worker contra la base compartida de desarrollo. Ambos secretos
+deben apuntar a la misma base existente `accounting_dev`, con LOGINs distintos
+y permisos de `balanz_api` o `balanz_worker`, respectivamente. `TD-004` no
+requiere crear otra base de datos. La ejecución final de cierre no se declara
+`PASS` en este plan; su resultado y evidencia pertenecen al reporte QA.
 
 ## 12. Riesgos del programa
 

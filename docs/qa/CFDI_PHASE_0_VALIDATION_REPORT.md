@@ -20,6 +20,12 @@ contra la base compartida. Los mismos perfiles, políticas Vault, LOGINs
 extremo con credenciales efímeras en el ambiente aislado; esa evidencia no se
 presenta como sustituto del gate del ambiente compartido.
 
+`TD-004` corresponde a dos identidades de ejecución sobre una sola base
+existente, `accounting_dev`. Los paths de Vault identifican secretos de
+conexión para API y worker, no bases distintas. El cierre exige aprovisionar
+los dos secretos/LOGINs con sus permisos respectivos y validar ambos contra
+esa misma base; no requiere crear otra base de datos.
+
 ```text
 RESULT: PHASE_0_BLOCKED
 PHASE_0: BLOCKED
@@ -778,7 +784,9 @@ PHASE_1_XML: NOT_STARTED
 ```
 
 Para cerrar `TD-004`, un administrador con autoridad sobre el Vault y
-PostgreSQL de desarrollo debe aprovisionar los dos secretos/login canónicos y
-volver a ejecutar los probes runtime contra `accounting_dev`. Hasta entonces,
+PostgreSQL de desarrollo debe aprovisionar los dos secretos/LOGINs canónicos,
+asignar a cada LOGIN su grupo `balanz_api` o `balanz_worker`, y volver a
+ejecutar los probes runtime contra la misma base existente `accounting_dev`.
+La aclaración documental no acredita ese aprovisionamiento. Hasta entonces,
 el PR sólo puede permanecer en borrador y `codex/cfdis` no debe fusionarse a
 `develop`. El trabajo se detiene antes de Fase 1.
