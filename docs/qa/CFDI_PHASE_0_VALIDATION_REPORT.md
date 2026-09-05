@@ -1,5 +1,14 @@
 # Reporte de validación CFDI — Fase 0
 
+Actualización de ejecución — 2026-09-04: por solicitud del equipo se retira
+`.github/workflows/cfdi-phase0-validation.yml` y su invocación desde el
+despliegue. La validación aislada `Full` queda manual/local con el script de
+`infra/cfdi-phase0/README.md`; no se programan nuevos runs de ese workflow.
+Las últimas corridas de las PR #17/#18 quedaron canceladas. La validación
+`Full` de los cambios posteriores al cierre histórico sigue pendiente y
+`TD-004` permanece abierto. Las referencias a CI de las secciones históricas
+describen la configuración de aquel corte.
+
 Las evidencias `Full` y de infraestructura de las secciones 1–21 corresponden
 al cierre del 3 de septiembre de 2026 y a los SHAs allí indicados. El seguimiento
 de revisión del 4 de septiembre, sus cambios y sus límites de validación se

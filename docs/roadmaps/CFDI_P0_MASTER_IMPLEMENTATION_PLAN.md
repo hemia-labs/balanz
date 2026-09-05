@@ -7,26 +7,30 @@
 | Programa            | Plataforma CFDI de Balanz                                                         |
 | Fecha de corte      | 2026-09-04 (`America/Mexico_City`)                                                |
 | Rama de trabajo     | `codex/cfdi-phase1-xml`                                                           |
-| SHA base integrada  | `origin/codex/cfdis` en `ee229fab69c470b71096d6dcd253727de6cc04f7`               |
+| SHA base integrada  | `origin/codex/cfdis` en `c3cd1f4c5e916146c69bfa87d873038ae350480c`               |
 | Autoridad operativa | Este plan, los ADR vigentes y la decisión de inicio de Fase 1                     |
 | Fase en ejecución   | `PHASE_1_XML`                                                                     |
 | Desarrollo Fase 0   | `ACCEPTED`                                                                        |
 | Release Fase 0      | `BLOCKED`                                                                         |
 | Implementación F1   | `COMPLETE`                                                                        |
 | Validación F1       | `PASS`                                                                            |
-| Estado de Fase 1    | `BLOCKED` por check requerido de PR #18                                           |
+| Estado de Fase 1    | `BLOCKED` por validación Full pendiente y gates de release de Fase 0               |
 | Estado Fases 2–8    | `NOT_STARTED`                                                                     |
 | Regla de cierre     | No declarar `DONE` sin evidencia ejecutada de toda la Definition of Done          |
 
 Este archivo y los ADR vigentes son la fuente de verdad operativa del programa
 CFDI. El diseño histórico usado para crear Fase 0 ya no es una instrucción de
 ejecución. La plataforma compartida queda aceptada para continuar desarrollo,
-pero su release permanece bloqueado por los checks requeridos y
+pero su release permanece bloqueado por la validación `Full` pendiente y
 `SHARED_VAULT_POSTGRES_RUNTIME_SECRETS`: no hay nueva evidencia de los secretos
 canónicos API/worker. Se corrigieron el `EACCES` de los perfiles sintéticos de CI
-y el conteo de FKs incompatible con Fase 1; sus nuevos runs deben confirmar el
-resultado. Como `develop` despliega automáticamente, estos gates impiden
-integrar o liberar; no bloquearon el desarrollo autorizado de `PHASE_1_XML`.
+y el conteo de FKs incompatible con Fase 1; una ejecución local debe confirmar
+el resultado. Por solicitud del equipo se retira el workflow aislado de GitHub
+Actions y su invocación desde el despliegue para evitar consumo de minutos CI.
+El procedimiento manual vive en `infra/cfdi-phase0/README.md`; retirar el
+workflow no equivale a validar los cambios. Como `develop` despliega
+automáticamente, estos gates impiden integrar o liberar; no bloquearon el
+desarrollo autorizado de `PHASE_1_XML`.
 
 ## 1. Autoridad, contexto y límites
 
@@ -478,7 +482,7 @@ requiere crear otra base de datos. La ejecución final de cierre no se declara
 | Criterios de salida  | Definition of Done de Fase 1 completa y cero fallback demo/deuda.                                                              |
 | Riesgos              | R-006 y R-007.                                                                                                                 |
 | Rollback             | Deshabilitar rutas/UI y conservar dominio/objetos; forward-fix de migraciones.                                                 |
-| Estado               | `BLOCKED`: implementación `COMPLETE`, validación funcional `PASS`, integración pendiente del check requerido de PR #18        |
+| Estado               | `BLOCKED`: implementación `COMPLETE`, validación funcional histórica `PASS`, integración pendiente de Full local y gates de Fase 0 |
 | Evidencia            | ClamAV/MinIO, EICAR worker, 202/reload, CP01, duplicate, MFA/download y tenant switch `PASS`; 0 defectos funcionales conocidos. |
 
 ### Fase 2 — ZIP y éxito parcial
@@ -701,7 +705,7 @@ desarrollo, pero no está aprobada para fusionar o desplegar.
 PHASE_0_DEVELOPMENT_STATUS: ACCEPTED
 PHASE_0_RELEASE_STATUS: BLOCKED
 PHASE_0_RELEASE_GATES:
-  - CI_RUNTIME_WORKER_STARTUP: PENDING - profile permissions fixed; await current SHA
+  - LOCAL_FULL_VALIDATION: PENDING - profile permissions fixed; verify current code locally
   - SHARED_VAULT_POSTGRES_RUNTIME_SECRETS: BLOCKED - API/worker NOT_FOUND
 PHASE_0_INTEGRATION_STATUS: BLOCKED
 PHASE_1_IMPLEMENTATION_STATUS: COMPLETE
@@ -713,7 +717,8 @@ MINIO_REAL: PASS
 MANUAL_E2E: PASS
 TECHNICAL_DEBT: 0
 KNOWN_FUNCTIONAL_DEFECTS: 0
-PR_18_REQUIRED_CHECKS: PENDING - foundation FK validation fixed; await current SHA
+PR_18_POSTGRES_VALIDATION: PENDING - foundation FK validation fixed; verify locally
+CFDI_GITHUB_ACTIONS_WORKFLOW: REMOVED - team request to stop hosted CI consumption
 PHASE_2_ZIP: NOT_STARTED
 ```
 
@@ -722,8 +727,9 @@ por worker real terminó en cuarentena sin CFDI; MFA/download y cambio de tenant
 pasaron, y el defecto TypeORM del grant quedó corregido. El detalle vive en
 `docs/qa/CFDI_PHASE_1_VALIDATION_REPORT.md`. La sección 17 registra la integración
 actual y las 510 pruebas API / 78 web ejecutadas. PR #17 está abierta y PR #18
-permanece en borrador. El estado de CI se verifica contra sus nuevos SHAs;
-resolver conflictos no autoriza merge fuera del orden ni cierre de `TD-004`.
+permanece en borrador. La sección 18 registra la retirada del workflow CFDI;
+la evidencia local pendiente debe identificar el SHA probado. Resolver conflictos
+o retirar CI no autoriza merge fuera del orden ni cierre de `TD-004`.
 
 ```text
 DEFERRED_PRODUCT_CAPABILITIES:
@@ -738,5 +744,6 @@ DEFERRED_PRODUCT_CAPABILITIES:
 
 Para mover Fase 1 a `DONE` sigue siendo obligatorio:
 
-- dejar verdes los checks requeridos de PR #17 y PR #18;
+- ejecutar la validación `Full` local de los cambios integrados, incluidas las
+  regresiones PostgreSQL, y conservar el reporte junto con el SHA probado;
 - resolver antes de merge/despliegue los dos gates de release de Fase 0.

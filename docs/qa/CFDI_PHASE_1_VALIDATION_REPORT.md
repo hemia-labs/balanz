@@ -2,7 +2,8 @@
 
 Las secciones 1–16 conservan la evidencia y los bloqueos del cierre anterior.
 La integración posterior con las PR #16/#17 y su validación incremental se
-registran en la sección 17; los estados de los checks se consultan por SHA.
+registran en la sección 17. La sección 18 documenta la retirada del workflow
+CFDI por solicitud del equipo y la validación local que permanece pendiente.
 
 ## 1. Resultado ejecutivo
 
@@ -620,3 +621,21 @@ La validación PostgreSQL de las regresiones nuevas y la corrida Full se delegan
 al workflow aislado requerido de cada PR; a este corte esperan el nuevo run.
 Resolver los conflictos no acredita aprovisionamiento de secretos runtime ni
 autoriza merge/despliegue: `TD-004` sigue abierto.
+
+## 18. Validación Full manual y retirada de CI — 2026-09-04
+
+Se incorpora PR #17 en `c3cd1f4c5e916146c69bfa87d873038ae350480c` para retirar
+`.github/workflows/cfdi-phase0-validation.yml` y su invocación desde el
+despliegue. El equipo solicita evitar el consumo de minutos de ese workflow;
+las últimas corridas de #17/#18 quedaron canceladas y no se relanzan.
+
+El script y las pruebas se conservan para ejecución local manual según
+`infra/cfdi-phase0/README.md`. La validación `Full` del árbol integrado y las
+regresiones PostgreSQL añadidas en la sección 17 siguen pendientes; retirar
+el workflow no constituye evidencia `PASS`. Los resultados locales API/web
+de la sección 17 corresponden al código previo a este cambio de CI/docs.
+
+Este ajuste se verifica con parseo del YAML restante, comprobación del trigger
+de despliegue y ausencia de dependencias al workflow retirado, además de
+`git diff --check`. No ejecuta la infraestructura ni consume minutos CI.
+`TD-004` continúa abierto y no se autoriza merge/despliegue.
