@@ -1,16 +1,18 @@
-import appDataSource from '../data-source';
+import { DataSource } from 'typeorm';
+import { resolveScriptDatabaseOptions } from '../scripts/script-database-options';
 import { seedDatabase } from './seed-database';
 
 async function seed(): Promise<void> {
-  const dataSource = await appDataSource;
-  await dataSource.initialize();
-  await seedDatabase(dataSource);
-  await dataSource.destroy();
+  const dataSource = new DataSource(await resolveScriptDatabaseOptions());
+  try {
+    await dataSource.initialize();
+    await seedDatabase(dataSource);
+  } finally {
+    if (dataSource.isInitialized) await dataSource.destroy();
+  }
 }
 
-seed().catch(async (error: unknown) => {
-  const dataSource = await appDataSource.catch(() => undefined);
-  if (dataSource?.isInitialized) await dataSource.destroy();
+seed().catch((error: unknown) => {
   console.error(error);
   process.exitCode = 1;
 });

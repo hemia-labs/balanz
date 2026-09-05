@@ -20,10 +20,12 @@ function tenant(permissions: string[]): SessionAuthorizationContext {
     assignedAccountIds: ['account-1'],
     accountAccessMode: 'assigned',
     mfaVerifiedAt: new Date(),
+    reauthenticatedAt: null,
     requiresMfa: true,
     mfaStatus: 'active',
     expiresAt: new Date(Date.now() + 60_000),
     tenantActive: true,
+    reauthenticationRequiredActions: [],
   };
 }
 
@@ -393,6 +395,7 @@ describe('Fiscal year lifecycle authorization', () => {
       scope as never,
       {} as never,
       {} as never,
+      {} as never,
     );
 
     await expect(
@@ -441,6 +444,7 @@ describe('Fiscal year lifecycle authorization', () => {
       { createQueryBuilder: jest.fn().mockReturnValue(periodBuilder) } as never,
       {} as never,
       scope as never,
+      {} as never,
       {} as never,
       {} as never,
     );

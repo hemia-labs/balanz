@@ -9,19 +9,50 @@ export interface DatabaseConfig {
   password?: string;
   name?: string;
   logging: boolean;
+  connectionTimeoutMs: number;
+  apiUsername?: string;
+  apiPassword?: string;
+  workerUsername?: string;
+  workerPassword?: string;
 }
+
+export type DatabaseRuntimeProfile = 'api' | 'worker';
+export type DatabaseRuntimeRole = 'balanz_api' | 'balanz_worker';
 
 export function getDatabaseConfig(
   env: NodeJS.ProcessEnv = process.env,
+  runtimeProfile?: DatabaseRuntimeProfile,
 ): DatabaseConfig {
-  return {
+  const config: DatabaseConfig = {
     host: env.DB_HOST,
     port: Number(env.DB_PORT) || 5432,
-    username: env.DB_USERNAME,
-    password: env.DB_PASSWORD,
     name: env.DB_DATABASE,
     logging: env.DB_LOGGING === 'true',
+    connectionTimeoutMs: Number(env.DB_CONNECTION_TIMEOUT_MS) || 2_000,
   };
+
+  if (!runtimeProfile) {
+    config.username = env.DB_USERNAME;
+    config.password = env.DB_PASSWORD;
+  }
+
+  // Runtime processes only materialize their own login in ConfigService. The
+  // unscoped form is intentionally reserved for CLI provisioning/QA, which
+  // must resolve both dedicated identities explicitly.
+  if (!runtimeProfile || runtimeProfile === 'api') {
+    config.apiUsername = env.DB_API_USERNAME?.trim() || undefined;
+    config.apiPassword = env.DB_API_PASSWORD || undefined;
+  }
+  if (!runtimeProfile || runtimeProfile === 'worker') {
+    config.workerUsername = env.DB_WORKER_USERNAME?.trim() || undefined;
+    config.workerPassword = env.DB_WORKER_PASSWORD || undefined;
+  }
+
+  return config;
+}
+
+export function databaseConfigForRuntime(profile: DatabaseRuntimeProfile) {
+  return registerAs('database', () => getDatabaseConfig(process.env, profile));
 }
 
 export function getDatabaseOptions(config: DatabaseConfig): DataSourceOptions {
@@ -34,7 +65,14 @@ export function getDatabaseOptions(config: DatabaseConfig): DataSourceOptions {
     database: config.name,
     logging: config.logging,
     synchronize: false,
-    extra: { options: '-c timezone=America/Mexico_City' },
+    // Extensions are provisioned explicitly by infrastructure/migrations. Keeping
+    // this disabled also makes read-only commands such as migration:show truly
+    // read-only and avoids requiring CREATE EXTENSION at runtime.
+    installExtensions: false,
+    extra: {
+      options: '-c timezone=America/Mexico_City -c search_path=public',
+      connectionTimeoutMillis: config.connectionTimeoutMs,
+    },
     entities: [
       path.join(__dirname, '..', '**', '*.entity.js'),
       path.join(__dirname, '..', '**', '*.entity.ts'),
@@ -46,4 +84,29 @@ export function getDatabaseOptions(config: DatabaseConfig): DataSourceOptions {
   };
 }
 
-export default registerAs('database', () => getDatabaseConfig());
+/**
+ * Forces every pooled runtime connection to select its single NOINHERIT group
+ * during PostgreSQL startup. The role is a closed code-level union, never an
+ * environment or request value; tenant GUCs remain SET LOCAL-only.
+ */
+export function withRuntimeDatabaseRole(
+  options: DataSourceOptions,
+  role: DatabaseRuntimeRole,
+): DataSourceOptions {
+  const extra =
+    typeof options.extra === 'object' && options.extra !== null
+      ? (options.extra as Record<string, unknown>)
+      : {};
+  const baseOptions =
+    typeof extra.options === 'string' ? extra.options.trim() : '';
+  if (/(?:^|\s)-c\s+role(?:=|\s)/i.test(baseOptions)) {
+    throw new Error('Runtime PostgreSQL role option must have one authority');
+  }
+  return {
+    ...options,
+    extra: {
+      ...extra,
+      options: `${baseOptions} -c role=${role}`.trim(),
+    },
+  };
+}

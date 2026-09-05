@@ -1,14 +1,18 @@
 # API (NestJS)
 
-Backend del monorepo `nextjs-nestjs`. Plantilla NestJS + TypeORM + PostgreSQL.
-La base de datos está activa y es obligatoria para los módulos de identidad y clientes.
+Backend del monorepo Balanz. Es un monolito modular NestJS con API HTTP y un
+worker durable como procesos separados del mismo release. PostgreSQL es
+obligatorio y constituye la única autoridad durable, incluida la plataforma
+fiscal compartida de Fase 0.
 
 ## Stack
 
 - **NestJS 11** — framework HTTP (módulos, controllers, services).
 - **TypeORM** — ORM + migraciones contra PostgreSQL.
 - **PostgreSQL** — base de datos (timezone `America/Mexico_City`).
-- **Redis 6+** — cache de sesiones y autorización; PostgreSQL sigue siendo la fuente durable.
+- **Redis 6+** — cache de sesiones/autorización y wakeup best-effort; nunca cola durable.
+- **S3/MinIO o filesystem privado** — adapters de object storage detrás de un port.
+- **ClamAV** — scanner de malware por protocolo `INSTREAM`.
 - **@nestjs/config** — configuración tipada por namespace (`registerAs`).
 - **class-validator / class-transformer** — validación de DTOs vía `ValidationPipe` global.
 - **TypeScript**, **Jest** (tests), **ESLint + Prettier**.
@@ -19,31 +23,49 @@ La base de datos está activa y es obligatoria para los módulos de identidad y 
 ```
 apps/api/
   src/
-    main.ts                      # bootstrap: ValidationPipe global + CORS, escucha PORT (3001)
-    app.module.ts                # módulo raíz
+    main.ts                      # bootstrap de la API HTTP
+    worker.ts                    # bootstrap separado del worker durable
+    app.module.ts                # módulo raíz de API
+    worker.module.ts             # módulo raíz del worker
     config/
       database.config.ts         # config namespaced 'database' (registerAs)
       redis.config.ts            # config namespaced 'redis' (host, port, DB y password)
+      fiscal-platform.config.ts  # storage, scanner, worker, límites, health y métricas
     database/
       data-source.ts              # DataSource para el CLI de migraciones
       database.module.ts         # TypeOrmModule.forRootAsync, synchronize: false
       migrations/                # migraciones TypeORM
     modules/
-      users/                     # módulo de usuarios (controller, service, entity, dtos)
+      users/                     # módulo de usuarios
       client-accounts/           # cuentas, RFC, asignaciones, ejercicios y períodos
+      object-storage/            # port + adapters local y S3/MinIO
+      malware-scanner/           # port + ClamAV/bypass dev explícito
+      ingestion/                 # foundation durable, RLS y worker
+      health/                    # liveness/readiness de API y worker
 ```
 
 ## Variables de entorno
 
-Copia `.env.example` a `.env` y completa los valores:
+No uses un único `.env` para los dos procesos. Copia `.env.api.example` a
+`.env.api.local` para la API y `.env.worker.example` a `.env.worker.local` para
+el worker. `.env.example` es el catálogo completo para scripts explícitos; no es
+una configuración runtime. La lista normativa, rangos y reglas por ambiente
+vive en `../../docs/operations/CFDI_INGESTION_CONFIGURATION_MATRIX.md`; no
+copies defaults locales a producción.
 
 ```
 DB_HOST=localhost
 DB_PORT=5432
-DB_USERNAME=
-DB_PASSWORD=
 DB_DATABASE=
 DB_LOGGING=false
+
+# Sólo en .env.api.local
+DB_API_USERNAME=balanz_api_login
+DB_API_PASSWORD=
+
+# Sólo en .env.worker.local
+DB_WORKER_USERNAME=balanz_worker_login
+DB_WORKER_PASSWORD=
 
 # Session cache
 # Opcional: false desactiva Redis; si se omite, intenta Vault o REDIS_* y si no hay config usa PostgreSQL.
@@ -87,7 +109,17 @@ solo para cookies cross-site y siempre junto con `COOKIE_SECURE=true`. CORS usa
 `credentials: true`; el frontend debe enviar las peticiones con
 `credentials: 'include'`.
 
-`PORT` opcional (default `3001`). `.env` y `.env.local` están en `.gitignore`.
+`APP_PORT` es opcional (default `3021`). Los archivos `.env*.local` están en
+`.gitignore`. API y worker rechazan la credencial migrator y la del otro
+runtime. El worker también rechaza/no registra configuración JWT, MFA, email,
+cookies o auth. Sólo el provisioner efímero con doble gate puede resolver ambas
+credenciales runtime.
+
+Con Vault, usa AppRoles/policies separados aunque ambos conserven el
+`SECRETS_SYSTEM` existente. Producción exige `SECRETS_ENVIRONMENT=prod` y
+`SECRETS_SYSTEM` explícito. El worker sólo puede leer
+`database/postgres-worker` y `cache/redis` si aplica; no `postgres-api`,
+`auth/jwt`, `auth/mfa` ni `email/ses`.
 
 ## Arranque
 
@@ -95,34 +127,61 @@ Requiere Node.js `^20.19.0`, `^22.13.0` o `>=24.11.0`, además de Bun.
 
 ```bash
 bun install
-bun run --cwd apps/api start:dev   # watch mode
+bun run --cwd apps/api start:api:dev   # API watch mode
 ```
 
-El arranque falla si PostgreSQL o la configuración obligatoria no están disponibles.
-
-En producción, `start:prod` ejecuta primero las migraciones pendientes y el seed
-idempotente, y solo inicia la API si ambos pasos terminan correctamente:
+El arranque falla si PostgreSQL o la configuración obligatoria no están
+disponibles. Los procesos se inician por separado:
 
 ```bash
-bun run --cwd apps/api start:prod
+bun run --cwd apps/api start:api:dev      # API
+bun run --cwd apps/api start:worker:dev   # worker con watch
+bun run --cwd apps/api start:worker       # worker Nest en modo normal
 ```
+
+Los scripts productivos arrancan únicamente el JavaScript ya compilado; no
+ejecutan migraciones ni seeds de forma implícita:
+
+```bash
+bun run --cwd apps/api start:api:prod      # node dist/main
+bun run --cwd apps/api start:worker:prod   # node dist/worker
+```
+
+El despliegue debe ejecutar `release:prepare` como paso explícito y exitoso
+antes de iniciar ambos procesos.
 
 ## Preparar la base de datos
 
-1. Completa `.env`.
-2. Ejecuta las migraciones append-only y el seed idempotente:
+1. Registra rama, SHA y `git status`; confirma que la base es de desarrollo.
+2. Crea un `pg_dump --schema-only` o documenta por qué no está disponible.
+3. Ejecuta show/preflight, migraciones append-only y el seed idempotente:
 
 ```bash
+bun run --cwd apps/api migration:show
+bun run --cwd apps/api migration:preflight
 bun run --cwd apps/api migration:run
 bun run --cwd apps/api seed:run
+bun run --cwd apps/api seed:run
 ```
+
+Las migraciones CFDI 060/061/062/063 usan owners `NOLOGIN` restringidos. Mientras
+alguna esté pendiente, preflight y el runner requieren el
+superuser/migrator efímero dedicado para transferir ownership y retirar después
+todos los privilegios transitorios en una sola transacción. Esa credencial no
+es un fallback de API/worker y debe eliminarse antes de arrancarlos.
+
+La segunda ejecución de seeds debe ser idempotente. No uses `synchronize=true`,
+`DROP DATABASE`, `TRUNCATE` general ni `migration:revert` sobre datos que deban
+conservarse. Las pruebas destructivas sólo pueden usar una base `test_*` o
+`*_test` inequívocamente aislada.
 
 ## Migraciones
 
 ```bash
 bun run --cwd apps/api typeorm migration:generate src/database/migrations/<Nombre>
+bun run --cwd apps/api migration:show
+bun run --cwd apps/api migration:preflight
 bun run --cwd apps/api migration:run
-bun run --cwd apps/api migration:revert
 ```
 
 `synchronize` está en `false`: todo cambio de schema requiere migración.
@@ -164,7 +223,34 @@ de cero si falla, para que el scheduler active una alerta.
 bun run --cwd apps/api test
 bun run --cwd apps/api test:e2e
 bun run --cwd apps/api build
+bun run --cwd apps/api qa:cfdi:postgres
+bun run --cwd apps/api test:external:fiscal
 ```
+
+`qa:cfdi:postgres` requiere PostgreSQL real y banderas QA protegidas; valida
+migraciones, seeds, FKs, RLS, claim concurrente, leases, recovery,
+idempotencia, reconciliación y shutdown. `test:external:fiscal` es opt-in y usa
+Redis, MinIO, ClamAV y storage local reales. La infraestructura reproducible y
+sus variables están documentadas en `../../infra/cfdi-phase0/README.md`.
+
+## Plataforma fiscal compartida — Fase 0
+
+Las migraciones `1787690600000-FiscalIngestionFoundation.ts` y
+`1787690610000-FiscalRlsWorkerClaims.ts` crean exclusivamente
+`stored_objects`, `ingestion_uploads`, `ingestion_jobs` e `ingestion_items`, sus
+constraints/índices, RLS `ENABLE` + `FORCE`, roles mínimos y funciones de
+claim/cancelación/reconciliación. API y worker deben conectarse con LOGINs
+dedicados sin owner, superuser ni `BYPASSRLS`; el contexto fiscal se establece
+sólo mediante `SET LOCAL` dentro de una transacción.
+
+Redis publica una señal sin payload después del commit y el worker mantiene
+polling PostgreSQL activo. El adapter local sólo es válido en desarrollo y en
+Windows exige una raíz NTFS preasegurada; producción exige S3 privado con
+SSE-KMS y ClamAV fail-closed. `/liveness`, `/readiness` y `/metrics` son los
+únicos endpoints nuevos de plataforma.
+
+Fase 1 permanece `NOT_STARTED`: no existe endpoint de carga XML, parser CFDI,
+persistencia del dominio CFDI, lista/detalle ni UI de carga.
 
 ## Autenticación y tenant
 

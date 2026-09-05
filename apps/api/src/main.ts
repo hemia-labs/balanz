@@ -1,5 +1,5 @@
 import { NestFactory } from '@nestjs/core';
-import { ValidationPipe } from '@nestjs/common';
+import { RequestMethod, ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import cookieParser from 'cookie-parser';
 import { AppModule } from './app.module';
@@ -32,13 +32,20 @@ async function bootstrap() {
 
   app.use(cookieParser());
 
-  app.setGlobalPrefix(config.get<string>('app.globalPrefix') ?? 'api/v1');
+  app.setGlobalPrefix(config.get<string>('app.globalPrefix') ?? 'api/v1', {
+    exclude: [
+      { path: 'liveness', method: RequestMethod.GET },
+      { path: 'readiness', method: RequestMethod.GET },
+      { path: 'metrics', method: RequestMethod.GET },
+    ],
+  });
   app.useGlobalPipes(new ValidationPipe(API_VALIDATION_PIPE_OPTIONS));
   app.useGlobalFilters(new AllExceptionsFilter());
 
   const nodeEnv = config.get<string>('app.nodeEnv') ?? 'development';
   const corsOrigins = config.get<string[]>('app.corsOrigins') ?? [];
   app.enableCors(getCorsOptions(nodeEnv, corsOrigins));
+  app.enableShutdownHooks();
 
   await app.listen(config.get<number>('app.port') ?? 3021, '127.0.0.1');
 }

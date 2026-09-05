@@ -13,10 +13,12 @@ function context(mode: 'tenant' | 'assigned'): SessionAuthorizationContext {
     assignedAccountIds: [],
     accountAccessMode: mode,
     mfaVerifiedAt: new Date(),
+    reauthenticatedAt: null,
     requiresMfa: true,
     mfaStatus: 'active',
     expiresAt: new Date(Date.now() + 60_000),
     tenantActive: true,
+    reauthenticationRequiredActions: [],
   };
 }
 

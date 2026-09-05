@@ -1,7 +1,10 @@
 import { Injectable, Optional } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { EntityManager } from 'typeorm';
-import { Repository } from 'typeorm';
+import {
+  EntityManager,
+  Repository,
+  type QueryDeepPartialEntity,
+} from 'typeorm';
 import { AuditEvent } from './entities/audit-event.entity';
 import { CorrelationIdService } from '../../common/correlation/correlation-id.service';
 
@@ -17,20 +20,35 @@ export class AuditService {
     private readonly correlation?: CorrelationIdService,
   ) {}
 
-  record(manager: EntityManager, event: AuditEventInput): Promise<AuditEvent> {
-    const repository = manager.getRepository(AuditEvent);
-    return repository.save(
-      repository.create(this.withRequestCorrelation(event)),
+  async record(manager: EntityManager, event: AuditEventInput): Promise<void> {
+    await this.insert(
+      manager.getRepository(AuditEvent),
+      this.withRequestCorrelation(event),
     );
   }
 
-  recordDirect(event: AuditEventInput): Promise<AuditEvent> {
+  async recordDirect(event: AuditEventInput): Promise<void> {
     if (!this.repository) {
       throw new Error('Audit repository is not configured');
     }
-    return this.repository.save(
-      this.repository.create(this.withRequestCorrelation(event)),
-    );
+    await this.insert(this.repository, this.withRequestCorrelation(event));
+  }
+
+  private async insert(
+    repository: Repository<AuditEvent>,
+    event: AuditEventInput,
+  ): Promise<void> {
+    const value = repository.create(event);
+
+    await repository
+      .createQueryBuilder()
+      .insert()
+      .into(AuditEvent)
+      // TypeORM's deep-partial type does not model JSON columns typed as
+      // Record<string, unknown>, although the entity value is valid here.
+      .values(value as unknown as QueryDeepPartialEntity<AuditEvent>)
+      .updateEntity(false)
+      .execute();
   }
 
   private withRequestCorrelation(event: AuditEventInput): AuditEventInput {

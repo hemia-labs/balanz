@@ -4,12 +4,20 @@ const requiredEnv = {
   NODE_ENV: 'test',
   DB_HOST: 'localhost',
   DB_PORT: 5432,
-  DB_USERNAME: 'postgres',
-  DB_PASSWORD: 'postgres',
   DB_DATABASE: 'balanz_test',
+  DB_API_USERNAME: 'balanz_api_login',
+  DB_API_PASSWORD: 'api-runtime-password-for-tests',
   JWT_SECRET: 'a'.repeat(32),
   JWT_REFRESH_SECRET: 'b'.repeat(32),
   BCRYPT_SALT_ROUNDS: 10,
+};
+
+const requiredProductionFiscalEnv = {
+  OBJECT_STORAGE_DRIVER: 's3',
+  S3_BUCKET: 'balanz-production-private',
+  S3_SSE_MODE: 'aws:kms',
+  S3_KMS_KEY_ID: 'alias/balanz-fiscal',
+  MALWARE_SCANNER_MODE: 'clamav',
 };
 
 describe('auth session environment validation', () => {
@@ -34,6 +42,7 @@ describe('auth session environment validation', () => {
   it('allows a persistence interval below a short idle TTL', () => {
     const { error } = envVarsSchema.validate({
       ...requiredEnv,
+      ...requiredProductionFiscalEnv,
       AUTH_SESSION_IDLE_TTL_SECONDS: 60,
       AUTH_SESSION_ACTIVITY_PERSIST_INTERVAL_SECONDS: 30,
     });
@@ -44,6 +53,7 @@ describe('auth session environment validation', () => {
   it('allows Horus to remain disabled when both values are empty', () => {
     const { error } = envVarsSchema.validate({
       ...requiredEnv,
+      ...requiredProductionFiscalEnv,
       HORUS_URL: '',
       HORUS_KEY: '',
     });
@@ -100,6 +110,7 @@ describe('auth session environment validation', () => {
   it('requires HTTPS for configured Horus in production', () => {
     const productionEnv = {
       ...requiredEnv,
+      ...requiredProductionFiscalEnv,
       NODE_ENV: 'production',
       APP_CORS_ORIGINS: 'https://app.example.test',
       EMAIL_APP_URL: 'https://app.example.test',
@@ -116,6 +127,7 @@ describe('auth session environment validation', () => {
   it('allows HTTPS for configured Horus in production', () => {
     const productionEnv = {
       ...requiredEnv,
+      ...requiredProductionFiscalEnv,
       NODE_ENV: 'production',
       APP_CORS_ORIGINS: 'https://app.example.test',
       EMAIL_APP_URL: 'https://app.example.test',

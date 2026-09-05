@@ -888,7 +888,7 @@ function LiveClientDetailContent({
           items={[
             {
               label: "Estado de cuenta",
-              value: <StatusBadge status={account.status} />,
+              value: <StatusBadge status={account.status} locale={locale} />,
             },
             {
               label: "Entidades fiscales",
@@ -1009,7 +1009,9 @@ function LiveClientDetailContent({
               {
                 id: "status",
                 header: "Estado",
-                render: (entity) => <StatusBadge status={entity.status} />,
+                render: (entity) => (
+                  <StatusBadge status={entity.status} locale={locale} />
+                ),
               },
               {
                 id: "years",
@@ -1110,7 +1112,9 @@ function LiveClientDetailContent({
             {
               id: "status",
               header: "Estado",
-              render: (entity) => <StatusBadge status={entity.status} />,
+              render: (entity) => (
+                <StatusBadge status={entity.status} locale={locale} />
+              ),
             },
             {
               id: "years",

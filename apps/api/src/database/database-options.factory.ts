@@ -13,6 +13,14 @@ import { isDatabaseSecret, type DatabaseSecret } from './types/database.types';
 
 type DatabaseSecretReader = Pick<SecretsClient, 'getRequired'>;
 
+export interface RuntimeDatabaseCredential {
+  database: string | undefined;
+  host: string | undefined;
+  password: string;
+  port: number;
+  username: string;
+}
+
 function requiredEnvironmentValue(
   env: NodeJS.ProcessEnv,
   key: keyof NodeJS.ProcessEnv,
@@ -42,7 +50,7 @@ function createDatabaseSecretReader(
     scope: {
       environment,
       category,
-      owner: env.SECRETS_OWNER || 'hemia',
+      owner: env.SECRETS_OWNER || 'balanz',
       system: env.SECRETS_SYSTEM || 'api',
     },
     provider: {
@@ -92,4 +100,51 @@ export async function resolveDatabaseOptions(
     name: secret.db_database,
     logging: secret.db_logging,
   });
+}
+
+/**
+ * Resolves a dedicated runtime credential without opening a connection or
+ * exposing it in logs. Provisioning and QA scripts use the same Vault paths as
+ * DatabaseModule (`database/postgres-api|postgres-worker`).
+ */
+export async function resolveRuntimeDatabaseCredential(
+  principal: 'api' | 'worker',
+  env: NodeJS.ProcessEnv = process.env,
+  secretReader?: DatabaseSecretReader,
+): Promise<RuntimeDatabaseCredential> {
+  const database = getDatabaseConfig(env);
+  if (env.SECRETS_ENABLED !== 'true') {
+    const username =
+      principal === 'api' ? database.apiUsername : database.workerUsername;
+    const password =
+      principal === 'api' ? database.apiPassword : database.workerPassword;
+    if (!username || !password) {
+      throw new Error(
+        `Dedicated DB_${principal.toUpperCase()}_USERNAME/PASSWORD credentials are required`,
+      );
+    }
+    return {
+      database: database.name,
+      host: database.host,
+      password,
+      port: database.port,
+      username,
+    };
+  }
+
+  const secret = await (
+    secretReader ?? createDatabaseSecretReader(env)
+  ).getRequired<DatabaseSecret>(`database/postgres-${principal}`);
+  if (!isDatabaseSecret(secret)) {
+    throw new Error(
+      `Secret database/postgres-${principal} must contain a dedicated PostgreSQL runtime login`,
+    );
+  }
+  return {
+    database: secret.db_database,
+    host: secret.db_host,
+    password: secret.db_password,
+    port: secret.db_port,
+    username: secret.db_username,
+  };
 }

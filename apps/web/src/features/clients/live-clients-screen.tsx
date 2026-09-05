@@ -299,7 +299,7 @@ function NewClientDialog({
 }
 
 export function LiveClientsScreen() {
-  const { organization, capabilities } = useAccountingContext();
+  const { organization, capabilities, locale } = useAccountingContext();
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -523,7 +523,10 @@ export function LiveClientsScreen() {
                 header: "Mes actual",
                 render: (row) =>
                   row.currentPeriod ? (
-                    <StatusBadge status={row.currentPeriod.status} />
+                    <StatusBadge
+                      status={row.currentPeriod.status}
+                      locale={locale}
+                    />
                   ) : (
                     "Sin período"
                   ),
@@ -531,7 +534,9 @@ export function LiveClientsScreen() {
               {
                 id: "status",
                 header: "Estado",
-                render: (row) => <StatusBadge status={row.account.status} />,
+                render: (row) => (
+                  <StatusBadge status={row.account.status} locale={locale} />
+                ),
               },
               {
                 id: "updated",

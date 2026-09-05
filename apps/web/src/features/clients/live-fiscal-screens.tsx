@@ -56,10 +56,11 @@ import {
   CollectionPagination,
   ErrorNotice,
   LoadingState,
+  selectClass,
 } from "./live-screen-primitives";
 import { useDebouncedValue } from "./live-query-hooks";
 import { useClientDetail } from "./use-client-detail";
-import type { ClientDetail, LegalEntity } from "./types";
+import type { ClientDetail, FiscalYear, LegalEntity } from "./types";
 
 const monthNames = [
   "Enero",
@@ -78,21 +79,43 @@ const monthNames = [
 
 function CreateYearForm({
   entity,
-  reload,
+  existingYears,
+  onCreated,
 }: {
   entity: LegalEntity;
-  reload: () => void;
+  existingYears: number[];
+  onCreated: (year: FiscalYear) => void;
 }) {
-  const [year, setYear] = useState(new Date().getFullYear());
+  const currentYear = new Date().getFullYear();
+  const availableYearsFor = (years: number[]) => {
+    const registered = new Set(years);
+    const preferred = [currentYear, currentYear + 1];
+    for (let candidate = currentYear - 1; candidate >= 2000; candidate -= 1)
+      preferred.push(candidate);
+    return preferred.filter((candidate) => !registered.has(candidate));
+  };
+  const availableYears = availableYearsFor(existingYears);
+  const [year, setYear] = useState<number | null>(
+    () => availableYears[0] ?? null,
+  );
+  const selectedYear =
+    year !== null && availableYears.includes(year)
+      ? year
+      : (availableYears[0] ?? null);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<unknown>(null);
+  const [createdYear, setCreatedYear] = useState<number | null>(null);
   async function submit(event: FormEvent) {
     event.preventDefault();
+    if (selectedYear === null) return;
     setPending(true);
     setError(null);
+    setCreatedYear(null);
     try {
-      await createFiscalYear(entity.id, year);
-      reload();
+      const created = await createFiscalYear(entity.id, selectedYear);
+      setCreatedYear(created.year);
+      setYear(availableYearsFor([...existingYears, created.year])[0] ?? null);
+      onCreated(created);
     } catch (cause) {
       setError(cause);
     } finally {
@@ -100,23 +123,82 @@ function CreateYearForm({
     }
   }
   return (
-    <form onSubmit={submit} className="flex flex-wrap items-end gap-2">
-      <Field label={`Nuevo ejercicio para ${entity.rfc}`}>
-        <Input
-          type="number"
-          min={2000}
-          max={new Date().getFullYear() + 1}
-          value={year}
-          onChange={(event) => setYear(Number(event.target.value))}
-          className="w-36"
-        />
-      </Field>
-      <Button type="submit" size="sm" disabled={pending}>
-        <Plus />
-        {pending ? "Creando…" : "Crear ejercicio"}
-      </Button>
-      <ErrorNotice error={error} fallback="No se pudo crear el ejercicio." />
-    </form>
+    <section
+      aria-labelledby="create-fiscal-year-title"
+      className="border-b border-border bg-muted/35 px-5 py-4"
+    >
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+        <div className="max-w-reading">
+          <h3 id="create-fiscal-year-title" className="font-semibold">
+            Crear un ejercicio fiscal
+          </h3>
+          <p
+            id="create-fiscal-year-help"
+            className="mt-1 text-body-sm text-muted-foreground"
+          >
+            Selecciona el año y después crea el ejercicio para el RFC{" "}
+            <span className="identifier">{entity.rfc}</span>. Se agregarán
+            automáticamente sus 12 períodos mensuales.
+          </p>
+        </div>
+        <form
+          onSubmit={submit}
+          className="flex flex-col gap-3 sm:flex-row sm:items-end"
+        >
+          <Field label="Año fiscal">
+            <select
+              required
+              value={selectedYear ?? ""}
+              onChange={(event) => {
+                setYear(Number(event.target.value));
+                setCreatedYear(null);
+                setError(null);
+              }}
+              aria-describedby="create-fiscal-year-help"
+              className={`${selectClass} w-full sm:w-36`}
+              disabled={availableYears.length === 0 || pending}
+            >
+              {availableYears.length === 0 ? (
+                <option value="">Sin años disponibles</option>
+              ) : (
+                availableYears.map((availableYear) => (
+                  <option key={availableYear} value={availableYear}>
+                    {availableYear}
+                  </option>
+                ))
+              )}
+            </select>
+          </Field>
+          <Button
+            type="submit"
+            disabled={pending || selectedYear === null}
+            className="w-full sm:w-auto sm:self-end"
+          >
+            <Plus aria-hidden="true" />
+            {pending ? "Creando ejercicio…" : "Crear ejercicio"}
+          </Button>
+        </form>
+      </div>
+      {availableYears.length === 0 ? (
+        <p className="mt-3 text-body-sm text-muted-foreground" role="status">
+          No hay años disponibles dentro del rango permitido.
+        </p>
+      ) : null}
+      {error ? (
+        <div className="mt-3">
+          <ErrorNotice error={error} fallback="No se pudo crear el ejercicio." />
+        </div>
+      ) : null}
+      {createdYear !== null ? (
+        <p
+          role="status"
+          aria-live="polite"
+          className="mt-3 rounded-md border border-success/30 bg-success-surface p-3 text-body-sm text-success"
+        >
+          Ejercicio {createdYear} creado con sus 12 períodos mensuales.
+        </p>
+      ) : null}
+    </section>
   );
 }
 
@@ -168,11 +250,13 @@ function LegalEntitySelector({
   detail,
   base,
   suffix,
+  locale,
   routeQuery,
 }: {
   detail: ClientDetail;
   base: string;
   suffix: string;
+  locale: string;
   routeQuery: ReturnType<typeof useLegalEntityRouteQuery>;
 }) {
   const available = detail.legalEntities.items;
@@ -215,11 +299,7 @@ function LegalEntitySelector({
               >
                 <div className="flex flex-wrap items-start justify-between gap-2">
                   <p className="font-semibold">{entity.legalName}</p>
-                  <StatusBadge
-                    status={
-                      entity.status === "active" ? "Activo" : "Suspendido"
-                    }
-                  />
+                  <StatusBadge status={entity.status} locale={locale} />
                 </div>
                 <p className="identifier text-body-sm text-muted-foreground">
                   {entity.rfc}
@@ -353,6 +433,7 @@ export function LiveFiscalYearsScreen({
         detail={detail}
         base={base}
         suffix=""
+        locale={locale}
         routeQuery={routeQuery}
       />
     );
@@ -414,21 +495,20 @@ export function LiveFiscalYearsScreen({
       ) : (
         <Surface>
           <SurfaceHeader
-            title="Ejercicios"
-            description="Cada ejercicio pertenece a este RFC y contiene doce períodos."
-            actions={
-              entity.status === "active" &&
-              capabilities.includes("fiscal_years.manage") ? (
-                <CreateYearForm
-                  entity={entity}
-                  reload={() => {
-                    setYearsPage(1);
-                    setRevision((value) => value + 1);
-                  }}
-                />
-              ) : undefined
-            }
+            title="Ejercicios registrados"
+            description="Consulta los ejercicios fiscales asociados a este RFC."
           />
+          {entity.status === "active" &&
+          capabilities.includes("fiscal_years.manage") ? (
+            <CreateYearForm
+              entity={entity}
+              existingYears={years.map((year) => year.year)}
+              onCreated={() => {
+                setYearsPage(1);
+                setRevision((value) => value + 1);
+              }}
+            />
+          ) : null}
           <ProductTable
             caption={`Ejercicios de ${entity.rfc}`}
             rows={years}
@@ -450,7 +530,9 @@ export function LiveFiscalYearsScreen({
               {
                 id: "status",
                 header: "Estado",
-                render: (year) => <StatusBadge status={year.status} />,
+                render: (year) => (
+                  <StatusBadge status={year.status} locale={locale} />
+                ),
               },
               {
                 id: "version",
@@ -651,6 +733,7 @@ export function LiveFiscalYearScreen({
         detail={detail}
         base={base}
         suffix={`/${year}`}
+        locale={locale}
         routeQuery={routeQuery}
       />
     );
@@ -742,7 +825,12 @@ export function LiveFiscalYearScreen({
           items={[
             {
               label: "Estado del período",
-              value: <StatusBadge status={selectedPeriod.status} />,
+              value: (
+                <StatusBadge
+                  status={selectedPeriod.status}
+                  locale={locale}
+                />
+              ),
             },
             { label: "Ejercicio", value: year },
             {
@@ -802,7 +890,9 @@ export function LiveFiscalYearScreen({
             {
               id: "status",
               header: "Estado",
-              render: (period) => <StatusBadge status={period.status} />,
+              render: (period) => (
+                <StatusBadge status={period.status} locale={locale} />
+              ),
             },
             {
               id: "cutoff",

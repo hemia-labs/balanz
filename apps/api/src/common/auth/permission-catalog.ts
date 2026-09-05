@@ -29,6 +29,17 @@ export const PERMISSION_CATALOG = [
   'sat.download',
   'payroll.view',
   'cfdi.exclude',
+  'ingestion.view',
+  'ingestion.create',
+  'ingestion.retry',
+  'ingestion.cancel',
+  'processes.view',
+  'processes.retry',
+  'processes.cancel',
+  'cfdi.view',
+  'cfdi.download',
+  'incidents.view',
+  'incidents.manage',
   'exceptions.accept',
   'periods.close',
   'periods.reopen',
@@ -113,6 +124,51 @@ export const PERMISSION_METADATA = {
     name: 'Excluir CFDI',
     description: 'Excluir o reincorporar un CFDI con motivo.',
   },
+  'ingestion.view': {
+    name: 'Ver ingestas',
+    description: 'Consultar cargas fiscales dentro del alcance autorizado.',
+  },
+  'ingestion.create': {
+    name: 'Crear ingestas',
+    description: 'Iniciar cargas fiscales dentro del alcance autorizado.',
+  },
+  'ingestion.retry': {
+    name: 'Reintentar ingestas',
+    description: 'Reintentar cargas fiscales propias o autorizadas.',
+  },
+  'ingestion.cancel': {
+    name: 'Cancelar ingestas',
+    description: 'Cancelar cargas fiscales propias o autorizadas.',
+  },
+  'processes.view': {
+    name: 'Ver procesos fiscales',
+    description: 'Consultar procesos fiscales autorizados.',
+  },
+  'processes.retry': {
+    name: 'Reintentar procesos fiscales',
+    description: 'Reintentar procesos fiscales autorizados.',
+  },
+  'processes.cancel': {
+    name: 'Cancelar procesos fiscales',
+    description: 'Cancelar procesos fiscales autorizados.',
+  },
+  'cfdi.view': {
+    name: 'Ver CFDI',
+    description: 'Consultar CFDI dentro del alcance autorizado.',
+  },
+  'cfdi.download': {
+    name: 'Descargar CFDI',
+    description: 'Descargar un CFDI mediante acceso temporal autorizado.',
+  },
+  'incidents.view': {
+    name: 'Ver incidencias fiscales',
+    description:
+      'Consultar incidencias fiscales dentro del alcance autorizado.',
+  },
+  'incidents.manage': {
+    name: 'Gestionar incidencias fiscales',
+    description: 'Resolver y administrar incidencias fiscales autorizadas.',
+  },
   'exceptions.accept': {
     name: 'Aceptar excepciones',
     description: 'Aceptar una excepción que permite continuar.',
@@ -163,6 +219,7 @@ const LEGACY_MFA_PERMISSION_KEYS = new Set<PermissionKey>([
   'billing.manage',
   'clients.assign',
   'fiscal_entities.manage',
+  'cfdi.download',
 ]);
 
 export const permissionDefinition = (
@@ -198,6 +255,17 @@ export const ROLE_PERMISSION_KEYS: Record<RoleKey, readonly PermissionKey[]> = {
     'sat.download',
     'payroll.view',
     'cfdi.exclude',
+    'ingestion.view',
+    'ingestion.create',
+    'ingestion.retry',
+    'ingestion.cancel',
+    'processes.view',
+    'processes.retry',
+    'processes.cancel',
+    'cfdi.view',
+    'cfdi.download',
+    'incidents.view',
+    'incidents.manage',
     'exceptions.accept',
     'periods.close',
     'periods.reopen',
@@ -208,6 +276,15 @@ export const ROLE_PERMISSION_KEYS: Record<RoleKey, readonly PermissionKey[]> = {
     'clients.view',
     'fiscal_entities.view',
     'fiscal_years.view',
+    'ingestion.view',
+    'ingestion.create',
+    'ingestion.retry',
+    'ingestion.cancel',
+    'processes.view',
+    'cfdi.view',
+    'cfdi.download',
+    'incidents.view',
+    'incidents.manage',
   ],
 };
 

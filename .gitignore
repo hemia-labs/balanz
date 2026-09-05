@@ -1,6 +1,8 @@
 node_modules/
+.local/
 dist/
 .next/
 .env*.local
+infra/cfdi-phase0/.env
 propuesta/
 docs2/
