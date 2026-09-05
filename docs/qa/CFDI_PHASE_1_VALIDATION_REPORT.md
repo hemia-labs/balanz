@@ -1,5 +1,9 @@
 # Reporte de validación CFDI — Fase 1 XML
 
+Las secciones 1–16 conservan la evidencia y los bloqueos del cierre anterior.
+La integración posterior con las PR #16/#17 y su validación incremental se
+registran en la sección 17; los estados de los checks se consultan por SHA.
+
 ## 1. Resultado ejecutivo
 
 La vertical `PHASE_1_XML` quedó implementada sobre la plataforma durable de
@@ -572,3 +576,47 @@ histórico de Fase 0.
 PR #17 permanece `DRAFT` con check requerido fallido. PR #18 permanece `DRAFT`
 con el check del validador de migraciones fallido por conteo exacto. No se hizo
 merge, no se modificó/cerró el PR #17 y no se inició Fase 2.
+
+## 17. Integración de PR #16/#17 — 2026-09-04
+
+La PR #16 ya está fusionada en `develop` (`8f7f0ed`). Se actualizó la base
+`codex/cfdis` y se incorporó a esta rama hasta `ee229fa`, sin fusionar ninguna
+de las PR CFDI a `develop` ni adelantar Fase 2.
+
+Resolución de conflictos y compatibilidad:
+
+- Se mantiene la separación de pantallas demo y reales de PR #16, junto con
+  las rutas de procesos/CFDI y `accountAccessMode` de Fase 1. La pantalla demo
+  usa el nombre vigente del identificador de ruta, `cfdiId`.
+- Se conserva la paginación y los conteos agrupados de ejercicios. Crear un
+  ejercicio recarga la primera página y sus metadatos desde el servidor.
+- Se integran la política de readiness API/worker, el muestreo de storage/cola,
+  las métricas de heartbeat y la retirada de configuración ZIP sin consumidor.
+- Se conservan las evidencias históricas de ambas fases, la limpieza de docs y
+  la aclaración de que los dos LOGINs runtime comparten `accounting_dev`.
+
+El check previo de PR #18 (`33840964617`) falló en
+`Phase 0 migration shape: composite_foreign_keys`: el validador exigía
+exactamente once FKs en las tablas fundacionales y la migración 070 añade
+`fk_ingestion_items_cfdi`. Se sustituye ese total cerrado por presencia de
+cada FK fundacional identificada por tabla/nombre y comprobación de que todas
+las FKs, incluidas las adicionales, mantienen `organization_id` en ambos lados.
+El manifiesto y sus validaciones de identidades permanecen intactos.
+
+Se añaden regresiones PostgreSQL dentro de savepoints: una FK compuesta
+adicional debe aceptarse; una FK fundacional ausente no puede quedar oculta
+por otra adicional; una nueva FK sin alcance de tenant debe rechazarse.
+
+También se incorpora el arreglo de PR #17 para el `EACCES` de los perfiles
+sintéticos de CI. Sólo contienen marcadores/rutas/puertos sin secretos y se
+montan de sólo lectura. Las credenciales continúan en Vault y no se amplían
+los privilegios de los procesos runtime.
+
+Validación local del árbol combinado: API 61 suites / 510 pruebas, build y
+lint del validador PASS; web 78 pruebas, lint, TypeScript y build con Webpack
+PASS; `git diff --check` PASS. Webpack permite usar las dependencias compartidas
+mediante junctions del worktree. No se repite el recorrido manual de navegador.
+La validación PostgreSQL de las regresiones nuevas y la corrida Full se delegan
+al workflow aislado requerido de cada PR; a este corte esperan el nuevo run.
+Resolver los conflictos no acredita aprovisionamiento de secretos runtime ni
+autoriza merge/despliegue: `TD-004` sigue abierto.

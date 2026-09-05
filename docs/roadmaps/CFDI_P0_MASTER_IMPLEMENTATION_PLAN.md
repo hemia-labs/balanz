@@ -5,9 +5,9 @@
 | Campo               | Valor                                                                             |
 | ------------------- | --------------------------------------------------------------------------------- |
 | Programa            | Plataforma CFDI de Balanz                                                         |
-| Fecha de corte      | 2026-09-03 (`America/Mexico_City`)                                                |
+| Fecha de corte      | 2026-09-04 (`America/Mexico_City`)                                                |
 | Rama de trabajo     | `codex/cfdi-phase1-xml`                                                           |
-| SHA base integrada  | `origin/codex/cfdis` en `9dbdb14f0e58d12bf98d2cd1f3041eb2029524fb`               |
+| SHA base integrada  | `origin/codex/cfdis` en `ee229fab69c470b71096d6dcd253727de6cc04f7`               |
 | Autoridad operativa | Este plan, los ADR vigentes y la decisión de inicio de Fase 1                     |
 | Fase en ejecución   | `PHASE_1_XML`                                                                     |
 | Desarrollo Fase 0   | `ACCEPTED`                                                                        |
@@ -21,12 +21,12 @@
 Este archivo y los ADR vigentes son la fuente de verdad operativa del programa
 CFDI. El diseño histórico usado para crear Fase 0 ya no es una instrucción de
 ejecución. La plataforma compartida queda aceptada para continuar desarrollo,
-pero su release permanece bloqueado: el check
-`CI_RUNTIME_WORKER_STARTUP` falla por `EACCES` al cargar el entorno y
-`SHARED_VAULT_POSTGRES_RUNTIME_SECRETS` sigue bloqueado porque los secretos de
-API/worker están `NOT_FOUND`. Como `develop` despliega automáticamente, ambos
-gates impiden integrar o liberar; no bloquearon la implementación autorizada de
-`PHASE_1_XML`.
+pero su release permanece bloqueado por los checks requeridos y
+`SHARED_VAULT_POSTGRES_RUNTIME_SECRETS`: no hay nueva evidencia de los secretos
+canónicos API/worker. Se corrigieron el `EACCES` de los perfiles sintéticos de CI
+y el conteo de FKs incompatible con Fase 1; sus nuevos runs deben confirmar el
+resultado. Como `develop` despliega automáticamente, estos gates impiden
+integrar o liberar; no bloquearon el desarrollo autorizado de `PHASE_1_XML`.
 
 ## 1. Autoridad, contexto y límites
 
@@ -393,10 +393,10 @@ pub/sub— como con Redis apagado, manteniendo polling PostgreSQL como fallback.
 Los adapters finales volvieron a validarse externamente con Docker operativo:
 ClamAV real pasó health, limpio, EICAR y caída fail-closed; MinIO real pasó
 bucket SSE privado, round-trip streaming con hash íntegro, acceso anónimo y URL
-expirada denegados, URL temporal y cleanup. Persisten dos gates de integración:
-los secretos canónicos `database/postgres-api` y `database/postgres-worker`
-están `NOT_FOUND`, y el check runtime de PR #17 falla por `EACCES` al cargar el
-entorno. Como `develop` auto-despliega API/worker, no se permite integrar Fase 0.
+expirada denegados, URL temporal y cleanup. Esa evidencia histórica no acredita
+el nuevo árbol combinado. Los checks requeridos se repiten después de resolver
+los conflictos y los fallos del validador; el gate de secretos compartidos
+permanece abierto. `develop` auto-despliega API/worker.
 
 El único control externo pendiente es el aprovisionamiento de los secretos
 canónicos de runtime `database/postgres-api` y `database/postgres-worker` en
@@ -701,7 +701,7 @@ desarrollo, pero no está aprobada para fusionar o desplegar.
 PHASE_0_DEVELOPMENT_STATUS: ACCEPTED
 PHASE_0_RELEASE_STATUS: BLOCKED
 PHASE_0_RELEASE_GATES:
-  - CI_RUNTIME_WORKER_STARTUP: FAIL - runtime env EACCES
+  - CI_RUNTIME_WORKER_STARTUP: PENDING - profile permissions fixed; await current SHA
   - SHARED_VAULT_POSTGRES_RUNTIME_SECRETS: BLOCKED - API/worker NOT_FOUND
 PHASE_0_INTEGRATION_STATUS: BLOCKED
 PHASE_1_IMPLEMENTATION_STATUS: COMPLETE
@@ -713,16 +713,17 @@ MINIO_REAL: PASS
 MANUAL_E2E: PASS
 TECHNICAL_DEBT: 0
 KNOWN_FUNCTIONAL_DEFECTS: 0
-PR_18_REQUIRED_CHECKS: FAIL - migration validator exact count
+PR_18_REQUIRED_CHECKS: PENDING - foundation FK validation fixed; await current SHA
 PHASE_2_ZIP: NOT_STARTED
 ```
 
-ClamAV, MinIO y el recorrido manual están validados con el código final. EICAR
+ClamAV, MinIO y el recorrido manual quedaron validados en el cierre anterior. EICAR
 por worker real terminó en cuarentena sin CFDI; MFA/download y cambio de tenant
 pasaron, y el defecto TypeORM del grant quedó corregido. El detalle vive en
-`docs/qa/CFDI_PHASE_1_VALIDATION_REPORT.md`. PR #17 permanece `DRAFT` con check
-runtime fallido; PR #18 permanece `DRAFT` con el validador de migraciones
-fallido por conteo exacto. No se autoriza merge fuera del orden establecido.
+`docs/qa/CFDI_PHASE_1_VALIDATION_REPORT.md`. La sección 17 registra la integración
+actual y las 510 pruebas API / 78 web ejecutadas. PR #17 está abierta y PR #18
+permanece en borrador. El estado de CI se verifica contra sus nuevos SHAs;
+resolver conflictos no autoriza merge fuera del orden ni cierre de `TD-004`.
 
 ```text
 DEFERRED_PRODUCT_CAPABILITIES:
