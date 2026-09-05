@@ -20,10 +20,11 @@ export interface EmailVerificationResult {
   emailVerified: true;
   subscriptionType: string;
   trial: {
-    status: SubscriptionStatus.TRIALING;
-    startedAt: Date;
-    endsAt: Date;
+    status: SubscriptionStatus;
+    startedAt?: Date;
+    endsAt?: Date;
   };
-  nextStep: 'ready';
+  nextStep: 'setup_mfa';
   mfaStatus: 'disabled';
+  organizationOwner: boolean;
 }

@@ -1,4 +1,5 @@
 import {
+  Check,
   Column,
   CreateDateColumn,
   Entity,
@@ -39,6 +40,15 @@ export enum MembershipStatus {
   name: 'fk_memberships_user',
   onDelete: 'RESTRICT',
 })
+@Check(
+  'ck_memberships_transition_dates',
+  `
+    ("status" = 'pending' AND "joined_at" IS NULL AND "suspended_at" IS NULL AND "revoked_at" IS NULL)
+    OR ("status" = 'active' AND "joined_at" IS NOT NULL AND "suspended_at" IS NULL AND "revoked_at" IS NULL)
+    OR ("status" = 'suspended' AND "joined_at" IS NOT NULL AND "suspended_at" IS NOT NULL AND "revoked_at" IS NULL)
+    OR ("status" = 'revoked' AND "revoked_at" IS NOT NULL)
+  `,
+)
 @Entity('memberships')
 export class Membership {
   @PrimaryGeneratedColumn('uuid')

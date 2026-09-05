@@ -11,6 +11,39 @@ export class SesEmailDeliveryAdapter implements EmailDeliveryPort {
     private readonly config: ConfigService,
   ) {}
 
+  async sendInvitation(input: {
+    email: string;
+    token: string;
+    invitationId: string;
+    expiresAt: Date;
+  }): Promise<void> {
+    const email = this.config.getOrThrow<EmailConfig>('email');
+    const invitationUrl = new URL('/accept-invitation', email.appUrl);
+    invitationUrl.hash = new URLSearchParams({
+      invitationId: input.invitationId,
+      token: input.token,
+    }).toString();
+    await this.client.send(
+      new SendEmailCommand({
+        FromEmailAddress: `${email.ses.fromName} <${email.ses.fromAuth}>`,
+        Destination: { ToAddresses: [input.email] },
+        ReplyToAddresses: [email.ses.replyTo],
+        ConfigurationSetName: email.ses.configurationSetAuth,
+        Content: {
+          Template: {
+            TemplateName: email.ses.invitationTemplate,
+            TemplateData: JSON.stringify({
+              app_name: email.appName,
+              invitation_url: invitationUrl.toString(),
+              expiration_date: input.expiresAt.toISOString(),
+              support_email: email.supportEmail,
+            }),
+          },
+        },
+      }),
+    );
+  }
+
   async sendVerification(input: {
     email: string;
     firstName?: string;
