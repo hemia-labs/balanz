@@ -6,6 +6,7 @@ export type ProductScreen =
   | "clients"
   | "processes"
   | "team"
+  | "team-member"
   | "audit"
   | "organization-settings"
   | "client-overview"
@@ -27,6 +28,7 @@ export interface ResolvedProductRoute {
   screen: ProductScreen;
   organizationId: string;
   clientId?: string;
+  membershipId?: string;
   legalEntityId?: string;
   year?: string;
   period?: string;
@@ -88,6 +90,13 @@ export function resolveProductRoute(
     };
   if (first === "team" && !second)
     return { screen: "team", organizationId, capability: "team.view" };
+  if (first === "team" && second && !third)
+    return {
+      screen: "team-member",
+      organizationId,
+      membershipId: second,
+      capability: "team.view",
+    };
   if (first === "settings") {
     const capability =
       second === "billing-plan" ? "billing.manage" : "organization.view";

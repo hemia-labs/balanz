@@ -37,6 +37,10 @@
     "src/features/clients/types.ts",
     "src/features/session/unauthorized-navigation.ts",
     "src/features/session/unauthorized-navigation.test.ts",
-    "src/features/session/types.ts"
+    "src/features/session/types.ts",
+    "src/features/team/team-policy.ts",
+    "src/features/team/team-policy.test.ts",
+    "src/features/team/invitation-link.ts",
+    "src/features/team/invitation-link.test.ts"
   ]
 }

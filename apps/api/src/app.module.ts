@@ -24,6 +24,7 @@ import { ClientAccountsModule } from './modules/client-accounts/client-accounts.
 import { CorrelationModule } from './common/correlation/correlation.module';
 import { FiscalOperationsModule } from './modules/fiscal-operations/fiscal-operations.module';
 import { PermissionsModule } from './modules/permissions/permissions.module';
+import { InvitationsModule } from './modules/invitations/invitations.module';
 
 @Module({
   imports: [
@@ -69,6 +70,7 @@ import { PermissionsModule } from './modules/permissions/permissions.module';
     ClientAccountsModule,
     FiscalOperationsModule,
     PermissionsModule,
+    InvitationsModule,
   ],
   controllers: [AppController],
   providers: [AppService, { provide: APP_GUARD, useClass: CsrfGuard }],

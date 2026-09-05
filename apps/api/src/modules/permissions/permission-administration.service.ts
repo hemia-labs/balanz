@@ -93,12 +93,29 @@ export class PermissionAdministrationService {
       .createQueryBuilder('membership')
       .innerJoin('membership.role', 'role')
       .innerJoin('users', 'user', 'user.id = membership.user_id')
+      .innerJoin(
+        'organizations',
+        'organization',
+        'organization.id = membership.organization_id',
+      )
       .select('membership.id', 'membershipId')
       .addSelect('membership.user_id', 'userId')
       .addSelect(`concat(user.first_name, ' ', user.last_name)`, 'displayName')
       .addSelect('user.email', 'email')
       .addSelect('role.key', 'role')
       .addSelect('membership.status', 'status')
+      .addSelect('membership.joined_at', 'joinedAt')
+      .addSelect('membership.created_at', 'createdAt')
+      .addSelect('membership.updated_at', 'updatedAt')
+      .addSelect('organization.owner_user_id = membership.user_id', 'isOwner')
+      .addSelect(
+        `EXISTS (
+          SELECT 1 FROM auth_factors factor
+          WHERE factor.user_id = membership.user_id
+            AND factor.status = 'active'
+        )`,
+        'mfaConfigured',
+      )
       .where('membership.organization_id = :organizationId', {
         organizationId,
       })

@@ -55,7 +55,7 @@ async function validateMigrationLifecycle(): Promise<void> {
 
     const initial = await temporary.runMigrations({ transaction: 'all' });
     report.initialMigrations = initial.map((migration) => migration.name);
-    assertEqual(initial.length, 9, 'initial migration count');
+    assertEqual(initial.length, 11, 'initial migration count');
 
     await seedDatabase(temporary);
     await seedDatabase(temporary);
@@ -99,6 +99,68 @@ async function validateMigrationLifecycle(): Promise<void> {
       'role permission count',
     );
     assertEqual(seedCounts.role_permission_roles, 3, 'role default count');
+
+    const [verificationScopeSchema] = await temporary.query<
+      Array<Record<string, boolean>>
+    >(
+      `SELECT
+        EXISTS (
+          SELECT 1 FROM information_schema.columns
+          WHERE table_schema = 'public'
+            AND table_name = 'email_verification_tokens'
+            AND column_name = 'membership_id'
+        ) AS membership_scope_created,
+        to_regclass('public.idx_email_verification_tokens_membership_expires') IS NOT NULL AS membership_scope_index_created,
+        EXISTS (
+          SELECT 1 FROM pg_constraint
+          WHERE conname = 'fk_email_verification_tokens_membership'
+        ) AS membership_scope_fk_created`,
+    );
+    report.verificationScopeSchema = verificationScopeSchema;
+    assertAllTrue(verificationScopeSchema, 'verification scope schema');
+
+    await temporary.undoLastMigration({ transaction: 'all' });
+    const [verificationScopeRollback] = await temporary.query<
+      Array<Record<string, boolean>>
+    >(
+      `SELECT NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = 'email_verification_tokens'
+          AND column_name = 'membership_id'
+      ) AS membership_scope_removed`,
+    );
+    report.verificationScopeRollback = verificationScopeRollback;
+    assertAllTrue(verificationScopeRollback, 'verification scope rollback');
+
+    const [invitationSchema] = await temporary.query<
+      Array<Record<string, boolean>>
+    >(
+      `SELECT
+        to_regclass('public.invitations') IS NOT NULL AS invitations_created,
+        to_regclass('public.uq_invitations_pending_recipient') IS NOT NULL AS pending_recipient_index_created,
+        EXISTS (
+          SELECT 1 FROM pg_constraint
+          WHERE conname = 'ck_memberships_transition_dates'
+        ) AS membership_dates_check_created`,
+    );
+    report.invitationSchema = invitationSchema;
+    assertAllTrue(invitationSchema, 'invitation schema');
+
+    await temporary.undoLastMigration({ transaction: 'all' });
+    const [invitationRollback] = await temporary.query<
+      Array<Record<string, boolean>>
+    >(
+      `SELECT
+        to_regclass('public.invitations') IS NULL AS invitations_removed,
+        to_regclass('public.memberships') IS NOT NULL AS memberships_preserved,
+        NOT EXISTS (
+          SELECT 1 FROM pg_constraint
+          WHERE conname = 'ck_memberships_transition_dates'
+        ) AS membership_dates_check_removed`,
+    );
+    report.invitationRollback = invitationRollback;
+    assertAllTrue(invitationRollback, 'invitation rollback');
 
     await temporary.undoLastMigration({ transaction: 'all' });
     const [reauthenticationRollback] = await temporary.query<
@@ -177,9 +239,9 @@ async function validateMigrationLifecycle(): Promise<void> {
     const reappliedClient = await temporary.runMigrations({
       transaction: 'all',
     });
-    assertEqual(reappliedClient.length, 6, 'client migration reapply count');
+    assertEqual(reappliedClient.length, 8, 'client migration reapply count');
 
-    for (let index = 0; index < 6; index += 1) {
+    for (let index = 0; index < 8; index += 1) {
       await temporary.undoLastMigration({ transaction: 'all' });
     }
     await temporary.undoLastMigration({ transaction: 'all' });
@@ -219,7 +281,7 @@ async function validateMigrationLifecycle(): Promise<void> {
     assertAllTrue(fullRollback, 'full rollback');
 
     const reapplied = await temporary.runMigrations({ transaction: 'all' });
-    assertEqual(reapplied.length, 9, 'full migration reapply count');
+    assertEqual(reapplied.length, 11, 'full migration reapply count');
     await seedDatabase(temporary);
     const schemaLog = await temporary.driver.createSchemaBuilder().log();
     report.reappliedMigrations = reapplied.map((migration) => migration.name);

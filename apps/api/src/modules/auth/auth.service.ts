@@ -155,6 +155,7 @@ export class AuthService {
         await tokenRepository.save(
           tokenRepository.create({
             userId: user.id,
+            membershipId: membership.id,
             tokenHash,
             expiresAt,
             usedAt: null,
@@ -243,6 +244,16 @@ export class AuthService {
     });
     if (!user || user.emailVerifiedAt) return;
 
+    const pendingMemberships = await this.dataSource
+      .getRepository(Membership)
+      .find({
+        where: { userId: user.id, status: MembershipStatus.PENDING },
+        select: { id: true },
+        take: 2,
+      });
+    if (pendingMemberships.length !== 1) return;
+    const [pendingMembership] = pendingMemberships;
+
     const rawToken = randomBytes(32).toString('hex');
     const tokenHash = this.hashToken(rawToken);
     const now = new Date();
@@ -260,6 +271,7 @@ export class AuthService {
       await tokenRepository.save(
         tokenRepository.create({
           userId: user.id,
+          membershipId: pendingMembership.id,
           tokenHash,
           expiresAt,
           usedAt: null,
@@ -541,6 +553,7 @@ export class AuthService {
         });
         if (
           !verificationToken ||
+          !verificationToken.membershipId ||
           verificationToken.usedAt ||
           verificationToken.expiresAt.getTime() <= Date.now()
         ) {
@@ -556,23 +569,26 @@ export class AuthService {
           throw new BadRequestException('Invalid verification token');
         }
 
+        const membership = await manager.getRepository(Membership).findOne({
+          where: {
+            id: verificationToken.membershipId,
+            userId: user.id,
+            status: MembershipStatus.PENDING,
+          },
+          lock: { mode: 'pessimistic_write' },
+        });
+        if (!membership)
+          throw new BadRequestException('Invalid verification token');
+
         const organization = await manager.getRepository(Organization).findOne({
           where: {
-            ownerUserId: user.id,
+            id: membership.organizationId,
             status: OrganizationStatus.ACTIVE,
           },
         });
         if (!organization)
           throw new BadRequestException('Invalid verification token');
 
-        const membership = await manager.getRepository(Membership).findOne({
-          where: {
-            organizationId: organization.id,
-            userId: user.id,
-            status: MembershipStatus.PENDING,
-          },
-          lock: { mode: 'pessimistic_write' },
-        });
         const subscription = await manager
           .getRepository(Subscription)
           .findOne({ where: { organizationId: organization.id } });
@@ -585,13 +601,13 @@ export class AuthService {
         await userRepository.save(user);
         verificationToken.usedAt = now;
         await tokenRepository.save(verificationToken);
-        membership.status = MembershipStatus.ACTIVE;
-        membership.joinedAt = membership.joinedAt ?? now;
-        await manager.getRepository(Membership).save(membership);
-
-        let trialStartedAt = subscription.trialStartedAt ?? now;
+        const organizationOwner = organization.ownerUserId === user.id;
+        let trialStartedAt = subscription.trialStartedAt ?? undefined;
         let trialEndsAt = subscription.trialEndsAt;
-        if (subscription.status === SubscriptionStatus.PENDING) {
+        if (
+          subscription.status === SubscriptionStatus.PENDING &&
+          organizationOwner
+        ) {
           trialStartedAt = now;
           trialEndsAt = new Date(
             now.getTime() + this.trialDurationDays() * 86_400_000,
@@ -612,6 +628,9 @@ export class AuthService {
             correlationId,
             metadata: { schemaVersion: 1 },
           });
+        }
+        if (organizationOwner && (!trialStartedAt || !trialEndsAt)) {
+          throw new BadRequestException('Invalid verification token');
         }
 
         const session = await this.sessions.createForManager(manager, {
@@ -641,30 +660,36 @@ export class AuthService {
             emailVerified: true as const,
             subscriptionType: subscription.subscriptionType,
             trial: {
-              status: SubscriptionStatus.TRIALING as const,
-              startedAt: trialStartedAt,
-              endsAt: trialEndsAt!,
+              status: subscription.status,
+              ...(trialStartedAt ? { startedAt: trialStartedAt } : {}),
+              ...(trialEndsAt ? { endsAt: trialEndsAt } : {}),
             },
-            nextStep: 'ready' as const,
+            nextStep: 'setup_mfa' as const,
             mfaStatus: 'disabled' as const,
+            organizationOwner,
           },
           rawSessionToken: session.rawToken,
           session: session.session,
-          welcome: {
-            email: user.email,
-            firstName: user.firstName,
-            organizationName: organization.name,
-            locale: user.locale,
-            timezone: user.timezone,
-            trialEndsAt: trialEndsAt!,
-          },
+          welcome:
+            organizationOwner && trialEndsAt
+              ? {
+                  email: user.email,
+                  firstName: user.firstName,
+                  organizationName: organization.name,
+                  locale: user.locale,
+                  timezone: user.timezone,
+                  trialEndsAt,
+                }
+              : null,
         };
       },
     );
 
     const context = await this.authorization.resolve(transactionResult.session);
     await this.sessions.cacheSession(transactionResult.session, context);
-    void this.email.sendWelcome(transactionResult.welcome);
+    if (transactionResult.welcome) {
+      void this.email.sendWelcome(transactionResult.welcome);
+    }
     return {
       result: transactionResult.result,
       rawSessionToken: transactionResult.rawSessionToken,
@@ -952,11 +977,32 @@ export class AuthService {
       });
       if (!lockedSession || lockedSession.status !== AuthSessionStatus.ACTIVE)
         throw new UnauthorizedException('Invalid session');
+
+      const now = new Date();
+      if (enrolling) {
+        if (!lockedSession.membershipId) {
+          throw new UnauthorizedException('Invalid session');
+        }
+        const membershipRepository = manager.getRepository(Membership);
+        const membership = await membershipRepository.findOne({
+          where: {
+            id: lockedSession.membershipId,
+            userId: lockedSession.userId,
+            status: MembershipStatus.PENDING,
+          },
+          lock: { mode: 'pessimistic_write' },
+        });
+        if (!membership) {
+          throw new UnauthorizedException('Pending membership required');
+        }
+        membership.status = MembershipStatus.ACTIVE;
+        membership.joinedAt = now;
+        await membershipRepository.save(membership);
+      }
       if (!enrolling && !lockedSession.requiresMfa)
         throw new UnauthorizedException('MFA is not active');
       if (!enrolling && !reauthenticating && lockedSession.mfaVerifiedAt)
         throw new UnauthorizedException('MFA is not pending');
-      const now = new Date();
       factor.status = enrolling ? AuthFactorStatus.ACTIVE : factor.status;
       factor.verifiedAt = factor.verifiedAt ?? now;
       factor.lastUsedAt = now;

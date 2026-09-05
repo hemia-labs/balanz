@@ -11,6 +11,22 @@ export class EmailService {
     private readonly delivery: EmailDeliveryPort,
   ) {}
 
+  async sendInvitation(input: {
+    email: string;
+    token: string;
+    invitationId: string;
+    expiresAt: Date;
+  }): Promise<void> {
+    try {
+      await this.delivery.sendInvitation(input);
+    } catch (error) {
+      this.logger.error(
+        'Invitation delivery failed',
+        error instanceof Error ? error.stack : undefined,
+      );
+    }
+  }
+
   async sendVerification(input: {
     email: string;
     firstName?: string;

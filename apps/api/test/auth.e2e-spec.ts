@@ -210,7 +210,7 @@ describe('Auth registration and MFA (e2e)', () => {
     expect(successfulConfirmation?.body).toEqual(
       expect.objectContaining({
         emailVerified: true,
-        nextStep: 'ready',
+        nextStep: 'setup_mfa',
         mfaStatus: 'disabled',
       }),
     );
@@ -228,8 +228,8 @@ describe('Auth registration and MFA (e2e)', () => {
         userId: registration.userId,
         organizationId: registration.organizationId,
         membershipId: registration.membershipId,
-        role: 'owner',
-        tenantActive: true,
+        role: 'admin',
+        tenantActive: false,
         mfaStatus: 'disabled',
         account: {
           id: registration.userId,
@@ -263,12 +263,20 @@ describe('Auth registration and MFA (e2e)', () => {
       .expect(200);
     expect(verifiedSession.body).toEqual(
       expect.objectContaining({
-        role: 'owner',
+        role: 'admin',
         tenantActive: true,
         requiresMfa: true,
         mfaStatus: 'active',
       }),
     );
+    const [activatedMembership] = await dataSource.query<
+      Array<{ status: string; joined: boolean }>
+    >(
+      `SELECT status, joined_at IS NOT NULL AS joined
+       FROM memberships WHERE id = $1`,
+      [registration.membershipId],
+    );
+    expect(activatedMembership).toEqual({ status: 'active', joined: true });
 
     await request(app.getHttpServer())
       .delete(`${apiPrefix}/auth/session`)

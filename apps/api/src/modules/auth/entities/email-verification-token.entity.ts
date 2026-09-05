@@ -9,8 +9,16 @@ import {
 
 @Index('uq_email_verification_tokens_hash', ['tokenHash'], { unique: true })
 @Index('idx_email_verification_tokens_user_expires', ['userId', 'expiresAt'])
+@Index('idx_email_verification_tokens_membership_expires', [
+  'membershipId',
+  'expiresAt',
+])
 @ForeignKey('users', ['userId'], ['id'], {
   name: 'fk_email_verification_tokens_user',
+  onDelete: 'RESTRICT',
+})
+@ForeignKey('memberships', ['membershipId'], ['id'], {
+  name: 'fk_email_verification_tokens_membership',
   onDelete: 'RESTRICT',
 })
 @Entity('email_verification_tokens')
@@ -20,6 +28,9 @@ export class EmailVerificationToken {
 
   @Column({ name: 'user_id', type: 'uuid' })
   userId: string;
+
+  @Column({ name: 'membership_id', type: 'uuid', nullable: true })
+  membershipId?: string | null;
 
   @Column({ name: 'token_hash', length: 64 })
   tokenHash: string;

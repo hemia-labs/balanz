@@ -15,6 +15,7 @@ export interface EmailConfig {
     mfaEnabledTemplate: string;
     mfaDisabledTemplate: string;
     passwordResetTemplate: string;
+    invitationTemplate: string;
   };
   appName: string;
   appSubtitle: string;
@@ -62,6 +63,9 @@ export default registerAs('email', (): EmailConfig => {
       passwordResetTemplate:
         process.env.EMAIL_PASSWORD_RESET_TEMPLATE ||
         `${project}-${environment}-forgot-password`,
+      invitationTemplate:
+        process.env.EMAIL_INVITATION_TEMPLATE ||
+        `${project}-${environment}-invitation`,
     },
     appName: process.env.EMAIL_APP_NAME || 'Balanz',
     appSubtitle: process.env.EMAIL_APP_SUBTITLE || 'Contable',

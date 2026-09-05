@@ -1,4 +1,11 @@
-import { AlertCircle, CheckCircle2, Circle, Clock3, LockKeyhole, RotateCcw } from "lucide-react";
+import {
+  AlertCircle,
+  CheckCircle2,
+  Circle,
+  Clock3,
+  LockKeyhole,
+  RotateCcw,
+} from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 
 const statusMap = {
@@ -27,6 +34,13 @@ const statusMap = {
   Generada: { variant: "success", icon: CheckCircle2 },
   Desactualizada: { variant: "warning", icon: AlertCircle },
   Activo: { variant: "success", icon: CheckCircle2 },
+  Permitido: { variant: "success", icon: CheckCircle2 },
+  Denegado: { variant: "destructive", icon: LockKeyhole },
+  Aceptada: { variant: "success", icon: CheckCircle2 },
+  Suspendido: { variant: "destructive", icon: LockKeyhole },
+  Revocado: { variant: "destructive", icon: AlertCircle },
+  Revocada: { variant: "destructive", icon: AlertCircle },
+  Expirada: { variant: "warning", icon: AlertCircle },
   "Invitación pendiente": { variant: "warning", icon: Clock3 },
   Bloqueante: { variant: "destructive", icon: LockKeyhole },
   Advertencia: { variant: "warning", icon: AlertCircle },
@@ -38,7 +52,15 @@ const statusMap = {
 } as const;
 
 export function StatusBadge({ status }: { status: string }) {
-  const config = statusMap[status as keyof typeof statusMap] ?? { variant: "outline" as const, icon: Circle };
+  const config = statusMap[status as keyof typeof statusMap] ?? {
+    variant: "outline" as const,
+    icon: Circle,
+  };
   const Icon = config.icon;
-  return <Badge variant={config.variant}><Icon className="size-3" aria-hidden="true" />{status}</Badge>;
+  return (
+    <Badge variant={config.variant}>
+      <Icon className="size-3" aria-hidden="true" />
+      {status}
+    </Badge>
+  );
 }

@@ -43,7 +43,7 @@ export class PermissionAdministrationController {
   }
 
   @Get('organizations/:organizationId/memberships')
-  @Permissions('members.manage')
+  @Permissions('team.view')
   listMemberships(
     @Param('organizationId', ParseUUIDPipe) organizationId: string,
     @CurrentTenant() tenant: SessionAuthorizationContext,

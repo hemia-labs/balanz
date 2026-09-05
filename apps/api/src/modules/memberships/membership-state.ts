@@ -5,7 +5,7 @@ export function canTransitionMembership(
   to: MembershipStatus,
 ): boolean {
   if (from === MembershipStatus.PENDING) {
-    return to === MembershipStatus.ACTIVE;
+    return to === MembershipStatus.ACTIVE || to === MembershipStatus.REVOKED;
   }
   if (from === MembershipStatus.ACTIVE) {
     return to === MembershipStatus.SUSPENDED || to === MembershipStatus.REVOKED;
