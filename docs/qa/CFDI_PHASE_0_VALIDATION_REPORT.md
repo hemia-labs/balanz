@@ -486,47 +486,46 @@ FINAL_FULL_VALIDATION_REPORT: .local/cfdi-phase0-validation-reports/cfdi-phase0-
 
 ## 15. Deploy, rollout y rollback
 
-La definición de despliegue de desarrollo fue endurecida y validada con lint y
-smokes locales:
+La implementación original de aislamiento y cutover validada durante esta fase
+fue retirada cuando Terraform y Ansible asumieron la configuración del VPS. El
+workflow actual conserva únicamente el rollout de aplicación: release único,
+configuración externa, pausa del worker, migraciones, cambio atómico de
+`current`, recarga de PM2, probes y rollback al release anterior. Las
+validaciones históricas de PM2/cutover que aparecen más adelante corresponden a
+la implementación retirada y no forman parte del gate actual.
 
-- gate reusable de Fase 0 antes del deploy;
-- actions fijadas por SHA y runner versionado;
-- release directory único por SHA/run/attempt;
-- dependencias instaladas antes de inyectar secretos;
-- symlinks externos rechazados antes de instalar y todos los enlaces revalidados
-  después de que Bun materializa dependencias;
-- release read-only y configuración externa separada para API, worker y
-  migrator; web no recibe archivo de secretos;
-- worker pausado antes de migrar;
-- credencial migrator efímera con owner/grupo dedicados y modo `0640`, eliminada antes de activar
-  runtimes;
-- wrappers `env -i`, UIDs runtime distintos, PM2 release-local y unidad systemd
-  root-owned;
-- persistencia PM2 semántica y atómica de `dump.pm2` y `dump.pm2.bak`, validada
-  contra PM2 real 7.0.4, incluida la detección de procesos homónimos fuera del
-  release;
-- limpieza fail-closed que exige lista de procesos y dumps vacíos, unidad
-  inactiva con código canónico y daemon sin PID;
-- `TimeoutStopSec=135s`, superior al `kill_timeout` de 125s del worker, y
-  allowlist sudoers exacta para la consulta de estado;
-- cadena remota de migración exclusivamente con Bun 1.3.2, con rechazo probado
-  de una dependencia transitiva de npm;
-- bootstrap legacy en dos pasos (`quiesce` → revocación PostgreSQL/Vault con
-  evidencia root-only → `finalize`) antes de aceptar la identidad
-  `balanz-deploy`;
-- cold-start de la API anterior, activación atómica, probes de API/worker y
-  primer cutover fail-closed sin reactivar el legacy: el candidato permanece
-  como `current`, con el control plane y ambos dumps vacíos para reintentar el
-  mismo candidato;
-- cleanup verificado de credenciales/releases inactivos.
-- imágenes locales de MinIO y deploy-smoke con tag/label/ID únicos por corrida y
-  cleanup exacto, sin `force` ni `prune`.
+El cambio del 5 de septiembre de 2026 eliminó los 19 archivos de
+`scripts/deploy/` —17 shell y dos Node—:
 
-El rollback usa un marcador ligado al hash y sólo cambia versiones de
-aplicación compatibles; no intenta revertir migraciones append-only. Se probó
-que no arranca un worker legacy y que se detiene ante marcador manipulado o
-probe fallido. Esto valida el mecanismo, no afirma un despliegue a un host
-externo durante esta ejecución.
+```text
+activate-release.sh
+bootstrap-runtime-isolation.sh
+cleanup-inactive-release-runtime-credentials.sh
+cleanup-release-migration-credentials.sh
+hash-release-artifact.cjs
+pause-managed-worker.sh
+persist-pm2-state.sh
+preflight-release-topology.sh
+prepare-runtime-isolation.sh
+quiesce-legacy-release.sh
+run-isolated-runtime.sh
+run-release-migrations.sh
+smoke-legacy-cutover.sh
+smoke-pm2-persistence.sh
+smoke-rollback.sh
+smoke-runtime-isolation.sh
+validate-ecosystem.cjs
+verify-rollback-api-compatibility.sh
+write-secret-file.sh
+```
+
+No se sustituyeron por otro framework de despliegue. La configuración del host
+permanece en Terraform/Ansible y la única secuencia de rollout quedó en
+`.github/workflows/deploy-dev.yml`. GitHub Actions construye el monorepo y
+transfiere el árbol resultante con `rsync`; no genera un archivo comprimido, por
+lo que tampoco existe una etapa de extracción. El workflow instala las
+dependencias runtime excluidas, ejecuta `release:prepare`, activa el symlink,
+recarga PM2, prueba los procesos y restaura el release anterior ante un fallo.
 
 ## 16. Matriz de pruebas
 
@@ -564,8 +563,6 @@ externo durante esta ejecución.
 | API/worker aislados, health/readiness y RLS         | PASS                                                                                  |
 | Logs redactados y métricas sin PII                  | PASS                                                                                  |
 | Bash `-n`, ShellCheck 0.10.0 y actionlint 1.7.7     | PASS                                                                                  |
-| Persistencia PM2 real 7.0.4                         | PASS                                                                                  |
-| Runtime-isolation, rollback y legacy-cutover smokes | PASS — 3 escenarios Docker aislados; rollback incluye PM2 real 7.0.4                  |
 | Corrida local Full final                            | PASS — 400.977 s, `failedStep: null`, cleanup completo                                |
 | Secretos runtime API/worker en Vault compartido     | BLOCKED — ambos `NOT_FOUND`; write `ACCESS_DENIED`                                    |
 | LOGINs API/worker en base compartida                | BLOCKED — depende de los secretos anteriores                                          |
@@ -705,9 +702,7 @@ La implementación se distribuye en los siguientes grupos:
   validadores PostgreSQL, Vault, API/worker runtime, migration authority y
   provisioning policy;
 - infraestructura/CI/deploy: `infra/cfdi-phase0/**`,
-  `.github/workflows/cfdi-phase0-validation.yml`,
-  `.github/workflows/deploy-dev.yml`, `ecosystem.config.cjs`, `.gitattributes`
-  y `scripts/deploy/**`;
+  `.github/workflows/deploy-dev.yml`, `ecosystem.config.cjs` y `.gitattributes`;
 - toolchain y locks reproducibles: `package.json`, `package-lock.json` y
   `bun.lock`;
 - alineación no funcional del orden del contrato de permisos web:
@@ -767,14 +762,6 @@ npm audit --audit-level=moderate
 npm audit --omit=dev --audit-level=moderate
 
 actionlint -no-color
-bash -n scripts/deploy/*.sh
-shellcheck scripts/deploy/*.sh
-node scripts/deploy/validate-ecosystem.cjs \
-  ecosystem.config.cjs apps/api current
-bash scripts/deploy/smoke-runtime-isolation.sh
-bash scripts/deploy/smoke-pm2-persistence.sh
-bash scripts/deploy/smoke-rollback.sh
-bash scripts/deploy/smoke-legacy-cutover.sh
 ```
 
 Las corridas destructivas se limitaron a bases, esquemas, contenedores y
@@ -839,12 +826,10 @@ Limpieza aplicada:
   en la comprobación de capacidad de ClamAV. No se encontró configuración SAT
   operativa adicional que retirar.
 
-Se conservan los tres scripts de cutover: la condición de retirada exige una
-transición del host completada y documentada, que esta revisión no acredita.
-Tampoco se retira el adapter local, usado en desarrollo/pruebas. Worker, RLS,
-Redis, S3, ClamAV, migraciones y pruebas permanecen; XSD/parser de Fase 1 no
-forman parte de este árbol. La consolidación del deploy se mantiene para después
-de estabilizar la transición, conservando rollback y limpieza de credenciales.
+Los scripts transitorios de cutover y los smokes específicos de infraestructura
+se retiraron al mover esa responsabilidad a Terraform/Ansible. El adapter local
+permanece porque sigue siendo usado en desarrollo y pruebas. Worker, RLS, Redis,
+S3, ClamAV, migraciones y sus pruebas funcionales permanecen.
 
 Validación incremental ejecutada con Node 24.19.0:
 

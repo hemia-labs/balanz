@@ -11,6 +11,9 @@ description: >
 
 ## Objetivo
 
+Antes de modificar `apps/web`, leer y cumplir `../../../AGENTS.md` y
+`../../../apps/web/AGENTS.md`. Esta skill complementa esas reglas y no puede relajarlas.
+
 Construir UI de producto documental B2B: clara, densa, confiable y rápida de escanear.
 El sistema es solo light mode. No crear dark mode, clases `dark:*`, toggles de tema ni variantes oscuras.
 

@@ -13,7 +13,7 @@ concurrency:
 
 env:
   DEPLOY_ROOT: /srv/apps/balanz
-  DEPLOY_USER: balanz-deploy
+  DEPLOY_USER: deploy
   NEXT_PUBLIC_API_URL: https://api-contable.hemia.dev/api/v1
   RELEASE_ID: ${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
   RELEASE_DIR: /srv/apps/balanz/releases/${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
@@ -35,7 +35,7 @@ jobs:
         with:
           bun-version: 1.3.2
 
-      - name: Install dependencies without lifecycle scripts
+      - name: Install dependencies
         run: bun install --frozen-lockfile --ignore-scripts
 
       - name: Validate frontend
@@ -45,86 +45,12 @@ jobs:
           bun run --cwd apps/web test
 
       - name: Validate backend
-        run: bun run --cwd apps/api test --runInBand
+        run: |
+          bun run --cwd apps/api lint
+          bun run --cwd apps/api test --runInBand
 
       - name: Build applications
         run: bun run build
-
-      - name: Validate release and rollback controls
-        run: |
-          node scripts/deploy/validate-ecosystem.cjs \
-            ecosystem.config.cjs \
-            "$GITHUB_WORKSPACE/apps/api" \
-            current
-          smoke_image="balanz/deploy-smoke:phase0-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
-          smoke_run_key="github-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
-          smoke_image_owned=false
-          smoke_image_id=
-          cleanup_smoke_image() {
-            original_status=$?
-            trap - EXIT
-            if [[ "$smoke_image_owned" == true ]] && \
-              docker image inspect "$smoke_image" >/dev/null 2>&1; then
-              actual_owner=$(docker image inspect \
-                --format '{{ index .Config.Labels "com.balanz.validation.run" }}' \
-                "$smoke_image")
-              actual_id=$(docker image inspect --format '{{.Id}}' "$smoke_image")
-              if [[ "$actual_owner" != "$smoke_run_key" ]] || \
-                [[ -z "$smoke_image_id" ]] || \
-                [[ "$actual_id" != "$smoke_image_id" ]]; then
-                echo 'Refusing to remove a deployment smoke image owned by another run' >&2
-                original_status=1
-              elif ! docker image rm "$smoke_image" >/dev/null; then
-                echo 'Deployment smoke image cleanup failed' >&2
-                original_status=1
-              elif docker image inspect "$smoke_image" >/dev/null 2>&1 || \
-                docker image inspect "$smoke_image_id" >/dev/null 2>&1; then
-                echo 'Deployment smoke image remained after cleanup' >&2
-                original_status=1
-              fi
-            fi
-            exit "$original_status"
-          }
-          trap cleanup_smoke_image EXIT
-          if docker image inspect "$smoke_image" >/dev/null 2>&1; then
-            echo 'Deployment smoke image tag already exists' >&2
-            exit 73
-          fi
-          smoke_image_owned=true
-          docker build \
-            --tag "$smoke_image" \
-            --label "com.balanz.validation.run=$smoke_run_key" \
-            --file infra/cfdi-phase0/deploy-smoke/Dockerfile \
-            infra/cfdi-phase0/deploy-smoke
-          smoke_image_id=$(docker image inspect --format '{{.Id}}' "$smoke_image")
-          [[ "$smoke_image_id" == sha256:* ]]
-          [[ "$(docker image inspect \
-            --format '{{ index .Config.Labels "com.balanz.validation.run" }}' \
-            "$smoke_image")" == "$smoke_run_key" ]]
-          docker run --rm \
-            --network none \
-            --user 0:0 \
-            --env BALANZ_DISPOSABLE_CONTAINER=phase0-runtime-isolation-v1 \
-            --mount "type=bind,source=$GITHUB_WORKSPACE,target=/workspace,readonly" \
-            --workdir /workspace \
-            "$smoke_image" \
-            bash scripts/deploy/smoke-runtime-isolation.sh
-          docker run --rm \
-            --network none \
-            --user 0:0 \
-            --env BALANZ_DISPOSABLE_CONTAINER=phase0-runtime-isolation-v1 \
-            --mount "type=bind,source=$GITHUB_WORKSPACE,target=/workspace,readonly" \
-            --workdir /workspace \
-            "$smoke_image" \
-            bash scripts/deploy/smoke-rollback.sh
-          docker run --rm \
-            --network none \
-            --user 0:0 \
-            --env BALANZ_DISPOSABLE_CONTAINER=phase0-runtime-isolation-v1 \
-            --mount "type=bind,source=$GITHUB_WORKSPACE,target=/workspace,readonly" \
-            --workdir /workspace \
-            "$smoke_image" \
-            bash scripts/deploy/smoke-legacy-cutover.sh
 
       - name: Configure SSH
         env:
@@ -142,14 +68,15 @@ jobs:
       - name: Prepare release directory
         run: |
           ssh -i ~/.ssh/vps-deploy "$DEPLOY_USER@$VPS_HOST" bash -s -- "$RELEASE_DIR" "$DEPLOY_ROOT" <<'REMOTE'
-          set -euo pipefail
+          set -Eeuo pipefail
           release_dir=$1
           deploy_root=$2
           case "$release_dir" in
             "$deploy_root"/releases/*) ;;
             *) echo "release path is outside the deployment root" >&2; exit 72 ;;
           esac
-          install -d -m 0700 -- "$deploy_root/releases" "$release_dir" "$release_dir/apps" "$release_dir/apps/api"
+          test -d "$deploy_root/releases" "$deploy_root/shared"
+          install -d -m 0700 -- "$release_dir"
           REMOTE
 
       - name: Upload release
@@ -164,114 +91,131 @@ jobs:
             -e "ssh -i $HOME/.ssh/vps-deploy" \
             ./ "$DEPLOY_USER@$VPS_HOST:$RELEASE_DIR/"
 
-      - name: Reject unsafe release links before dependency installation
-        run: |
-          ssh -i ~/.ssh/vps-deploy "$DEPLOY_USER@$VPS_HOST" \
-            "bash '$RELEASE_DIR/scripts/deploy/prepare-runtime-isolation.sh' '$RELEASE_DIR' '$DEPLOY_ROOT'"
-
-      - name: Install release dependencies without lifecycle scripts
-        run: |
-          ssh -i ~/.ssh/vps-deploy "$DEPLOY_USER@$VPS_HOST" bash -s -- "$RELEASE_DIR" <<'REMOTE'
-          set -euo pipefail
-          release_dir=$1
-          test -x /usr/local/bin/bun && test ! -L /usr/local/bin/bun || {
-            echo "System Bun 1.3.2 must be installed on the VPS" >&2
-            exit 1
-          }
-          test "$(/usr/local/bin/bun --version)" = "1.3.2" || {
-            echo "The VPS must use system Bun 1.3.2" >&2
-            exit 1
-          }
-          if find -P "$release_dir/apps/api" -mindepth 1 -maxdepth 1 -name '.env*' \
-            -print -quit | grep -q .; then
-            echo "release contains an environment file before dependency installation" >&2
-            exit 74
-          fi
-          cd "$release_dir"
-          /usr/local/bin/bun install --frozen-lockfile --ignore-scripts
-          chmod 0700 -- "$release_dir" "$release_dir/apps" "$release_dir/apps/api"
-          REMOTE
-
-      - name: Revalidate release links and runtime isolation after installation
-        run: |
-          ssh -i ~/.ssh/vps-deploy "$DEPLOY_USER@$VPS_HOST" \
-            "bash '$RELEASE_DIR/scripts/deploy/prepare-runtime-isolation.sh' '$RELEASE_DIR' '$DEPLOY_ROOT'"
-
-      - name: Validate release topology before forward migrations
-        run: |
-          ssh -i ~/.ssh/vps-deploy "$DEPLOY_USER@$VPS_HOST" \
-            "bash '$RELEASE_DIR/scripts/deploy/preflight-release-topology.sh' '$RELEASE_DIR' '$DEPLOY_ROOT'"
-
-      - name: Quiesce the audited legacy runtime before staging credentials
-        run: |
-          ssh -i ~/.ssh/vps-deploy "$DEPLOY_USER@$VPS_HOST" \
-            "bash '$RELEASE_DIR/scripts/deploy/quiesce-legacy-release.sh' '$RELEASE_DIR' '$DEPLOY_ROOT'"
-
-      - name: Stage least-privilege runtime configuration
+      - name: Upload runtime configuration
         env:
           API_ENV: ${{ secrets.BALANZ_API_ENV }}
           WORKER_ENV: ${{ secrets.BALANZ_WORKER_ENV }}
+          MIGRATION_ENV: ${{ secrets.BALANZ_MIGRATION_ENV }}
         run: |
           test -n "$API_ENV"
           test -n "$WORKER_ENV"
-          printf '%s\n' "$API_ENV" | ssh -i ~/.ssh/vps-deploy "$DEPLOY_USER@$VPS_HOST" \
-            "bash '$RELEASE_DIR/scripts/deploy/write-secret-file.sh' '$RELEASE_DIR' '$DEPLOY_ROOT' api"
-          printf '%s\n' "$WORKER_ENV" | ssh -i ~/.ssh/vps-deploy "$DEPLOY_USER@$VPS_HOST" \
-            "bash '$RELEASE_DIR/scripts/deploy/write-secret-file.sh' '$RELEASE_DIR' '$DEPLOY_ROOT' worker"
-
-      - name: Pause the managed worker before forward migrations
-        run: |
-          ssh -i ~/.ssh/vps-deploy "$DEPLOY_USER@$VPS_HOST" \
-            "bash '$RELEASE_DIR/scripts/deploy/pause-managed-worker.sh' '$RELEASE_DIR' '$DEPLOY_ROOT'"
-
-      - name: Run migrations with ephemeral credentials
-        env:
-          MIGRATION_ENV: ${{ secrets.BALANZ_MIGRATION_ENV }}
-        run: |
           test -n "$MIGRATION_ENV"
-          migration_status=0
-          printf '%s\n' "$MIGRATION_ENV" | ssh -i ~/.ssh/vps-deploy "$DEPLOY_USER@$VPS_HOST" \
-            "bash '$RELEASE_DIR/scripts/deploy/run-release-migrations.sh' '$RELEASE_DIR' '$DEPLOY_ROOT'" || migration_status=$?
 
-          cleanup_status=0
-          ssh -i ~/.ssh/vps-deploy "$DEPLOY_USER@$VPS_HOST" \
-            "bash '$RELEASE_DIR/scripts/deploy/cleanup-release-migration-credentials.sh' '$RELEASE_DIR' '$DEPLOY_ROOT'" || cleanup_status=$?
-          if (( cleanup_status != 0 )); then
-            echo "Migration credential cleanup could not be verified" >&2
-            exit "$cleanup_status"
-          fi
-          if (( migration_status != 0 )); then
-            exit "$migration_status"
-          fi
+          upload_secret() {
+            value=$1
+            profile=$2
+            temporary="$DEPLOY_ROOT/shared/.$profile.env.$RELEASE_ID"
+            target="$DEPLOY_ROOT/shared/$profile.env"
+            printf '%s\n' "$value" | ssh -i ~/.ssh/vps-deploy "$DEPLOY_USER@$VPS_HOST" \
+              "set -Eeuo pipefail; umask 077; cat > '$temporary'; test -s '$temporary'; chmod 0600 -- '$temporary'; mv -f -- '$temporary' '$target'"
+          }
 
-      - name: Prove previous API compatibility with the forward schema
+          upload_secret "$API_ENV" api
+          upload_secret "$WORKER_ENV" worker
+          upload_secret "$MIGRATION_ENV" migration
+
+      - name: Install and activate release
         run: |
-          ssh -i ~/.ssh/vps-deploy "$DEPLOY_USER@$VPS_HOST" \
-            "bash '$RELEASE_DIR/scripts/deploy/verify-rollback-api-compatibility.sh' '$RELEASE_DIR' '$DEPLOY_ROOT'"
+          ssh -i ~/.ssh/vps-deploy "$DEPLOY_USER@$VPS_HOST" bash -s -- "$RELEASE_DIR" "$DEPLOY_ROOT" <<'REMOTE'
+          set -Eeuo pipefail
+          release_dir=$1
+          deploy_root=$2
+          current_link="$deploy_root/current"
+          next_link="$deploy_root/current.next"
+          rollback_link="$deploy_root/current.rollback"
+          migration_env="$deploy_root/shared/migration.env"
+          previous_release=
+          worker_paused=false
+          activated=false
 
-      - name: Activate release with automatic rollback
-        run: |
-          ssh -i ~/.ssh/vps-deploy "$DEPLOY_USER@$VPS_HOST" \
-            "bash '$RELEASE_DIR/scripts/deploy/activate-release.sh' '$RELEASE_DIR' '$DEPLOY_ROOT'"
+          source "$HOME/.nvm/nvm.sh"
+          export PATH="$HOME/.bun/bin:$PATH"
+          command -v bun >/dev/null
+          command -v pm2 >/dev/null
 
-      - name: Verify remote migration credential cleanup
+          if [[ -L $current_link ]]; then
+            previous_release=$(readlink -f -- "$current_link")
+            [[ $previous_release == "$deploy_root"/releases/* && -d $previous_release ]]
+          elif [[ -e $current_link ]]; then
+            echo "current release path must be absent or a symbolic link" >&2
+            exit 72
+          fi
+
+          probe() {
+            curl --fail --silent --show-error \
+              --retry 10 --retry-connrefused --retry-delay 2 \
+              --connect-timeout 2 --max-time 5 "$1" >/dev/null
+          }
+
+          restore_previous() {
+            if [[ -n $previous_release ]]; then
+              ln -sfn -- "$previous_release" "$rollback_link"
+              mv -Tf -- "$rollback_link" "$current_link"
+              cd "$previous_release"
+              pm2 delete balanz-worker-dev >/dev/null 2>&1 || true
+              pm2 startOrReload ecosystem.config.cjs --update-env
+              probe http://127.0.0.1:5181/
+              probe http://127.0.0.1:3021/api/v1
+              pm2 save
+            else
+              pm2 delete balanz-web-dev balanz-api-dev balanz-worker-dev >/dev/null 2>&1 || true
+              pm2 save --force >/dev/null 2>&1 || true
+              rm -f -- "$current_link"
+            fi
+          }
+
+          finish() {
+            status=$?
+            trap - EXIT HUP INT TERM
+            rm -f -- "$migration_env" "$next_link" "$rollback_link"
+            if [[ $status -ne 0 && ( $worker_paused == true || $activated == true ) ]]; then
+              echo "deployment failed; restoring the previous release" >&2
+              restore_previous || status=75
+            fi
+            exit "$status"
+          }
+          trap finish EXIT
+          trap 'exit 129' HUP
+          trap 'exit 130' INT
+          trap 'exit 143' TERM
+
+          cd "$release_dir"
+          bun install --frozen-lockfile --ignore-scripts
+
+          if pm2 describe balanz-worker-dev >/dev/null 2>&1; then
+            worker_paused=true
+            pm2 stop balanz-worker-dev
+            pm2 save
+          fi
+
+          test -s "$migration_env"
+          cd "$release_dir/apps/api"
+          bun --env-file="$migration_env" run release:prepare
+          rm -f -- "$migration_env"
+
+          ln -s -- "$release_dir" "$next_link"
+          mv -Tf -- "$next_link" "$current_link"
+          activated=true
+
+          cd "$release_dir"
+          pm2 startOrReload ecosystem.config.cjs --update-env
+          probe http://127.0.0.1:5181/
+          probe http://127.0.0.1:3021/liveness
+          probe http://127.0.0.1:3021/readiness
+          probe http://127.0.0.1:3002/liveness
+          probe http://127.0.0.1:3002/readiness
+          pm2 save
+
+          worker_paused=false
+          activated=false
+          trap - EXIT HUP INT TERM
+          REMOTE
+
+      - name: Remove temporary credentials and SSH key
         if: always()
         run: |
-          if [[ ! -f ~/.ssh/vps-deploy ]]; then
-            exit 0
+          if [[ -f ~/.ssh/vps-deploy ]]; then
+            ssh -i ~/.ssh/vps-deploy "$DEPLOY_USER@$VPS_HOST" \
+              "rm -f -- '$DEPLOY_ROOT/shared/migration.env' '$DEPLOY_ROOT/shared/.migration.env.$RELEASE_ID' '$DEPLOY_ROOT/shared/.api.env.$RELEASE_ID' '$DEPLOY_ROOT/shared/.worker.env.$RELEASE_ID'" || true
+            rm -f -- ~/.ssh/vps-deploy
           fi
-          ssh -i ~/.ssh/vps-deploy "$DEPLOY_USER@$VPS_HOST" \
-            "if [ -d '$DEPLOY_ROOT/runtime-config/$RELEASE_ID/migrator' ]; then bash '$RELEASE_DIR/scripts/deploy/cleanup-release-migration-credentials.sh' '$RELEASE_DIR' '$DEPLOY_ROOT'; fi"
-
-      - name: Remove runtime credentials from an inactive release
-        if: always()
-        run: |
-          if [[ ! -f ~/.ssh/vps-deploy ]]; then
-            exit 0
-          fi
-          ssh -i ~/.ssh/vps-deploy "$DEPLOY_USER@$VPS_HOST" \
-            "if [ -f '$RELEASE_DIR/scripts/deploy/cleanup-inactive-release-runtime-credentials.sh' ] && [ -d '$DEPLOY_ROOT/runtime-config/$RELEASE_ID' ]; then bash '$RELEASE_DIR/scripts/deploy/cleanup-inactive-release-runtime-credentials.sh' '$RELEASE_DIR' '$DEPLOY_ROOT'; fi"
-
-      - name: Remove deploy key
-        if: always()
-        run: rm -f -- ~/.ssh/vps-deploy

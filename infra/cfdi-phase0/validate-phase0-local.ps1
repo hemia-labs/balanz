@@ -55,7 +55,6 @@ $workerDatabaseUser = 'balanz_phase0_worker_login'
 $minioRootUser = 'balanz_phase0'
 $minioAppUser = 'balanz_cfdi_app'
 $minioBucket = 'balanz-cfdi-phase0-test'
-$deploySmokeImage = "balanz/deploy-smoke:$ProjectName"
 $minioValidationImage = "balanz/minio:cfdi-phase0-$ProjectName"
 $startedAt = [DateTime]::UtcNow
 $currentStep = 'preflight'
@@ -66,7 +65,6 @@ $storageRootOwnedByThisRun = $false
 $vaultTlsRootOwnedByThisRun = $false
 $runtimeEnvRootOwnedByThisRun = $false
 $localImageNamespaceOwnedByThisRun = $false
-$deploySmokeImageId = $null
 $minioValidationImageId = $null
 $vaultContainerId = $null
 $effectiveStorageRoot = $null
@@ -119,9 +117,6 @@ $summary = [ordered]@{
   vaultPrivateKeyExport = 'NOT_RUN'
   vaultPolicyIsolation = 'NOT_RUN'
   releaseProcessDefinition = 'NOT_RUN'
-  deployRuntimeIsolationSmoke = 'NOT_RUN'
-  deployRollbackSmoke = 'NOT_RUN'
-  deployLegacyCutoverSmoke = 'NOT_RUN'
   localBuildImages = 'NOT_RUN'
   nonSuperMigratorNegative = 'NOT_RUN'
   runtimeLogins = 'NOT_RUN'
@@ -1083,7 +1078,6 @@ function Assert-ComposeResourceOwnership {
       'clamav',
       'vault-tls-init',
       'vault',
-      'deploy-control-smoke',
       'runtime-storage-init',
       'api',
       'worker'
@@ -1882,21 +1876,18 @@ function Assert-ReleaseProcessDefinition {
 const path = require('node:path');
 const configPath = path.resolve(process.argv[1]);
 const repositoryRoot = path.dirname(configPath);
+const apiRoot = path.join(repositoryRoot, 'apps', 'api');
 const config = require(configPath);
 const api = config.apps?.find(({ name }) => name === 'balanz-api-dev');
 const worker = config.apps?.find(({ name }) => name === 'balanz-worker-dev');
 const valid =
   api && worker &&
-  path.resolve(api.cwd) === repositoryRoot &&
-  path.resolve(worker.cwd) === repositoryRoot &&
-  api.script === 'scripts/deploy/run-isolated-runtime.sh' &&
-  worker.script === 'scripts/deploy/run-isolated-runtime.sh' &&
-  api.args === 'api' &&
-  worker.args === 'worker' &&
-  api.interpreter === '/bin/bash' &&
-  worker.interpreter === '/bin/bash' &&
-  !api.node_args &&
-  !worker.node_args &&
+  path.resolve(api.cwd) === apiRoot &&
+  path.resolve(worker.cwd) === apiRoot &&
+  api.script === 'dist/main.js' &&
+  worker.script === 'dist/worker.js' &&
+  api.node_args === '--env-file=/srv/apps/balanz/shared/api.env' &&
+  worker.node_args === '--env-file=/srv/apps/balanz/shared/worker.env' &&
   ![api.script, api.args, api.node_args, worker.script, worker.args, worker.node_args]
     .filter(Boolean)
     .some(value => /migrat|seed|release:prepare/i.test(String(value)));
@@ -3068,7 +3059,6 @@ try {
     WORKER_HEALTH_PORT = [string]$ports.WORKER_HEALTH_PORT
     CFDI_WORKSPACE_ROOT = $workspace
     CFDI_VALIDATION_RUN_ID = $ProjectName
-    CFDI_DEPLOY_SMOKE_IMAGE = $deploySmokeImage
     RUNTIME_API_ENV_FILE = (Join-Path $runtimeEnvRoot '.env.api')
     RUNTIME_WORKER_ENV_FILE = (Join-Path $runtimeEnvRoot '.env.worker')
   }
@@ -3105,7 +3095,7 @@ try {
       throw "The selected ProjectName already owns Docker $kind resources"
     }
   }
-  foreach ($imageTag in @($deploySmokeImage, $minioValidationImage)) {
+  foreach ($imageTag in @($minioValidationImage)) {
     if (@(Get-ExactDockerImageIds -ImageTag $imageTag).Count -gt 0) {
       throw 'The selected ProjectName already owns a local validation image'
     }
@@ -3179,62 +3169,6 @@ try {
     docker compose @composeArguments config --quiet
   }
   $stackOwnedByThisRun = $true
-  if ($ValidationMode -eq 'Full') {
-    $null = Invoke-CapturedExternal `
-      -Step 'deploy-control-smoke-build' `
-      -FilePath 'docker' `
-      -Arguments (@('compose') + $composeArguments + @(
-        'build',
-        'deploy-control-smoke'
-      )) `
-      -SanitizeFailureOutput
-    $deploySmokeImageId = Assert-LocalBuildImageOwnership `
-      -ImageTag $deploySmokeImage `
-      -Service 'deploy-control-smoke'
-    $null = Invoke-CapturedExternal `
-      -Step 'deploy-runtime-isolation-smoke' `
-      -FilePath 'docker' `
-      -Arguments (@('compose') + $composeArguments + @(
-        'run',
-        '--rm',
-        '--no-deps',
-        'deploy-control-smoke',
-        'bash',
-        'scripts/deploy/smoke-runtime-isolation.sh'
-      )) `
-      -SanitizeFailureOutput
-    $summary.deployRuntimeIsolationSmoke = 'PASS'
-    $null = Invoke-CapturedExternal `
-      -Step 'deploy-rollback-smoke' `
-      -FilePath 'docker' `
-      -Arguments (@('compose') + $composeArguments + @(
-        'run',
-        '--rm',
-        '--no-deps',
-        'deploy-control-smoke',
-        'bash',
-        'scripts/deploy/smoke-rollback.sh'
-      )) `
-      -SanitizeFailureOutput
-    $summary.deployRollbackSmoke = 'PASS'
-    $null = Invoke-CapturedExternal `
-      -Step 'deploy-legacy-cutover-smoke' `
-      -FilePath 'docker' `
-      -Arguments (@('compose') + $composeArguments + @(
-        'run',
-        '--rm',
-        '--no-deps',
-        'deploy-control-smoke',
-        'bash',
-        'scripts/deploy/smoke-legacy-cutover.sh'
-      )) `
-      -SanitizeFailureOutput
-    $summary.deployLegacyCutoverSmoke = 'PASS'
-  } else {
-    $summary.deployRuntimeIsolationSmoke = 'SKIPPED_FOCAL'
-    $summary.deployRollbackSmoke = 'SKIPPED_FOCAL'
-    $summary.deployLegacyCutoverSmoke = 'SKIPPED_FOCAL'
-  }
   $infrastructureServices = if ($vaultOnly) {
     @('vault')
   } else {
@@ -3276,9 +3210,6 @@ try {
     $minioValidationImageId = Assert-LocalBuildImageOwnership `
       -ImageTag $minioValidationImage `
       -Service 'minio'
-    if ($ValidationMode -eq 'Full' -and -not $deploySmokeImageId) {
-      throw 'The Full validator did not record its deploy smoke image'
-    }
     $summary.localBuildImages = 'PASS'
     foreach ($service in $infrastructureServices) {
       Assert-HealthyComposeService -Service $service
@@ -3594,15 +3525,10 @@ try {
       }
       if ($localImageNamespaceOwnedByThisRun) {
         Remove-OwnedLocalBuildImage `
-          -ImageTag $deploySmokeImage `
-          -Service 'deploy-control-smoke' `
-          -ExpectedImageId $deploySmokeImageId
-        Remove-OwnedLocalBuildImage `
           -ImageTag $minioValidationImage `
           -Service 'minio' `
           -ExpectedImageId $minioValidationImageId
         if (
-          @(Get-ExactDockerImageIds -ImageTag $deploySmokeImage).Count -ne 0 -or
           @(Get-ExactDockerImageIds -ImageTag $minioValidationImage).Count -ne 0
         ) {
           throw 'A project-local validation image remained after cleanup'
