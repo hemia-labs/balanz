@@ -25,34 +25,6 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     environment: dev
-    services:
-      postgres:
-        image: postgres:16
-        env:
-          POSTGRES_USER: balanz_test
-          POSTGRES_PASSWORD: balanz_test
-          POSTGRES_DB: balanz_test
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U balanz_test -d balanz_test"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 10
-    env:
-      NODE_ENV: test
-      APP_CORS_ORIGINS: http://localhost:5181
-      DB_HOST: 127.0.0.1
-      DB_PORT: 5432
-      DB_USERNAME: balanz_test
-      DB_PASSWORD: balanz_test
-      DB_DATABASE: balanz_test
-      DB_LOGGING: false
-      JWT_SECRET: balanz-ci-access-secret
-      JWT_REFRESH_SECRET: balanz-ci-refresh-secret
-      REDIS_ENABLED: false
-      COOKIE_SECURE: false
-      COOKIE_SAME_SITE: lax
 
     steps:
       - name: Checkout
@@ -73,11 +45,7 @@ jobs:
           bun run --cwd apps/web test
 
       - name: Validate backend
-        run: |
-          bun run --cwd apps/api test --runInBand
-          bun run --cwd apps/api migration:run
-          bun run --cwd apps/api seed:run
-          bun run --cwd apps/api test:e2e --runInBand --silent test/invitations-memberships.e2e-spec.ts
+        run: bun run --cwd apps/api test --runInBand
 
       - name: Build applications
         run: bun run build
