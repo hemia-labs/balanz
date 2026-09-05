@@ -127,20 +127,32 @@ export function IngestionStatusPanel({
         title="Última carga XML"
         description={`Proceso ${activeJobId}`}
         actions={
-          dismissible && terminal ? (
+          <div className="flex flex-wrap gap-2">
             <Button
               type="button"
               size="sm"
-              variant="ghost"
-              onClick={() => {
-                clearIngestionRecovery();
-                onTerminal?.();
-              }}
+              variant="outline"
+              disabled={loading}
+              onClick={reload}
             >
-              <X className="size-4" aria-hidden="true" />
-              Ocultar
+              <RotateCcw className="size-4" aria-hidden="true" />
+              Actualizar estado
             </Button>
-          ) : undefined
+            {dismissible && terminal ? (
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                onClick={() => {
+                  clearIngestionRecovery();
+                  onTerminal?.();
+                }}
+              >
+                <X className="size-4" aria-hidden="true" />
+                Ocultar
+              </Button>
+            ) : null}
+          </div>
         }
       />
       <div className="space-y-4 p-5">

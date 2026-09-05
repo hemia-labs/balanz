@@ -10,6 +10,7 @@ import type { IngestionRecoveryScope } from "./recovery-store";
 import { saveIngestionRecovery } from "./recovery-store";
 import type { XmlUploadAccepted } from "./types";
 import { createUploadLifecycle } from "./upload-lifecycle";
+import { createXmlUploadSession } from "./upload-session";
 import {
   validateXmlSelection,
   xmlFileRejectionMessage,
@@ -35,7 +36,7 @@ export function XmlUploadDialog({
   >("idle");
   const [accepted, setAccepted] = useState<XmlUploadAccepted | null>(null);
   const lifecycle = useRef(createUploadLifecycle());
-  const idempotencyKey = useRef<string | null>(null);
+  const uploadSession = useRef(createXmlUploadSession());
   const scopeIdentity = `${scope.organizationId}:${scope.clientAccountId}:${scope.legalEntityId}`;
 
   useEffect(
@@ -52,7 +53,7 @@ export function XmlUploadDialog({
     setProgress(0);
     setStatus("idle");
     setAccepted(null);
-    idempotencyKey.current = null;
+    uploadSession.current.reset();
   };
   const close = () => {
     lifecycle.current.invalidate();
@@ -70,13 +71,14 @@ export function XmlUploadDialog({
     setRequestError(null);
     setStatus("transferring");
     setProgress(0);
-    idempotencyKey.current ??= crypto.randomUUID();
-    const upload = uploadXml({
-      legalEntityId: scope.legalEntityId,
-      file: file!,
-      idempotencyKey: idempotencyKey.current,
-      onProgress: ({ percent }) => setProgress(percent),
-    });
+    const upload = uploadSession.current.start((idempotencyKey) =>
+      uploadXml({
+        legalEntityId: scope.legalEntityId,
+        file: file!,
+        idempotencyKey,
+        onProgress: ({ percent }) => setProgress(percent),
+      }),
+    );
     const request = lifecycle.current.begin(upload);
     try {
       const result = await upload.promise;
@@ -134,7 +136,7 @@ export function XmlUploadDialog({
                       rejection ? xmlFileRejectionMessage[rejection] : null,
                     );
                     setRequestError(null);
-                    idempotencyKey.current = null;
+                    uploadSession.current.reset();
                   }}
                 />
               </label>

@@ -637,6 +637,15 @@ export class XmlUploadService {
       if (claim.outcome === 'claimed' || current.state === 'confirmed') {
         return current;
       }
+      if (current.state === 'failed') {
+        // Unlike a lost response or an active receiver lease, this durable
+        // terminal state proves that the old key cannot produce an accepted job.
+        throw cfdiHttpError(
+          HttpStatus.CONFLICT,
+          'INGESTION_UPLOAD_FAILED',
+          'La recepción anterior falló; vuelve a cargar el archivo.',
+        );
+      }
       if (!['pending', 'receiving'].includes(current.state)) {
         throw new IngestionStateConflictError('UPLOAD_NOT_CONFIRMABLE');
       }

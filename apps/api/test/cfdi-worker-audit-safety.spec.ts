@@ -8,6 +8,11 @@ import {
 import type { FiscalTenantTransactionService } from '../src/database/rls/fiscal-tenant-transaction.service';
 import type { ClaimResult } from '../src/modules/ingestion/services/ingestion-job.repository';
 import type { WorkerInput } from '../src/modules/cfdi/workers/cfdi-worker-persistence.service';
+import { Readable } from 'node:stream';
+import { CfdiQueryService } from '../src/modules/cfdi/services/cfdi-query.service';
+import type { ClientAccountScopeService } from '../src/modules/client-accounts/client-account-scope.service';
+import type { ObjectStoragePort } from '../src/modules/object-storage/ports/object-storage.port';
+import type { SessionAuthorizationContext } from '../src/modules/sessions/session.types';
 
 const XML_CANARY =
   '<cfdi:Comprobante Descripcion="SYNTHETIC_XML_AUDIT_CANARY" />';
@@ -62,6 +67,125 @@ const parsedWithCanary = {
 } as unknown as CfdiParseResult;
 
 describe('CfdiWorkerPersistenceService audit safety', () => {
+  it.each([true, false])(
+    'preserves the source but quarantines a distinct duplicate (same object: %s)',
+    async (sameObject) => {
+      const sourceId = sameObject
+        ? input.objectId
+        : 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+      const stored = {
+        object_key: input.objectKey,
+        size_bytes: String(input.sizeBytes),
+        lifecycle_state: 'available',
+        malware_scan_status: 'clean',
+        quarantine_reason_code: null as string | null,
+        retention_until: null as Date | null,
+        version: 8,
+      };
+      const before = { ...stored };
+      const query = jest.fn((sql: string, parameters?: unknown[]) => {
+        if (sql.includes('FROM legal_entities entity')) {
+          return Promise.resolve([
+            { rfc: input.legalEntityRfc, timezone: 'America/Mexico_City' },
+          ]);
+        }
+        if (sql.includes('FROM cfdis cfdi')) {
+          return Promise.resolve([
+            { id: sourceId, source_object_id: sourceId, sha256: input.sha256 },
+          ]);
+        }
+        if (sql.includes('UPDATE stored_objects')) {
+          expect(parameters?.[1]).toBe(input.objectId);
+          stored.lifecycle_state = 'quarantined';
+          stored.quarantine_reason_code = 'CFDI_DUPLICATE';
+          stored.retention_until = new Date('2030-01-01T00:00:00.000Z');
+          stored.version += 1;
+          return Promise.resolve([]);
+        }
+        if (sql.includes('FROM cfdi_access_grants')) {
+          return Promise.resolve([
+            {
+              id: sourceId,
+              client_account_id: claim.clientAccountId,
+              legal_entity_id: claim.legalEntityId,
+              object_id: input.objectId,
+            },
+          ]);
+        }
+        if (sql.includes('FROM stored_objects'))
+          return Promise.resolve([stored]);
+        if (sql.includes('SELECT id FROM'))
+          return Promise.resolve([{ id: claim.jobId }]);
+        if (
+          sql.includes('pg_advisory_xact_lock') ||
+          sql.includes('UPDATE ingestion_items') ||
+          sql.includes('INSERT INTO audit_events')
+        )
+          return Promise.resolve([]);
+        throw new Error(`Unexpected duplicate query: ${sql}`);
+      });
+      const manager = { query } as unknown as EntityManager;
+      const run = (
+        _scope: unknown,
+        work: (manager: EntityManager) => Promise<unknown>,
+      ) => work(manager);
+      const transactions = {
+        run,
+        runAsWorker: run,
+      } as unknown as FiscalTenantTransactionService;
+      const config = {
+        getOrThrow: () => ({
+          retention: {
+            duplicateBytesHours: 24,
+            invalidObjectDays: 30,
+            malwareQuarantineDays: 30,
+          },
+          storage: { signedUrlTtlSeconds: 60 },
+        }),
+        get: () => 'api/v1',
+      } as unknown as ConfigService;
+      const service = new CfdiWorkerPersistenceService(transactions, config);
+
+      // Another retry was queued before the first one published this source.
+      await expect(
+        service.publishParsed(claim, input, parsedWithCanary),
+      ).resolves.toEqual({
+        completion: 'completed',
+        result: 'duplicate',
+      });
+      if (!sameObject) {
+        expect(stored.lifecycle_state).toBe('quarantined');
+        expect(stored.quarantine_reason_code).toBe('CFDI_DUPLICATE');
+        expect(stored.retention_until).not.toBeNull();
+        return;
+      }
+      expect(stored).toEqual(before);
+      const stream = Readable.from('<xml/>');
+      const storage = { openReadStream: jest.fn().mockResolvedValue(stream) };
+      const access = new CfdiQueryService(
+        transactions,
+        {
+          requireAccessibleAccountWithManager: jest.fn().mockResolvedValue({}),
+        } as unknown as ClientAccountScopeService,
+        storage as unknown as ObjectStoragePort,
+        config,
+      );
+      await expect(
+        access.consumeAccessGrant(
+          sourceId,
+          'a'.repeat(43),
+          {
+            organizationId: claim.organizationId,
+            membershipId: claim.requestedByMembershipId,
+            sessionId: claim.jobId,
+          } as SessionAuthorizationContext,
+          { correlationId: claim.correlationId, ipAddress: '127.0.0.1' },
+        ),
+      ).resolves.toEqual({ stream, sizeBytes: input.sizeBytes });
+      expect(storage.openReadStream).toHaveBeenCalledWith(input.objectKey);
+    },
+  );
+
   it('publishes an allowlisted audit event without XML or object-key data', async () => {
     const calls: Array<{ sql: string; parameters?: unknown[] }> = [];
     const manager = {

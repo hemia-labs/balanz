@@ -1085,8 +1085,10 @@ export class IngestionIdempotencyRepository {
       if (!input.uploadId || !input.rootObjectId) {
         throw new JobInputConflictError();
       }
-      const rows = await manager.query<Array<{ id: string }>>(
-        `SELECT upload.id
+      const rows = await manager.query<
+        Array<{ id: string; lifecycle_state: string }>
+      >(
+        `SELECT upload.id, object.lifecycle_state
            FROM ingestion_uploads AS upload
            INNER JOIN stored_objects AS object
              ON object.organization_id = upload.organization_id
@@ -1113,6 +1115,16 @@ export class IngestionIdempotencyRepository {
         ],
       );
       if (rows.length !== 1) throw new JobInputConflictError();
+      // Check under the object lock, after idempotency replay: a lost response
+      // can recover an accepted retry, but a new key cannot reprocess XML that
+      // another retry already published. The worker also protects old queued retries.
+      if (
+        input.sourceType === 'manual_xml' &&
+        input.retryOfJobId &&
+        rows[0].lifecycle_state === 'available'
+      ) {
+        throw new JobInputConflictError();
+      }
       return;
     }
 

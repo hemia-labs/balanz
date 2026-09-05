@@ -254,6 +254,52 @@ function setup(options?: {
 }
 
 describe('XmlUploadService', () => {
+  it('identifies a definitively failed receiver so the client can renew its key', async () => {
+    const dependencies = setup();
+    const failed = {
+      ...dependencies.intentValue,
+      state: 'failed',
+      receiverVersion: null,
+    };
+    dependencies.idempotency.createUploadIntent.mockResolvedValueOnce({
+      outcome: 'replayed',
+      value: failed,
+    });
+    dependencies.idempotency.claimUploadReceiver.mockResolvedValueOnce({
+      outcome: 'busy',
+      value: failed,
+    });
+
+    await expectHttpError(
+      dependencies.service.upload(
+        ids.entity,
+        'cancelled-receiver-key',
+        multipartRequest([
+          { filename: 'invoice.xml', value: '<Comprobante />' },
+        ]),
+        tenant,
+        requestContext,
+      ),
+      409,
+      'INGESTION_UPLOAD_FAILED',
+    );
+    expect(dependencies.storage.putStream).not.toHaveBeenCalled();
+    expect(dependencies.idempotency.createJob).not.toHaveBeenCalled();
+
+    await expect(
+      dependencies.service.upload(
+        ids.entity,
+        'renewed-receiver-key',
+        multipartRequest([
+          { filename: 'invoice.xml', value: '<Comprobante />' },
+        ]),
+        tenant,
+        requestContext,
+      ),
+    ).resolves.toMatchObject({ jobId: ids.job });
+    expect(dependencies.idempotency.createJob).toHaveBeenCalledTimes(1);
+  });
+
   it('streams one XML and returns the durable 202 representation', async () => {
     const dependencies = setup();
     const xml = '<?xml version="1.0"?><Comprobante />';

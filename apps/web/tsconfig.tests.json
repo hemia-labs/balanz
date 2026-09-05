@@ -48,6 +48,8 @@
     "src/features/ingestions/types.test.ts",
     "src/features/ingestions/upload-lifecycle.ts",
     "src/features/ingestions/upload-lifecycle.test.ts",
+    "src/features/ingestions/upload-session.test.ts",
+    "src/features/ingestions/ingestion-job-poller.test.ts",
     "src/features/cfdi/exact-decimal.ts",
     "src/features/cfdi/exact-decimal.test.ts",
     "src/features/cfdi/cfdi-list-query.ts",

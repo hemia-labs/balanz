@@ -4,6 +4,7 @@ Las secciones 1–16 conservan la evidencia y los bloqueos del cierre anterior.
 La integración posterior con las PR #16/#17 y su validación incremental se
 registran en la sección 17. La sección 18 documenta la retirada del workflow
 CFDI por solicitud del equipo y la validación local que permanece pendiente.
+La sección 19 registra las correcciones a los tres comentarios de PR #18.
 
 ## 1. Resultado ejecutivo
 
@@ -639,3 +640,43 @@ Este ajuste se verifica con parseo del YAML restante, comprobación del trigger
 de despliegue y ausencia de dependencias al workflow retirado, además de
 `git diff --check`. No ejecuta la infraestructura ni consume minutos CI.
 `TD-004` continúa abierto y no se autoriza merge/despliegue.
+
+## 19. Comentarios de PR #18 — 2026-09-04
+
+Los tres hallazgos de la revisión sobre `b723c8e` aplican:
+
+- **Original puesto en cuarentena por un duplicado (P1).** La consulta del
+  worker incluye `source_object_id`. Si coincide con el objeto del retry,
+  publica el resultado duplicado sin cambiar estado, retención ni versión
+  del original; una copia distinta conserva la cuarentena de duplicado.
+  La admisión de un nuevo retry XML rechaza un objeto ya `available` bajo su
+  bloqueo de fila, después de resolver el replay de idempotencia. La misma
+  clave puede recuperar el retry aceptado, pero otra clave no reprocesa el
+  XML ya incorporado. El guard del worker protege retries previamente encolados.
+- **Carga cancelada que no se recupera (P2).** El API distingue una recepción
+  durable `failed` con `409 INGESTION_UPLOAD_FAILED`. El diálogo conserva la
+  clave ante cancelación, timeout o error de red y, al volver a cargar el mismo
+  archivo, recupera con esa clave primero. Sólo tras aquel fallo confirmado
+  genera otra clave y repite la transferencia, una vez por submit. Cancelar o
+  abandonar el scope aborta también esa transferencia de recuperación.
+- **Polling detenido por un fallo temporal (P2).** La sesión de polling usada
+  por el hook reintenta errores de red/timeout, 408, 429 y 5xx con esperas de
+  2, 4, 8, 16 y como máximo 30 segundos. Recupera también items terminales,
+  conserva ETag y limpia el error después de un 304 exitoso. Ante 401/403/404
+  detiene consultas y retira los datos anteriores. El panel ofrece
+  «Actualizar estado» con `reload`.
+
+Validación local: API 62 suites / 514 pruebas, build y lint de archivos
+modificados PASS. Web 94 pruebas, lint, TypeScript y build con Webpack PASS.
+`git diff --check` PASS. Las regresiones nuevas usan dobles de SQL/transporte
+y temporizadores controlados; ejercitan también la descarga por grant con
+almacenamiento simulado. No sustituyen una corrida PostgreSQL real.
+
+Docker no ofrece el engine Linux local (`dockerDesktopLinuxEngine` ausente).
+Quedan pendientes Full, integración PostgreSQL y recorrido de navegador con
+servicios reales, incluida la revisión visual en los cinco viewports.
+El workflow CI retirado permanece ausente y no se relanza.
+
+GitHub confirma PR #17 fusionada en `develop@a6ee35f`; PR #18 ahora tiene base
+`develop` y permanece en borrador. Ese merge no aporta nueva evidencia del
+aprovisionamiento runtime de `TD-004`; su validación sigue pendiente.

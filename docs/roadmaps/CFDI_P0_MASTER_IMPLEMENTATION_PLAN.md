@@ -7,7 +7,7 @@
 | Programa            | Plataforma CFDI de Balanz                                                         |
 | Fecha de corte      | 2026-09-04 (`America/Mexico_City`)                                                |
 | Rama de trabajo     | `codex/cfdi-phase1-xml`                                                           |
-| SHA base integrada  | `origin/codex/cfdis` en `c3cd1f4c5e916146c69bfa87d873038ae350480c`               |
+| Base actual de PR   | `origin/develop` en `a6ee35fc117c34bcf097c1afae2f773fc57fc3fd`                  |
 | Autoridad operativa | Este plan, los ADR vigentes y la decisión de inicio de Fase 1                     |
 | Fase en ejecución   | `PHASE_1_XML`                                                                     |
 | Desarrollo Fase 0   | `ACCEPTED`                                                                        |
@@ -698,8 +698,8 @@ requiere crear otra base de datos. La ejecución final de cierre no se declara
 
 No se acepta deuda deliberada. El reporte histórico de Fase 0 conserva la
 evidencia y terminología del cierre que documentó; no se reescribe. La decisión
-vigente separa desarrollo de release: Fase 0 está aceptada para continuar el
-desarrollo, pero no está aprobada para fusionar o desplegar.
+vigente separa desarrollo de release. PR #17 ya fue fusionada en `develop`;
+ese merge no acredita el cierre de los gates de release de Fase 0.
 
 ```text
 PHASE_0_DEVELOPMENT_STATUS: ACCEPTED
@@ -707,7 +707,7 @@ PHASE_0_RELEASE_STATUS: BLOCKED
 PHASE_0_RELEASE_GATES:
   - LOCAL_FULL_VALIDATION: PENDING - profile permissions fixed; verify current code locally
   - SHARED_VAULT_POSTGRES_RUNTIME_SECRETS: BLOCKED - API/worker NOT_FOUND
-PHASE_0_INTEGRATION_STATUS: BLOCKED
+PHASE_0_INTEGRATION_STATUS: MERGED - PR #17 in develop@a6ee35f
 PHASE_1_IMPLEMENTATION_STATUS: COMPLETE
 PHASE_1_VALIDATION_STATUS: PASS
 PHASE_1_INTEGRATION_STATUS: BLOCKED
@@ -725,11 +725,12 @@ PHASE_2_ZIP: NOT_STARTED
 ClamAV, MinIO y el recorrido manual quedaron validados en el cierre anterior. EICAR
 por worker real terminó en cuarentena sin CFDI; MFA/download y cambio de tenant
 pasaron, y el defecto TypeORM del grant quedó corregido. El detalle vive en
-`docs/qa/CFDI_PHASE_1_VALIDATION_REPORT.md`. La sección 17 registra la integración
-actual y las 510 pruebas API / 78 web ejecutadas. PR #17 está abierta y PR #18
-permanece en borrador. La sección 18 registra la retirada del workflow CFDI;
-la evidencia local pendiente debe identificar el SHA probado. Resolver conflictos
-o retirar CI no autoriza merge fuera del orden ni cierre de `TD-004`.
+`docs/qa/CFDI_PHASE_1_VALIDATION_REPORT.md`. La sección 19 registra los tres
+comentarios corregidos de PR #18 y las 514 pruebas API / 94 web ejecutadas.
+PR #17 está fusionada y PR #18 permanece en borrador con base `develop`.
+La sección 18 registra la retirada del workflow CFDI; la evidencia local
+pendiente debe identificar el SHA probado. Corregir los comentarios no
+acredita el cierre de `TD-004` ni sustituye la validación Full pendiente.
 
 ```text
 DEFERRED_PRODUCT_CAPABILITIES:

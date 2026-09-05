@@ -345,9 +345,9 @@ export class CfdiWorkerPersistenceService {
         [`${job.legalEntityId}:${normalizedUuid}`],
       );
       const existingRows = await manager.query<
-        Array<{ id: string; sha256: string }>
+        Array<{ id: string; source_object_id: string; sha256: string }>
       >(
-        `SELECT cfdi.id, object.sha256
+        `SELECT cfdi.id, cfdi.source_object_id, object.sha256
            FROM cfdis cfdi
            INNER JOIN stored_objects object
              ON object.organization_id = cfdi.organization_id
@@ -362,16 +362,24 @@ export class CfdiWorkerPersistenceService {
       const existing = existingRows[0];
       if (existing) {
         if (existing.sha256 === input.sha256) {
-          await manager.query(
-            `UPDATE stored_objects
-                SET lifecycle_state = 'quarantined',
-                    quarantine_reason_code = 'CFDI_DUPLICATE',
-                    retention_until = clock_timestamp() + make_interval(hours => $3),
-                    updated_at = clock_timestamp(),
-                    version = version + 1
-              WHERE organization_id = $1 AND id = $2`,
-            [job.organizationId, input.objectId, this.duplicateRetentionHours],
-          );
+          // Manual retries reuse the original bytes. Only a distinct copy is
+          // disposable; the published source must retain its download lifecycle.
+          if (existing.source_object_id !== input.objectId) {
+            await manager.query(
+              `UPDATE stored_objects
+                  SET lifecycle_state = 'quarantined',
+                      quarantine_reason_code = 'CFDI_DUPLICATE',
+                      retention_until = clock_timestamp() + make_interval(hours => $3),
+                      updated_at = clock_timestamp(),
+                      version = version + 1
+                WHERE organization_id = $1 AND id = $2`,
+              [
+                job.organizationId,
+                input.objectId,
+                this.duplicateRetentionHours,
+              ],
+            );
+          }
           await this.finishItem(manager, job, input, {
             result: 'duplicate',
             cfdiId: existing.id,
