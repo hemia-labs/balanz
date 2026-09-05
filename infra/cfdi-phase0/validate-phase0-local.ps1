@@ -3162,9 +3162,13 @@ try {
       $utf8NoBom
     )
     if (-not $isWindowsHost) {
-      & chmod 600 $runtimeApiEnvFile $runtimeWorkerEnvFile
+      # These generated profiles contain only non-secret routing markers.
+      # The host runner UID may differ from the container's node UID (1000).
+      # Keep mounts read-only and allow that UID to read the marker files;
+      # Vault credentials continue to travel through the dedicated environment.
+      & chmod 0444 $runtimeApiEnvFile $runtimeWorkerEnvFile
       if ($LASTEXITCODE -ne 0) {
-        throw 'Could not apply private mode to runtime marker env files'
+        throw 'Could not apply read-only mode to runtime marker env files'
       }
     }
     Assert-NoReparseTree -Root $runtimeEnvRoot
