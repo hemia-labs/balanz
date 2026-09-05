@@ -27,6 +27,14 @@ export function canAccessClient(membership: DemoMembership, clientId: string) {
   return membership.assignedClientIds.includes(clientId);
 }
 
+export function canAccessAccountScope(
+  accessMode: "tenant" | "assigned",
+  assignedAccountIds: readonly string[],
+  accountId: string,
+) {
+  return accessMode === "tenant" || assignedAccountIds.includes(accountId);
+}
+
 export const roleLabels: Record<DemoMembership["role"], string> = {
   administrador: "Administrador",
   titular: "Titular",

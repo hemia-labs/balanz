@@ -2,7 +2,7 @@
 
 > Guía obligatoria para desarrollar y revisar `apps/api`.
 >
-> Este documento parte del código existente a agosto de 2026. Distingue entre la
+> Este documento parte del código existente al 28 de agosto de 2026. Distingue entre la
 > arquitectura vigente, las reglas que deben conservarse y las brechas que aún
 > deben corregirse. Si el código y este documento difieren, se debe revisar la
 > intención del cambio y actualizar ambos en el mismo pull request.
@@ -29,7 +29,9 @@ sin un problema medido que el diseño actual no pueda resolver.
 - NestJS 11 y Express.
 - TypeScript.
 - TypeORM y PostgreSQL como persistencia durable.
-- Redis opcional para cache de sesión y autorización.
+- Redis opcional para cache de sesión/autorización y wakeup best-effort de jobs.
+- Object storage privado mediante filesystem local de desarrollo o S3/MinIO.
+- ClamAV detrás de un puerto de escaneo `INSTREAM`.
 - `class-validator` y `class-transformer` para validar entradas.
 - Sesiones opacas mediante cookie `HttpOnly`.
 - RBAC por permisos y contexto de organización.
@@ -41,20 +43,25 @@ sin un problema medido que el diseño actual no pueda resolver.
 
 ### Módulos existentes
 
-| Área              | Responsabilidad                                            |
-| ----------------- | ---------------------------------------------------------- |
-| `auth`            | Registro, verificación de correo, login, MFA y logout.     |
-| `sessions`        | Crear, resolver, rotar, expirar y revocar sesiones.        |
-| `users`           | Identidad global y administración de miembros por tenant.  |
-| `organizations`   | Organización o tenant.                                     |
-| `memberships`     | Relación usuario-organización, rol y estado.               |
-| `permissions`     | Catálogo de permisos, roles y asignaciones.                |
-| `subscriptions`   | Estado inicial de suscripción y trial.                     |
-| `audit`           | Registro durable de decisiones y acciones sensibles.       |
-| `redis`           | Cliente opcional y cache de sesión/autorización.           |
-| `email`           | Casos de envío y adaptador SES.                            |
-| `secrets`         | Resolución de secretos locales o desde Vault.              |
-| `client-accounts` | Cuentas cliente, RFC, asignaciones, ejercicios y períodos. |
+| Área              | Responsabilidad                                                      |
+| ----------------- | -------------------------------------------------------------------- |
+| `auth`            | Registro, verificación de correo, login, MFA y logout.               |
+| `sessions`        | Crear, resolver, rotar, expirar y revocar sesiones.                  |
+| `users`           | Identidad global y administración de miembros por tenant.            |
+| `organizations`   | Organización o tenant.                                               |
+| `memberships`     | Relación usuario-organización, rol y estado.                         |
+| `permissions`     | Catálogo de permisos, roles y asignaciones.                          |
+| `subscriptions`   | Estado inicial de suscripción y trial.                               |
+| `audit`           | Registro durable de decisiones y acciones sensibles.                 |
+| `redis`           | Cliente opcional y cache de sesión/autorización.                     |
+| `email`           | Casos de envío y adaptador SES.                                      |
+| `secrets`         | Resolución de secretos locales o desde Vault.                        |
+| `client-accounts` | Cuentas cliente, RFC, asignaciones, ejercicios y períodos.           |
+| `object-storage`  | Streams privados, keys opacas, hash/tamaño y adapters local/S3.      |
+| `malware-scanner` | Escaneo ClamAV `INSTREAM` y bypass explícito sólo de desarrollo.     |
+| `ingestion`       | Persistencia fundacional, idempotencia, jobs/items y worker durable. |
+| `fiscal-platform` | Composición de storage/scanner y configuración fiscal validada.      |
+| `health`          | Liveness/readiness de API y worker, con Redis sólo degradable.       |
 
 ### Diagrama de alto nivel
 
@@ -72,6 +79,12 @@ flowchart LR
     Cache -. fallback .-> DB
     Service --> Port[Puerto de integración]
     Port --> SES[AWS SES]
+    API -->|transacción + SET LOCAL| DB
+    API -. wakeup post-commit .-> Cache
+    Cache -. señal sin payload .-> Worker[Worker NestJS separado]
+    Worker -->|polling + claim durable| DB
+    Worker --> Storage[Object storage privado]
+    Worker --> Scanner[ClamAV INSTREAM]
 ```
 
 ### Fuente de verdad
@@ -81,8 +94,60 @@ flowchart LR
 - Redis es una optimización prescindible. Una caída de Redis no debe invalidar
   datos ni impedir el fallback a PostgreSQL.
 - Nunca se debe considerar un dato cacheado como autoridad para una escritura.
+- PostgreSQL es también la única autoridad durable de `ingestion_jobs`; Redis
+  sólo reduce la latencia del polling y puede estar completamente caído.
 - Los secretos provienen de Vault en ambientes configurados para ello. No deben
   persistirse en base de datos, Redis, logs o respuestas.
+
+### Plataforma fiscal compartida — Fase 0
+
+La Fase 0 implementa infraestructura reutilizable, no una capacidad de producto
+CFDI. Sus únicas tablas fiscales nuevas son `stored_objects`,
+`ingestion_uploads`, `ingestion_jobs` e `ingestion_items`. La migración
+append-only `1787690600000-FiscalIngestionFoundation.ts` crea las tablas y
+`1787690610000-FiscalRlsWorkerClaims.ts` activa/fuerza RLS y crea roles y
+funciones base; `1787690620000-IngestionAutomaticRetryBudget.ts` fija el
+presupuesto automático de tres reintentos y las firmas finales, y
+`1787690630000-PhaseZeroRuntimeCompatibility.ts` limita las ACL compatibles de
+API/worker. Claim, cancelación y reconciliación quedan encapsulados en funciones
+`SECURITY DEFINER` de privilegio acotado.
+
+La API y el worker usan LOGINs distintos, sin `BYPASSRLS`, owner ni credencial
+de migración. Todo acceso tenant-scoped establece `app.organization_id` y
+`app.membership_id` mediante `SET LOCAL` dentro de una transacción. Los roles
+`NOLOGIN` con `BYPASSRLS` pertenecen exclusivamente a las funciones definer de
+claim y reconciliación; no pueden iniciar sesión ni heredarse por API/worker.
+
+El worker vive en el mismo monorepo y release, pero arranca como proceso
+separado desde `worker.ts`. PostgreSQL conserva cola, intentos, leases,
+heartbeats, cancelación y recovery; Redis sólo publica una señal best-effort
+después del commit. Storage y scanner son puertos externos reales, con timeouts
+y readiness. El desarrollo de Fase 0 está `ACCEPTED`; sus gates de release
+continúan bloqueados sin impedir la implementación autorizada de Fase 1.
+
+### Vertical XML individual — Fase 1
+
+Fase 1 añade `CfdiApiModule`, `CfdiProcessingModule` y `CfdiParserModule` sin
+crear una segunda cola ni otro storage. La API recibe un único XML por
+multipart streaming, resuelve el scope fiscal desde sesión/asignación, almacena
+bytes privados y crea upload, item y job `manual_xml` idempotentes. El worker
+existente reclama el job, escanea con ClamAV, abre de nuevo el objeto, parsea
+CFDI 4.0 de forma endurecida y publica el dominio en una transacción RLS cercada
+por lease.
+
+La migración append-only `1787690700000-PhaseOneCfdiDomain.ts` agrega CFDI,
+conceptos, impuestos, relaciones, pagos, documentos relacionados, nómina core,
+participaciones de período, incidentes y grants temporales. Todas las tablas
+fiscales conservan el scope compuesto organización/cuenta/entidad y
+`ENABLE/FORCE RLS`. Lista, detalle y procesos devuelven DTOs explícitos. La
+descarga original exige `cfdi.view`, `cfdi.download`, MFA, scope vigente y un
+grant breve de un solo uso; nunca expone la object key.
+
+La identidad lógica es `legal_entity_id + normalized_uuid`. Igual hash produce
+duplicate con nueva observación; hash distinto preserva el original y pone el
+conflictivo en cuarentena con incidente alto. Foreign/invalid/unsupported no
+crean CFDI. Un complemento desconocido conserva el core y abre incidente. ZIP,
+e.firma, SAT, exportaciones y mesa mensual permanecen fuera de Fase 1.
 
 ## 3. Estructura que debe seguir cada módulo
 
@@ -646,13 +711,17 @@ contraseñas, secretos, CFDI completos ni PII innecesaria.
 
 ### Salud
 
-La API debe exponer probes separados:
+La API y el worker exponen probes separados:
 
 - liveness: el proceso responde;
-- readiness: dependencias necesarias para aceptar tráfico están disponibles.
+- readiness: PostgreSQL y los adapters obligatorios están disponibles; en el
+  worker también confirma que el supervisor está ejecutándose y vigente.
 
-Redis no debe hacer fallar readiness mientras sea una dependencia opcional.
-PostgreSQL sí. Un `Hello World` no es un health check de producción.
+Los endpoints son `/liveness` y `/readiness`; no cachean la respuesta y usan
+`503` cuando el proceso o una dependencia autoritativa no está listo. Los
+probes acotan y cancelan operaciones de storage/scanner; PostgreSQL usa un
+timeout de adquisición que no puede exceder el deadline de health. Redis se
+reporta degradado, pero nunca hace fallar readiness ni sustituye PostgreSQL.
 
 ## 14. Pruebas y definición de terminado
 
@@ -811,8 +880,10 @@ nuevos módulos.
    envíos se disparan con `void`. Esto puede dejar una cuenta creada sin correo
    recuperable. Definir qué correos son obligatorios y usar outbox para los que
    no se pueden perder.
-3. **Health check:** `/` responde `Hello World!`; no demuestra readiness ni
-   liveness útil.
+3. **Health check — resuelta para API y worker (2026-08-28):** existen
+   `/liveness` y `/readiness`; PostgreSQL, storage, scanner y supervisor del
+   worker se comprueban con deadlines acotados. Redis se reporta degradado sin
+   bloquear readiness.
 4. **Headers de seguridad:** no hay configuración explícita equivalente a
    Helmet/HSTS en el bootstrap. Debe definirse en API o documentarse como
    responsabilidad verificable del proxy.
@@ -878,15 +949,21 @@ nuevos módulos.
 ## 21. Decisiones resumidas
 
 - Monolito modular NestJS.
+- Worker durable como proceso separado del mismo monorepo y release.
 - Organización por feature.
 - Controllers delgados y servicios con reglas.
 - TypeORM directo; sin repositorio genérico.
-- PostgreSQL como fuente de verdad; Redis como cache opcional.
+- PostgreSQL como fuente de verdad; Redis como cache/wakeup opcional y nunca
+  como cola durable.
 - Sesión opaca en cookie `HttpOnly`; no JWT para el flujo web actual.
 - Tenant derivado de sesión y aplicado en todas las consultas.
 - RBAC por permisos; MFA para permisos sensibles.
 - DTOs de entrada y salida explícitos.
 - Migraciones, constraints y transacciones para consistencia.
+- RLS fiscal `ENABLE` + `FORCE`; API/worker sin `BYPASSRLS` y contexto sólo con
+  `SET LOCAL` transaccional.
+- Object storage privado detrás de un port y malware scanner fail-closed en
+  producción.
 - Auditoría dentro de la transacción; integraciones después del commit.
 - Seguridad, aislamiento tenant y pruebas no se simplifican.
 - La solución más sencilla que preserve estas invariantes es la preferida.

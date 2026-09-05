@@ -2,6 +2,7 @@ const API_BASE =
   process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3021/api/v1";
 const DEFAULT_TIMEOUT_MS = 10_000;
 const activeApiRequests = new Set<AbortController>();
+const activeExternalAborts = new Set<() => void>();
 
 export type FieldErrors = Record<string, string[]>;
 
@@ -81,6 +82,45 @@ export function isAbortError(error: unknown) {
 
 export function abortPendingApiRequests() {
   for (const controller of [...activeApiRequests]) controller.abort();
+  for (const abort of [...activeExternalAborts]) abort();
+}
+
+/** Registers transports that cannot share fetch's AbortController (XHR uploads). */
+export function registerPendingApiAbort(abort: () => void) {
+  activeExternalAborts.add(abort);
+  return () => {
+    activeExternalAborts.delete(abort);
+  };
+}
+
+export function apiUrl(path: string) {
+  return `${API_BASE}${path}`;
+}
+
+/**
+ * Resolves a server-issued resource path against the configured API origin.
+ * Temporary download URLs must remain on that origin so an unexpected API
+ * response cannot navigate the browser (and its one-time token) elsewhere.
+ */
+export function apiResourceUrl(path: string) {
+  try {
+    const apiBase = new URL(API_BASE);
+    const resolved = new URL(path, `${apiBase.origin}/`);
+    if (
+      !path.startsWith("/") ||
+      resolved.origin !== apiBase.origin ||
+      !["http:", "https:"].includes(resolved.protocol)
+    ) {
+      throw new Error("untrusted API resource URL");
+    }
+    return resolved.toString();
+  } catch {
+    throw new ApiError(
+      502,
+      "La API devolvió una dirección de descarga no válida.",
+      "INVALID_API_RESPONSE",
+    );
+  }
 }
 
 const FRIENDLY_ERROR_MESSAGES: Record<string, string> = {
@@ -116,6 +156,13 @@ const FRIENDLY_ERROR_MESSAGES: Record<string, string> = {
   INSUFFICIENT_PERMISSION: "No tienes permiso para realizar esta acción.",
   PERMISSION_DENIED: "No tienes permiso para realizar esta acción.",
   OUT_OF_SCOPE: "El recurso no está dentro de tus cuentas asignadas.",
+  IDEMPOTENCY_CONFLICT:
+    "La clave de idempotencia ya fue usada para un archivo diferente.",
+  XML_FILE_REQUIRED: "Selecciona exactamente un archivo XML.",
+  XML_FILE_TOO_LARGE: "El XML supera el límite permitido de 5 MiB.",
+  XML_MIME_MISMATCH: "El contenido del archivo no corresponde a un XML.",
+  INGESTION_NOT_FOUND: "El proceso no existe o ya no tienes acceso.",
+  CFDI_NOT_FOUND: "El CFDI no existe o ya no tienes acceso.",
   REAUTHENTICATION_REQUIRED:
     "Vuelve a autenticarte para confirmar esta acción sensible.",
 };
@@ -192,10 +239,58 @@ function errorCode(message: unknown, code: unknown) {
     : undefined;
 }
 
-export async function apiClient<T>(
+export function apiErrorFromPayload(
+  status: number,
+  payload: unknown,
+  fallback = "No se pudo completar la operación",
+) {
+  const body =
+    payload && typeof payload === "object"
+      ? (payload as Record<string, unknown>)
+      : {};
+  const rawMessage = body.message;
+  const message = Array.isArray(rawMessage)
+    ? rawMessage.map(String).join(". ")
+    : typeof rawMessage === "string"
+      ? rawMessage
+      : typeof body.error === "string"
+        ? body.error
+        : fallback;
+  return new ApiError(
+    status,
+    message,
+    errorCode(rawMessage, body.code),
+    normalizeFieldErrors(body.fieldErrors ?? body.errors),
+    body.details,
+  );
+}
+
+export function reportApiUnauthorized(
+  error: ApiError,
+  path: string,
+  method = "GET",
+) {
+  const requestMethod = method.toUpperCase();
+  if (
+    error.status === 401 &&
+    error.code !== "MFA_REQUIRED" &&
+    error.code !== "REAUTHENTICATION_REQUIRED" &&
+    shouldNotifyUnauthorizedApi(path, requestMethod)
+  ) {
+    notifyUnauthorizedApi({ error, method: requestMethod, path });
+  }
+}
+
+export interface ApiResponse<T> {
+  data: T;
+  status: number;
+  headers: Headers;
+}
+
+export async function apiClientResponse<T>(
   path: string,
   init: RequestInit = {},
-): Promise<T> {
+): Promise<ApiResponse<T>> {
   const controller = new AbortController();
   activeApiRequests.add(controller);
   const timeout = globalThis.setTimeout(
@@ -211,7 +306,7 @@ export async function apiClient<T>(
     headers.set("Content-Type", "application/json");
 
   try {
-    const response = await fetch(`${API_BASE}${path}`, {
+    const response = await fetch(apiUrl(path), {
       ...init,
       credentials: "include",
       headers,
@@ -221,33 +316,12 @@ export async function apiClient<T>(
     const body = contentType.includes("json")
       ? await response.json().catch(() => null)
       : null;
-    if (!response.ok) {
-      const message = Array.isArray(body?.message)
-        ? body.message.join(". ")
-        : body?.message;
-      const requestError = new ApiError(
-        response.status,
-        message ?? body?.error ?? "No se pudo completar la operación",
-        errorCode(message, body?.code),
-        normalizeFieldErrors(body?.fieldErrors ?? body?.errors),
-        body?.details,
-      );
-      const requestMethod = (init.method ?? "GET").toUpperCase();
-      if (
-        requestError.status === 401 &&
-        requestError.code !== "MFA_REQUIRED" &&
-        requestError.code !== "REAUTHENTICATION_REQUIRED" &&
-        shouldNotifyUnauthorizedApi(path, requestMethod)
-      ) {
-        notifyUnauthorizedApi({
-          error: requestError,
-          method: requestMethod,
-          path,
-        });
-      }
+    if (!response.ok && response.status !== 304) {
+      const requestError = apiErrorFromPayload(response.status, body);
+      reportApiUnauthorized(requestError, path, init.method ?? "GET");
       throw requestError;
     }
-    return body as T;
+    return { data: body as T, status: response.status, headers: response.headers };
   } catch (error) {
     if (error instanceof ApiError) throw error;
     if (controller.signal.aborted) {
@@ -269,4 +343,11 @@ export async function apiClient<T>(
     globalThis.clearTimeout(timeout);
     externalSignal?.removeEventListener("abort", abort);
   }
+}
+
+export async function apiClient<T>(
+  path: string,
+  init: RequestInit = {},
+): Promise<T> {
+  return (await apiClientResponse<T>(path, init)).data;
 }

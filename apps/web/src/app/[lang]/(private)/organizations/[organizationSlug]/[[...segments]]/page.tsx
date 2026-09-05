@@ -1,5 +1,6 @@
 import { notFound, redirect } from "next/navigation";
 import { AccountingScreen } from "@/components/accounting-screen";
+import { DemoAccountingScreen } from "@/components/demo-accounting-screen";
 import {
   clientById,
   demoData,
@@ -52,8 +53,9 @@ export default async function ProductRoutePage({
   }
   if (
     route.screen === "cfdi-detail" &&
+    !route.legalEntityId &&
     !demoData.cfdi.some(
-      (item) => item.clientId === route.clientId && item.uuid === route.uuid,
+      (item) => item.clientId === route.clientId && item.uuid === route.cfdiId,
     )
   )
     notFound();
@@ -67,5 +69,5 @@ export default async function ProductRoutePage({
     !demoData.periods.some((item) => item.slug === route.period)
   )
     notFound();
-  return <AccountingScreen route={route} />;
+  return <DemoAccountingScreen route={route} />;
 }

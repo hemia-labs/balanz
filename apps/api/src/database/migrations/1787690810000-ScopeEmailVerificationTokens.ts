@@ -1,7 +1,7 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
 
-export class ScopeEmailVerificationTokens1787690800000 implements MigrationInterface {
-  name = 'ScopeEmailVerificationTokens1787690800000';
+export class ScopeEmailVerificationTokens1787690810000 implements MigrationInterface {
+  name = 'ScopeEmailVerificationTokens1787690810000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.query(`

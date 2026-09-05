@@ -145,7 +145,9 @@ export class AuthController {
   onboarding(
     @CurrentSession() session: AuthSession,
     @CurrentAuthorization() context: SessionAuthorizationContext,
+    @Res({ passthrough: true }) response: Response,
   ) {
+    response.setHeader('Cache-Control', 'private, no-store');
     return this.auth.onboarding(session, context);
   }
 
@@ -196,7 +198,11 @@ export class AuthController {
 
   @Get('session')
   @UseGuards(SessionGuard)
-  session(@CurrentAuthorization() context: SessionAuthorizationContext) {
+  session(
+    @CurrentAuthorization() context: SessionAuthorizationContext,
+    @Res({ passthrough: true }) response: Response,
+  ) {
+    response.setHeader('Cache-Control', 'private, no-store');
     return this.auth.sessionDetails(context);
   }
 
