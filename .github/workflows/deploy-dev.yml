@@ -20,15 +20,8 @@ env:
   VPS_HOST: ${{ vars.VPS_HOST }}
 
 jobs:
-  phase-zero-validation:
-    name: Gate deployment with CFDI Phase 0 validation
-    uses: ./.github/workflows/cfdi-phase0-validation.yml
-    permissions:
-      contents: read
-
   deploy:
     name: Deploy Balanz DEV
-    needs: phase-zero-validation
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     environment: dev

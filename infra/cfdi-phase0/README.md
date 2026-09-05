@@ -88,6 +88,13 @@ Production never accepts this attestation and must use S3/KMS.
 
 ## Validation commands
 
+Full isolated validation is run manually on a local machine with Docker. At the
+team's request, the CFDI validation GitHub Actions workflow and its deployment
+invocation have been removed to avoid consuming hosted CI minutes. PR updates
+and deployments no longer run this validator automatically. Keep the JSON
+report and tested commit SHA as release evidence; removing the workflow does
+not complete pending validation or close `TD-004`.
+
 For the complete, repeatable validation, run this from the repository root
 after installing dependencies from the lockfile:
 
@@ -138,7 +145,7 @@ constant-payload wakeup whose worker metric must advance. It stops Redis once
 more before a second SIGTERM so shutdown is also proven while the optional
 accelerator is unavailable. All migrator/API/worker database credentials are distinct.
 The final JSON summary contains status only, never credential values, and is
-written under `.local/cfdi-phase0-validation-reports/` for CI artifact
+written under `.local/cfdi-phase0-validation-reports/` for local evidence
 collection.
 
 Before cleanup, the script verifies the exact Compose project label, service or
@@ -149,7 +156,7 @@ explicitly to retain named volumes and the isolated storage/Vault directories
 after a failure. The script rejects storage/report roots that escape their fixed
 workspace locations or traverse a symlink, junction, or reparse point, using
 case-insensitive comparisons only on Windows. On Windows it delegates the NTFS
-storage ACL setup and verification to `prepare-local-storage.ps1`; CI uses the
+storage ACL setup and verification to `prepare-local-storage.ps1`; Linux uses the
 equivalent private POSIX mode.
 
 The lower-level commands below remain useful when diagnosing one stage or when
