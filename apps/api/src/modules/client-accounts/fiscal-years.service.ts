@@ -12,7 +12,10 @@ import type { SessionAuthorizationContext } from '../sessions/session.types';
 import type { AuthSession } from '../sessions/entities/auth-session.entity';
 import { ClientAccountScopeService } from './client-account-scope.service';
 import { constraintName, domainError } from './client-domain.errors';
-import { CreateFiscalYearDto } from './dtos/fiscal-year.dtos';
+import {
+  CreateFiscalYearDto,
+  ListFiscalYearsDto,
+} from './dtos/fiscal-year.dtos';
 import { FiscalYear, FiscalYearStatus } from './entities/fiscal-year.entity';
 import { LegalEntity, LegalEntityStatus } from './entities/legal-entity.entity';
 import { Period, PeriodStatus } from './entities/period.entity';
@@ -34,22 +37,52 @@ export class FiscalYearsService {
     private readonly authorization: FiscalAuthorizationService,
   ) {}
 
-  async list(legalEntityId: string, tenant: SessionAuthorizationContext) {
+  async list(
+    legalEntityId: string,
+    query: ListFiscalYearsDto,
+    tenant: SessionAuthorizationContext,
+  ) {
     const entity = await this.legalEntities.requireEntity(
       legalEntityId,
       tenant,
     );
-    const years = await this.fiscalYears.find({
-      where: {
-        organizationId: entity.organizationId,
-        clientAccountId: entity.clientAccountId,
-        legalEntityId: entity.id,
+    const builder = this.fiscalYears
+      .createQueryBuilder('year')
+      .where(
+        'year.organization_id = :organizationId AND year.client_account_id = :clientAccountId AND year.legal_entity_id = :legalEntityId',
+        {
+          organizationId: entity.organizationId,
+          clientAccountId: entity.clientAccountId,
+          legalEntityId: entity.id,
+        },
+      )
+      .andWhere('year.status <> :archivedStatus', {
+        archivedStatus: FiscalYearStatus.ARCHIVED,
+      });
+    if (query.year !== undefined)
+      builder.andWhere('year.year = :year', { year: query.year });
+    if (!query.paginated) {
+      const years = await builder
+        .orderBy('year.year', 'DESC')
+        .addOrderBy('year.id', 'ASC')
+        .getMany();
+      return years.map((year) => this.response(year));
+    }
+    const [years, total] = await builder
+      .orderBy('year.year', 'DESC')
+      .addOrderBy('year.id', 'ASC')
+      .skip((query.page - 1) * query.limit)
+      .take(query.limit)
+      .getManyAndCount();
+    return {
+      items: years.map((year) => this.response(year)),
+      meta: {
+        page: query.page,
+        limit: query.limit,
+        total,
+        totalPages: total === 0 ? 0 : Math.ceil(total / query.limit),
       },
-      order: { year: 'DESC' },
-    });
-    return years
-      .filter((year) => year.status !== FiscalYearStatus.ARCHIVED)
-      .map((year) => this.response(year));
+    };
   }
 
   async create(

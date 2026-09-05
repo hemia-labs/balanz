@@ -343,10 +343,11 @@ export class ClientAccountsService {
         'Legal entity not found',
       );
     }
-    let fiscalYearsPromise: Promise<FiscalYear[]>;
-    if (legalEntities.length === 0) {
-      fiscalYearsPromise = Promise.resolve([]);
-    } else {
+    let fiscalYearsPromise: Promise<FiscalYear[]> = Promise.resolve([]);
+    let fiscalYearCountsPromise: Promise<
+      Array<{ legalEntityId: string; count: string }>
+    > = Promise.resolve([]);
+    if (legalEntities.length > 0) {
       const builder = this.fiscalYears
         .createQueryBuilder('year')
         .where(
@@ -356,33 +357,45 @@ export class ClientAccountsService {
         .andWhere('year.legal_entity_id IN (:...legalEntityIds)', {
           legalEntityIds: legalEntities.map((entity) => entity.id),
         });
-      if (!query.includeArchived) {
-        builder
-          .innerJoin(
-            LegalEntity,
-            'year_entity',
-            'year_entity.organization_id = year.organization_id AND year_entity.client_account_id = year.client_account_id AND year_entity.id = year.legal_entity_id',
-          )
-          .andWhere('year.status <> :archivedYearStatus', {
-            archivedYearStatus: FiscalYearStatus.ARCHIVED,
-          })
-          .andWhere('year_entity.status <> :archivedEntityStatus', {
-            archivedEntityStatus: LegalEntityStatus.ARCHIVED,
-          });
+      if (!query.includeArchived)
+        builder.andWhere('year.status <> :archivedYearStatus', {
+          archivedYearStatus: FiscalYearStatus.ARCHIVED,
+        });
+      if (query.includeFiscalYears) {
+        fiscalYearsPromise = builder
+          .orderBy('year.year', 'DESC')
+          .addOrderBy('year.id', 'ASC')
+          .getMany();
+      } else {
+        fiscalYearCountsPromise = builder
+          .select('year.legal_entity_id', 'legalEntityId')
+          .addSelect('COUNT(year.id)', 'count')
+          .groupBy('year.legal_entity_id')
+          .getRawMany();
       }
-      fiscalYearsPromise = builder
-        .orderBy('year.year', 'DESC')
-        .addOrderBy('year.id', 'ASC')
-        .getMany();
     }
-    const [primaryAssignments, fiscalYears] = await Promise.all([
-      primaryAssignmentsPromise,
-      fiscalYearsPromise,
-    ]);
+    const [primaryAssignments, fiscalYears, fiscalYearCounts] =
+      await Promise.all([
+        primaryAssignmentsPromise,
+        fiscalYearsPromise,
+        fiscalYearCountsPromise,
+      ]);
+    const fiscalYearCountByEntity = new Map(
+      fiscalYearCounts.map((item) => [item.legalEntityId, Number(item.count)]),
+    );
+    for (const year of fiscalYears) {
+      fiscalYearCountByEntity.set(
+        year.legalEntityId,
+        (fiscalYearCountByEntity.get(year.legalEntityId) ?? 0) + 1,
+      );
+    }
     return {
       account: this.accountResponse(account),
       legalEntities: {
-        items: legalEntities.map((entity) => this.legalEntityResponse(entity)),
+        items: legalEntities.map((entity) => ({
+          ...this.legalEntityResponse(entity),
+          fiscalYearCount: fiscalYearCountByEntity.get(entity.id) ?? 0,
+        })),
         meta: {
           page: legalEntityPage,
           limit: legalEntityLimit,
@@ -398,7 +411,13 @@ export class ClientAccountsService {
           (item) => item.clientAccountId === clientAccountId,
         ),
       ),
-      fiscalYears: fiscalYears.map((year) => this.fiscalYearResponse(year)),
+      ...(query.includeFiscalYears
+        ? {
+            fiscalYears: fiscalYears.map((year) =>
+              this.fiscalYearResponse(year),
+            ),
+          }
+        : {}),
     };
   }
 

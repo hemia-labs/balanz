@@ -171,6 +171,11 @@ export class ListLegalEntitiesDto extends ListDomainCollectionDto {
 }
 
 export class ClientAccountDetailDto extends IncludeArchivedDto {
+  @Transform(({ value }) => value === true || value === 'true')
+  @IsOptional()
+  @IsBoolean({ message: 'El detalle de ejercicios no es válido.' })
+  includeFiscalYears = true;
+
   @Transform(trim)
   @IsOptional()
   @IsUUID('4', { message: 'La entidad fiscal seleccionada no es válida.' })

@@ -32,6 +32,7 @@ export interface LegalEntity {
   archivedAt: string | null;
   createdAt?: string;
   updatedAt?: string;
+  fiscalYearCount?: number;
 }
 
 export interface AccountAssignment {
@@ -104,7 +105,6 @@ export interface ClientDetail {
   account: ClientAccount;
   legalEntities: CollectionPage<LegalEntity>;
   primaryAssignment: PrimaryAssignmentSummary | null;
-  fiscalYears: FiscalYear[];
 }
 
 export interface MemberCandidate {

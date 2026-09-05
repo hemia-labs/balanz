@@ -1,4 +1,4 @@
-import type { FiscalYear } from "./types";
+import type { CollectionPage, FiscalYear, PageMeta } from "./types";
 
 export type FiscalYearsLoadStatus = "idle" | "loading" | "ready" | "error";
 
@@ -6,6 +6,7 @@ export interface FiscalYearsQueryKey {
   organizationId: string;
   clientId: string;
   legalEntityId: string;
+  page: number;
   revision: number;
 }
 
@@ -17,6 +18,7 @@ export interface FiscalYearsLoadState {
   request: FiscalYearsRequest | null;
   status: FiscalYearsLoadStatus;
   years: FiscalYear[];
+  meta: PageMeta | null;
   error: unknown;
 }
 
@@ -24,17 +26,16 @@ export const initialFiscalYearsLoadState: FiscalYearsLoadState = {
   request: null,
   status: "idle",
   years: [],
+  meta: null,
   error: null,
 };
 
-function isSameQuery(
-  request: FiscalYearsRequest,
-  query: FiscalYearsQueryKey,
-) {
+function isSameQuery(request: FiscalYearsRequest, query: FiscalYearsQueryKey) {
   return (
     request.organizationId === query.organizationId &&
     request.clientId === query.clientId &&
     request.legalEntityId === query.legalEntityId &&
+    request.page === query.page &&
     request.revision === query.revision
   );
 }
@@ -45,8 +46,8 @@ function isSameRequest(
 ) {
   return Boolean(
     current &&
-      current.requestId === request.requestId &&
-      isSameQuery(current, request),
+    current.requestId === request.requestId &&
+    isSameQuery(current, request),
   );
 }
 
@@ -57,6 +58,7 @@ export function startFiscalYearsLoad(
     request,
     status: "loading",
     years: [],
+    meta: null,
     error: null,
   };
 }
@@ -64,13 +66,14 @@ export function startFiscalYearsLoad(
 export function resolveFiscalYearsLoad(
   current: FiscalYearsLoadState,
   request: FiscalYearsRequest,
-  years: FiscalYear[],
+  page: CollectionPage<FiscalYear>,
 ): FiscalYearsLoadState {
   if (!isSameRequest(current.request, request)) return current;
   return {
     ...current,
     status: "ready",
-    years,
+    years: page.items,
+    meta: page.meta,
     error: null,
   };
 }
@@ -85,6 +88,7 @@ export function rejectFiscalYearsLoad(
     ...current,
     status: "error",
     years: [],
+    meta: null,
     error,
   };
 }
@@ -98,6 +102,7 @@ export function selectFiscalYearsLoad(
     request: null,
     status: "loading",
     years: [],
+    meta: null,
     error: null,
   };
 }

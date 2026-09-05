@@ -1,4 +1,5 @@
-import { Controller, Get, UseGuards } from '@nestjs/common';
+import { Controller, Get, Res, UseGuards } from '@nestjs/common';
+import type { Response } from 'express';
 import {
   CurrentSession,
   CurrentTenant,
@@ -15,13 +16,21 @@ export class MeController {
 
   @Get('organizations')
   @UseGuards(SessionGuard)
-  organizations(@CurrentSession() session: AuthSession) {
+  organizations(
+    @CurrentSession() session: AuthSession,
+    @Res({ passthrough: true }) response: Response,
+  ) {
+    response.setHeader('Cache-Control', 'private, no-store');
     return this.auth.listOrganizations(session.userId);
   }
 
   @Get('authorization')
   @UseGuards(SessionGuard, TenantAccessGuard)
-  authorization(@CurrentTenant() context: SessionAuthorizationContext) {
+  authorization(
+    @CurrentTenant() context: SessionAuthorizationContext,
+    @Res({ passthrough: true }) response: Response,
+  ) {
+    response.setHeader('Cache-Control', 'private, no-store');
     return {
       organizationId: context.organizationId,
       membershipId: context.membershipId,

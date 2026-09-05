@@ -9,16 +9,14 @@ import {
   type FiscalYearsQueryKey,
   type FiscalYearsRequest,
 } from "./fiscal-years-load-state";
-import type { FiscalYear } from "./types";
+import type { CollectionPage, FiscalYear } from "./types";
 
-function query(
-  legalEntityId: string,
-  revision = 0,
-): FiscalYearsQueryKey {
+function query(legalEntityId: string, revision = 0): FiscalYearsQueryKey {
   return {
     organizationId: "despacho-1",
     clientId: "cliente-1",
     legalEntityId,
+    page: 1,
     revision,
   };
 }
@@ -42,12 +40,19 @@ function year(id: string, legalEntityId: string): FiscalYear {
   };
 }
 
+function page(items: FiscalYear[]): CollectionPage<FiscalYear> {
+  return {
+    items,
+    meta: { page: 1, limit: 25, total: items.length, totalPages: 1 },
+  };
+}
+
 test("invalida los ejercicios antes del efecto al cambiar de RFC", () => {
   const requestA = request(1, "rfc-a");
   const readyA = resolveFiscalYearsLoad(
     startFiscalYearsLoad(requestA),
     requestA,
-    [year("year-a", "rfc-a")],
+    page([year("year-a", "rfc-a")]),
   );
 
   const visibleForB = selectFiscalYearsLoad(readyA, query("rfc-b"));
@@ -68,9 +73,11 @@ test("ignora una respuesta tardía del RFC anterior", () => {
   const requestA = request(1, "rfc-a");
   const requestB = request(2, "rfc-b");
   const current = startFiscalYearsLoad(requestB);
-  const staleResult = resolveFiscalYearsLoad(current, requestA, [
-    year("year-a", "rfc-a"),
-  ]);
+  const staleResult = resolveFiscalYearsLoad(
+    current,
+    requestA,
+    page([year("year-a", "rfc-a")]),
+  );
   assert.strictEqual(staleResult, current);
   assert.deepEqual(staleResult.years, []);
 });
@@ -80,7 +87,7 @@ test("ignora una respuesta anterior al recargar el mismo RFC", () => {
   const staleResult = resolveFiscalYearsLoad(
     current,
     request(3, "rfc-a", 0),
-    [year("year-old", "rfc-a")],
+    page([year("year-old", "rfc-a")]),
   );
   assert.strictEqual(staleResult, current);
 });
@@ -108,7 +115,7 @@ test("un cambio de organización, cliente o revisión invalida la vista", () => 
   const ready = resolveFiscalYearsLoad(
     startFiscalYearsLoad(activeRequest),
     activeRequest,
-    [year("year-a", "rfc-a")],
+    page([year("year-a", "rfc-a")]),
   );
   assert.equal(
     selectFiscalYearsLoad(ready, {

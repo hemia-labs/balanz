@@ -854,3 +854,19 @@ reinicializaron datos ni volúmenes para sortear ese fallo. Quedan pendientes
 la integración PostgreSQL de este cambio, la repetición `Full` y los planes de
 cola/backfill con volumen representativo. Los resultados históricos no se
 presentan como ejecución de estos cambios. `TD-004` no se cierra con esta revisión.
+
+## 23. Integración de develop tras PR #16 — 2026-09-04
+
+Se incorpora `origin/develop` en `8f7f0ed4e01a94ef0608fb8a104b1e1d7f46ce9d`,
+que contiene la PR #16 ya fusionada. El único conflicto textual fue
+`live-fiscal-screens.tsx`: se conserva el formulario de alta existente y la
+paginación de ejercicios. Tras crear un ejercicio se vuelve a la primera
+página y se consulta de nuevo al servidor, para mantener filas y metadatos
+coherentes con el contrato paginado. Se conservan conteos agrupados,
+compatibilidad del API v1 y controles de acceso de la PR #16.
+
+Validación del árbol combinado: API 52 suites / 378 pruebas y build PASS;
+web 53 pruebas, lint, TypeScript y build con Webpack PASS. Se usa Webpack
+porque los node_modules del worktree se comparten mediante junctions y
+Turbopack limita la resolución fuera de su raíz. `git diff --check` PASS.
+No se repite la infraestructura Full ni se acredita el cierre de `TD-004`.
