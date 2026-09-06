@@ -3,6 +3,7 @@ import { apiClient } from "@/lib/api-client";
 export type TeamRole = "admin" | "accountant" | "collaborator";
 export type MembershipStatus = "pending" | "active" | "suspended" | "revoked";
 export type InvitationStatus = "pending" | "accepted" | "expired" | "revoked";
+export type InvitationDeliveryStatus = "pending" | "sent" | "failed";
 
 export interface TeamMember {
   membershipId: string;
@@ -27,6 +28,7 @@ export interface InvitationItem {
   expiresAt: string;
   lastSentAt: string;
   sendCount: number;
+  deliveryStatus: InvitationDeliveryStatus;
   acceptedAt: string | null;
   revokedAt: string | null;
   createdAt: string;
@@ -75,6 +77,11 @@ export const createInvitation = (
 
 export const revokeInvitation = (invitationId: string) =>
   apiClient<void>(`/invitations/${invitationId}/revoke`, { method: "POST" });
+
+export const resendInvitation = (invitationId: string) =>
+  apiClient<InvitationItem>(`/invitations/${invitationId}/resend`, {
+    method: "POST",
+  });
 
 export const suspendMembership = (membershipId: string) =>
   apiClient<void>(`/memberships/${membershipId}/suspend`, { method: "PATCH" });

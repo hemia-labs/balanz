@@ -208,6 +208,7 @@ export class AuthService {
       email: normalized.email,
       firstName: normalized.firstName,
       token: rawToken,
+      membershipId: result.membershipId,
     });
 
     return AuthMapper.toRegisterResponse(result);
@@ -215,13 +216,14 @@ export class AuthService {
 
   async resendVerification(input: {
     email: string;
+    membershipId: string;
     ipAddress: string;
   }): Promise<void> {
     const email = input.email.trim().toLowerCase();
     const [emailAllowed, ipAllowed] = await Promise.all([
       this.rateLimits.consume(
         'verification-email',
-        email,
+        `${email}:${input.membershipId}`,
         this.rateLimits.resendLimit(),
         this.rateLimits.resendWindowSeconds(),
       ),
@@ -242,17 +244,7 @@ export class AuthService {
     const user = await this.dataSource.getRepository(User).findOne({
       where: { email },
     });
-    if (!user || user.emailVerifiedAt) return;
-
-    const pendingMemberships = await this.dataSource
-      .getRepository(Membership)
-      .find({
-        where: { userId: user.id, status: MembershipStatus.PENDING },
-        select: { id: true },
-        take: 2,
-      });
-    if (pendingMemberships.length !== 1) return;
-    const [pendingMembership] = pendingMemberships;
+    if (!user) return;
 
     const rawToken = randomBytes(32).toString('hex');
     const tokenHash = this.hashToken(rawToken);
@@ -262,10 +254,25 @@ export class AuthService {
     );
     const correlationId = randomUUID();
 
-    await this.dataSource.transaction(async (manager) => {
+    const shouldSend = await this.dataSource.transaction(async (manager) => {
+      const pendingMembership = await manager
+        .getRepository(Membership)
+        .findOne({
+          where: {
+            id: input.membershipId,
+            userId: user.id,
+            status: MembershipStatus.PENDING,
+          },
+          lock: { mode: 'pessimistic_write' },
+        });
+      if (!pendingMembership) return false;
       const tokenRepository = manager.getRepository(EmailVerificationToken);
       await tokenRepository.update(
-        { userId: user.id, usedAt: IsNull() },
+        {
+          userId: user.id,
+          membershipId: pendingMembership.id,
+          usedAt: IsNull(),
+        },
         { usedAt: now },
       );
       await tokenRepository.save(
@@ -278,23 +285,26 @@ export class AuthService {
         }),
       );
       await this.audit.record(manager, {
-        organizationId: null,
+        organizationId: pendingMembership.organizationId,
         actorType: AuditActorType.USER,
         actorUserId: user.id,
-        actorMembershipId: null,
+        actorMembershipId: pendingMembership.id,
         action: 'auth.email.verification.resent',
         decision: AuditDecision.ALLOW,
-        objectType: 'user',
-        objectId: user.id,
+        objectType: 'membership',
+        objectId: pendingMembership.id,
         correlationId,
         metadata: { schemaVersion: 1 },
       });
+      return true;
     });
 
+    if (!shouldSend) return;
     await this.email.sendVerification({
       email: user.email,
       firstName: user.firstName,
       token: rawToken,
+      membershipId: input.membershipId,
     });
   }
 
@@ -597,8 +607,10 @@ export class AuthService {
         }
 
         const now = new Date();
-        user.emailVerifiedAt = now;
-        await userRepository.save(user);
+        if (!user.emailVerifiedAt) {
+          user.emailVerifiedAt = now;
+          await userRepository.save(user);
+        }
         verificationToken.usedAt = now;
         await tokenRepository.save(verificationToken);
         const organizationOwner = organization.ownerUserId === user.id;
@@ -984,6 +996,13 @@ export class AuthService {
           throw new UnauthorizedException('Invalid session');
         }
         const membershipRepository = manager.getRepository(Membership);
+        const enrollingUser = await manager.getRepository(User).findOne({
+          where: { id: lockedSession.userId, status: UserStatus.ACTIVE },
+          lock: { mode: 'pessimistic_read' },
+        });
+        if (!enrollingUser?.emailVerifiedAt) {
+          throw new UnauthorizedException('Verified email required');
+        }
         const membership = await membershipRepository.findOne({
           where: {
             id: lockedSession.membershipId,

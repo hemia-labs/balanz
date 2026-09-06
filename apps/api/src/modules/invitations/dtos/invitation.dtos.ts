@@ -1,4 +1,4 @@
-import { Transform, type TransformFnParams } from 'class-transformer';
+import { Transform, Type, type TransformFnParams } from 'class-transformer';
 import {
   ArrayUnique,
   IsArray,
@@ -8,6 +8,9 @@ import {
   IsNotEmpty,
   IsOptional,
   IsString,
+  IsInt,
+  Max,
+  Min,
   MaxLength,
   MinLength,
 } from 'class-validator';
@@ -36,6 +39,21 @@ export class CreateInvitationDto {
   @ArrayUnique()
   @IsString({ each: true })
   proposedPermissions?: string[];
+}
+
+export class ListInvitationsDto {
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  page = 1;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(100)
+  limit = 25;
 }
 
 export class AcceptInvitationDto {

@@ -48,11 +48,13 @@ export class SesEmailDeliveryAdapter implements EmailDeliveryPort {
     email: string;
     firstName?: string;
     token: string;
+    membershipId: string;
   }): Promise<void> {
     const email = this.config.getOrThrow<EmailConfig>('email');
     const verificationUrl = new URL('/verify-email', email.appUrl);
     verificationUrl.hash = new URLSearchParams({
       token: input.token,
+      membershipId: input.membershipId,
     }).toString();
     const verificationTtlMinutes = this.config.get<number>(
       'auth.emailVerificationTtlMinutes',

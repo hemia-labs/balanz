@@ -48,6 +48,7 @@ import {
   getInvitations,
   getTeamMembers,
   reactivateMembership,
+  resendInvitation,
   revokeInvitation,
   revokeMembership,
   suspendMembership,
@@ -177,6 +178,19 @@ export function TeamScreen() {
     }
   };
 
+  const resend = async (invitation: InvitationItem) => {
+    setBusyAction(invitation.id);
+    setError(null);
+    try {
+      await resendInvitation(invitation.id);
+      await refresh("La invitación fue reenviada.");
+    } catch (cause) {
+      setError(teamErrorMessage(cause, "No pudimos reenviar la invitación."));
+    } finally {
+      setBusyAction(null);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <header className="flex flex-col gap-4 border-l-2 border-brand-mark pl-4 sm:flex-row sm:items-start sm:justify-between">
@@ -256,6 +270,7 @@ export function TeamScreen() {
               onRevoke={(invitation) =>
                 setPendingAction({ kind: "invitation-revoke", invitation })
               }
+              onResend={resend}
             />
           </Surface>
         ) : null}
@@ -549,11 +564,13 @@ function InvitationsTable({
   loading,
   busyAction,
   onRevoke,
+  onResend,
 }: {
   invitations: InvitationItem[];
   loading: boolean;
   busyAction: string | null;
   onRevoke: (invitation: InvitationItem) => void;
+  onResend: (invitation: InvitationItem) => void;
 }) {
   return (
     <div className="overflow-x-auto" aria-busy={loading}>
@@ -566,6 +583,7 @@ function InvitationsTable({
             <TableHead scope="col">Destinatario</TableHead>
             <TableHead scope="col">Rol</TableHead>
             <TableHead scope="col">Estado</TableHead>
+            <TableHead scope="col">Entrega</TableHead>
             <TableHead scope="col">Expira</TableHead>
             <TableHead scope="col">Último envío</TableHead>
             <TableHead scope="col">Acción</TableHead>
@@ -573,9 +591,9 @@ function InvitationsTable({
         </TableHeader>
         <TableBody>
           {loading ? (
-            <LoadingRow columns={6} />
+            <LoadingRow columns={7} />
           ) : invitations.length === 0 ? (
-            <EmptyRow columns={6} message="No hay invitaciones para mostrar." />
+            <EmptyRow columns={7} message="No hay invitaciones para mostrar." />
           ) : (
             invitations.map((invitation) => (
               <TableRow key={invitation.id}>
@@ -586,6 +604,13 @@ function InvitationsTable({
                 <TableCell>
                   <StatusBadge status={invitationLabels[invitation.status]} />
                 </TableCell>
+                <TableCell>
+                  {invitation.deliveryStatus === "sent"
+                    ? "Enviado"
+                    : invitation.deliveryStatus === "failed"
+                      ? "Falló"
+                      : "Procesando"}
+                </TableCell>
                 <TableCell className="numeric whitespace-nowrap">
                   {formatDate(invitation.expiresAt)}
                 </TableCell>
@@ -594,15 +619,26 @@ function InvitationsTable({
                 </TableCell>
                 <TableCell>
                   {invitation.status === "pending" ? (
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      disabled={busyAction === invitation.id}
-                      onClick={() => onRevoke(invitation)}
-                    >
-                      Revocar invitación
-                    </Button>
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        disabled={busyAction === invitation.id}
+                        onClick={() => onResend(invitation)}
+                      >
+                        Reenviar
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        disabled={busyAction === invitation.id}
+                        onClick={() => onRevoke(invitation)}
+                      >
+                        Revocar invitación
+                      </Button>
+                    </div>
                   ) : (
                     <span className="text-caption text-muted-foreground">
                       Sin acciones disponibles

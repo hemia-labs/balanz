@@ -75,6 +75,7 @@ export function RegisterForm({
             const response = await register(payload);
             sessionStorage.setItem("balanz_pending_registration", JSON.stringify({
               email: payload.email,
+              membershipId: response.membershipId,
               organizationName: payload.organizationName,
               subscriptionType: response.subscriptionType,
             }));

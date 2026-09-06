@@ -35,10 +35,24 @@ import { SessionsService } from '../sessions/sessions.service';
 import { User, UserStatus } from '../users/entities/user.entity';
 import { EmailVerificationToken } from '../auth/entities/email-verification-token.entity';
 import {
+  AuthFactor,
+  AuthFactorStatus,
+} from '../auth/entities/auth-factor.entity';
+import {
+  AccountAssignment,
+  AccountAssignmentStatus,
+} from '../client-accounts/entities/account-assignment.entity';
+import { MembershipPermission } from '../permissions/entities/membership-permission.entity';
+import {
   AcceptInvitationDto,
   CreateInvitationDto,
+  ListInvitationsDto,
 } from './dtos/invitation.dtos';
-import { Invitation, InvitationStatus } from './entities/invitation.entity';
+import {
+  Invitation,
+  InvitationDeliveryStatus,
+  InvitationStatus,
+} from './entities/invitation.entity';
 import { canAcceptInvitation } from './invitation-state';
 
 type MembershipAction = 'suspend' | 'reactivate' | 'revoke';
@@ -112,7 +126,10 @@ export class InvitationsService {
           })
           .andWhere('user.email = :email', { email: emailNormalized })
           .getOne();
-        if (existingMember) {
+        if (
+          existingMember &&
+          existingMember.status !== MembershipStatus.REVOKED
+        ) {
           throw new ConflictException(
             'Recipient already belongs to organization',
           );
@@ -132,6 +149,7 @@ export class InvitationsService {
             expiresAt,
             lastSentAt: now,
             sendCount: 1,
+            deliveryStatus: InvitationDeliveryStatus.PENDING,
           }),
         );
         await this.record(manager, {
@@ -157,44 +175,106 @@ export class InvitationsService {
         throw error;
       });
 
-    setImmediate(() => {
-      void this.email.sendInvitation({
-        email: invitation.email,
-        token: rawToken,
-        invitationId: invitation.id,
-        expiresAt: invitation.expiresAt,
-      });
-    });
+    await this.deliverInvitation(invitation, rawToken);
+    invitation.deliveryStatus = InvitationDeliveryStatus.SENT;
     return this.toResponse(invitation, dto.role);
+  }
+
+  async resendInvitation(
+    invitationId: string,
+    tenant: SessionAuthorizationContext,
+    request: RequestContext,
+  ) {
+    const organizationId = this.activeOrganizationId(tenant);
+    this.requireReauthentication(tenant);
+    const rawToken = randomBytes(32).toString('hex');
+    const now = new Date();
+    const invitation = await this.dataSource.transaction(async (manager) => {
+      const repository = manager.getRepository(Invitation);
+      const current = await repository
+        .createQueryBuilder('invitation')
+        .addSelect('invitation.tokenHash')
+        .innerJoinAndSelect('invitation.role', 'role')
+        .where('invitation.id = :invitationId', { invitationId })
+        .andWhere('invitation.organization_id = :organizationId', {
+          organizationId,
+        })
+        .setLock('pessimistic_write')
+        .getOne();
+      if (!current) throw new NotFoundException('Invitation not found');
+      if (current.status !== InvitationStatus.PENDING) {
+        throw new ConflictException('Only pending invitations can be resent');
+      }
+      if (current.expiresAt.getTime() <= now.getTime()) {
+        current.status = InvitationStatus.EXPIRED;
+        await repository.save(current);
+        throw new ConflictException('Invitation has expired');
+      }
+      current.tokenHash = this.hashToken(rawToken);
+      current.lastSentAt = now;
+      current.sendCount += 1;
+      current.deliveryStatus = InvitationDeliveryStatus.PENDING;
+      await repository.save(current);
+      await this.record(manager, {
+        organizationId,
+        tenant,
+        request,
+        action: 'invitation.resend',
+        objectType: 'invitation',
+        objectId: current.id,
+        metadata: { sendCount: current.sendCount },
+      });
+      return current;
+    });
+
+    await this.deliverInvitation(invitation, rawToken);
+    invitation.deliveryStatus = InvitationDeliveryStatus.SENT;
+    return this.toResponse(invitation, invitation.role.key);
   }
 
   async list(
     organizationId: string,
     tenant: SessionAuthorizationContext,
-    request: RequestContext,
+    query: ListInvitationsDto,
   ) {
     this.requireTenant(organizationId, tenant);
-    await this.expirePending(organizationId, tenant, request);
-    const items = await this.invitations
+    const builder = this.invitations
       .createQueryBuilder('invitation')
       .innerJoin('invitation.role', 'role')
       .select('invitation.id', 'id')
       .addSelect('invitation.email', 'email')
       .addSelect('role.key', 'role')
       .addSelect('invitation.proposed_permissions', 'proposedPermissions')
-      .addSelect('invitation.status', 'status')
+      .addSelect(
+        `CASE WHEN invitation.status = 'pending' AND invitation.expires_at <= CURRENT_TIMESTAMP THEN 'expired' ELSE invitation.status::text END`,
+        'status',
+      )
       .addSelect('invitation.expires_at', 'expiresAt')
       .addSelect('invitation.last_sent_at', 'lastSentAt')
       .addSelect('invitation.send_count', 'sendCount')
+      .addSelect('invitation.delivery_status', 'deliveryStatus')
       .addSelect('invitation.accepted_at', 'acceptedAt')
       .addSelect('invitation.revoked_at', 'revokedAt')
       .addSelect('invitation.created_at', 'createdAt')
       .where('invitation.organization_id = :organizationId', {
         organizationId,
-      })
+      });
+    const total = await builder.clone().getCount();
+    const items = await builder
       .orderBy('invitation.created_at', 'DESC')
+      .addOrderBy('invitation.id', 'DESC')
+      .skip((query.page - 1) * query.limit)
+      .take(query.limit)
       .getRawMany();
-    return { items };
+    return {
+      items,
+      meta: {
+        page: query.page,
+        limit: query.limit,
+        total,
+        totalPages: Math.ceil(total / query.limit),
+      },
+    };
   }
 
   async accept(
@@ -209,6 +289,7 @@ export class InvitationsService {
       email: string;
       firstName: string;
       token: string;
+      membershipId: string;
     } | null = null;
 
     const result = await this.dataSource
@@ -281,30 +362,70 @@ export class InvitationsService {
         const memberships = manager.getRepository(Membership);
         const existing = await memberships.findOne({
           where: { organizationId: invitation.organizationId, userId: user.id },
+          lock: { mode: 'pessimistic_write' },
         });
-        if (existing) {
+        if (existing && existing.status !== MembershipStatus.REVOKED) {
           throw new ConflictException('Membership already exists');
         }
-        const membershipStatus = user.emailVerifiedAt
-          ? MembershipStatus.ACTIVE
-          : MembershipStatus.PENDING;
-        const membership = await memberships.save(
+        const activeMfaFactor = user.emailVerifiedAt
+          ? await manager.getRepository(AuthFactor).exists({
+              where: { userId: user.id, status: AuthFactorStatus.ACTIVE },
+            })
+          : false;
+        const membershipStatus =
+          !existing && user.emailVerifiedAt && activeMfaFactor
+            ? MembershipStatus.ACTIVE
+            : MembershipStatus.PENDING;
+        const membership =
+          existing ??
           memberships.create({
             organizationId: invitation.organizationId,
             userId: user.id,
-            roleId: invitation.roleId,
-            status: membershipStatus,
-            invitedAt: invitation.createdAt,
-            joinedAt: membershipStatus === MembershipStatus.ACTIVE ? now : null,
-          }),
-        );
+          });
+        membership.roleId = invitation.roleId;
+        membership.status = membershipStatus;
+        membership.invitedAt = invitation.createdAt;
+        membership.joinedAt =
+          membershipStatus === MembershipStatus.ACTIVE ? now : null;
+        membership.suspendedAt = null;
+        membership.revokedAt = null;
+        await memberships.save(membership);
+        if (existing) {
+          await manager.getRepository(MembershipPermission).update(
+            {
+              organizationId: invitation.organizationId,
+              membershipId: membership.id,
+              revokedAt: IsNull(),
+            },
+            {
+              revokedAt: now,
+              revokedByMembershipId: invitation.invitedByMembershipId,
+            },
+          );
+          await manager.getRepository(AccountAssignment).update(
+            {
+              organizationId: invitation.organizationId,
+              membershipId: membership.id,
+              status: AccountAssignmentStatus.ACTIVE,
+            },
+            {
+              status: AccountAssignmentStatus.REVOKED,
+              revokedAt: now,
+              revokedByMembershipId: invitation.invitedByMembershipId,
+            },
+          );
+        }
         if (!user.emailVerifiedAt) {
           const rawVerificationToken = randomBytes(32).toString('hex');
           const verificationTokens = manager.getRepository(
             EmailVerificationToken,
           );
           await verificationTokens.update(
-            { userId: user.id, usedAt: IsNull() },
+            {
+              userId: user.id,
+              membershipId: membership.id,
+              usedAt: IsNull(),
+            },
             { usedAt: now },
           );
           await verificationTokens.save(
@@ -327,6 +448,7 @@ export class InvitationsService {
             email: user.email,
             firstName: user.firstName,
             token: rawVerificationToken,
+            membershipId: membership.id,
           };
         }
         invitation.userId = user.id;
@@ -461,43 +583,6 @@ export class InvitationsService {
     }
   }
 
-  private async expirePending(
-    organizationId: string,
-    tenant: SessionAuthorizationContext,
-    request: RequestContext,
-  ): Promise<void> {
-    await this.dataSource.transaction(async (manager) => {
-      const expired = await manager
-        .getRepository(Invitation)
-        .createQueryBuilder('invitation')
-        .where('invitation.organization_id = :organizationId', {
-          organizationId,
-        })
-        .andWhere('invitation.status = :status', {
-          status: InvitationStatus.PENDING,
-        })
-        .andWhere('invitation.expires_at <= :now', { now: new Date() })
-        .setLock('pessimistic_write')
-        .getMany();
-      for (const invitation of expired) {
-        invitation.status = InvitationStatus.EXPIRED;
-        await manager.getRepository(Invitation).save(invitation);
-        await this.record(manager, {
-          organizationId,
-          tenant,
-          request,
-          action: 'invitation.expire',
-          objectType: 'invitation',
-          objectId: invitation.id,
-          metadata: {
-            previousStatus: InvitationStatus.PENDING,
-            status: InvitationStatus.EXPIRED,
-          },
-        });
-      }
-    });
-  }
-
   private async validateGrantablePermissions(
     role: Role,
     proposed: string[],
@@ -603,8 +688,32 @@ export class InvitationsService {
       expiresAt: invitation.expiresAt,
       lastSentAt: invitation.lastSentAt,
       sendCount: invitation.sendCount,
+      deliveryStatus: invitation.deliveryStatus,
       createdAt: invitation.createdAt,
     };
+  }
+
+  private async deliverInvitation(
+    invitation: Invitation,
+    rawToken: string,
+  ): Promise<void> {
+    try {
+      await this.email.sendInvitation({
+        email: invitation.email,
+        token: rawToken,
+        invitationId: invitation.id,
+        expiresAt: invitation.expiresAt,
+      });
+      await this.invitations.update(invitation.id, {
+        deliveryStatus: InvitationDeliveryStatus.SENT,
+        lastSentAt: new Date(),
+      });
+    } catch (error) {
+      await this.invitations.update(invitation.id, {
+        deliveryStatus: InvitationDeliveryStatus.FAILED,
+      });
+      throw error;
+    }
   }
 
   private record(

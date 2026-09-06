@@ -10,6 +10,7 @@ import { Surface } from "@/components/product-patterns";
 
 type PendingRegistration = {
   email?: string;
+  membershipId?: string;
   organizationName?: string;
   subscriptionType?: string;
 };
@@ -28,9 +29,11 @@ export function EmailVerification({ locale = "es" }: { locale?: string }) {
 
   useEffect(() => {
     const hash = window.location.hash;
-    const value = hash.startsWith("#")
-      ? new URLSearchParams(hash.slice(1)).get("token")
+    const fragment = hash.startsWith("#")
+      ? new URLSearchParams(hash.slice(1))
       : null;
+    const value = fragment?.get("token") ?? null;
+    const membershipId = fragment?.get("membershipId") ?? undefined;
     const tokenTimer = value
       ? window.setTimeout(() => {
           setToken(value);
@@ -47,8 +50,15 @@ export function EmailVerification({ locale = "es" }: { locale?: string }) {
       const pending = stored
         ? (JSON.parse(stored) as PendingRegistration)
         : null;
-      if (pending)
-        pendingTimer = window.setTimeout(() => setPending(pending), 0);
+      if (pending || membershipId)
+        pendingTimer = window.setTimeout(
+          () =>
+            setPending({
+              ...pending,
+              ...(membershipId ? { membershipId } : {}),
+            }),
+          0,
+        );
     } catch {
       // A malformed non-sensitive onboarding hint is safe to ignore.
     }
@@ -96,13 +106,14 @@ export function EmailVerification({ locale = "es" }: { locale?: string }) {
   }
 
   async function resend() {
-    if (!pending.email || cooldown > 0) return;
+    if (!pending.email || !pending.membershipId || cooldown > 0) return;
     setMessage(null);
     requestController.current?.abort();
     requestController.current = new AbortController();
     try {
       await resendEmailVerification(
         pending.email,
+        pending.membershipId,
         requestController.current.signal,
       );
       setMessage("Si el correo puede verificarse, recibirás un nuevo enlace.");
@@ -206,7 +217,7 @@ export function EmailVerification({ locale = "es" }: { locale?: string }) {
               variant="outline"
               className="w-full"
               onClick={resend}
-              disabled={!pending.email || cooldown > 0}
+              disabled={!pending.email || !pending.membershipId || cooldown > 0}
             >
               {cooldown > 0 ? `Reenviar en ${cooldown}s` : "Reenviar enlace"}
             </Button>

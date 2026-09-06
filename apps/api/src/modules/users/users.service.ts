@@ -1,28 +1,12 @@
-import {
-  BadRequestException,
-  ConflictException,
-  Injectable,
-  NotFoundException,
-  Optional,
-} from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, EntityManager, ILike, In, Repository } from 'typeorm';
+import { EntityManager, ILike, In, Repository } from 'typeorm';
 import { FindUsersDto } from './dtos/find-users.dto';
-import { CreateUserDto } from './dtos/create-user.dto';
-import { UpdateUserDto } from './dtos/update-user.dto';
 import { UserResponseDto } from './dtos/user-response.dto';
 import { UsersPageResponseDto } from './dtos/users-page-response.dto';
 import { User } from './entities/user.entity';
 import { UserMapper } from './mappers/user.mapper';
-import { PasswordService } from '../../common/auth/password.service';
-import { SessionsService } from '../sessions/sessions.service';
-import { Organization } from '../organizations/entities/organization.entity';
-import {
-  Membership,
-  MembershipStatus,
-} from '../memberships/entities/membership.entity';
-import { canTransitionMembership } from '../memberships/membership-state';
-import { Role, RoleKey, RoleScope } from '../permissions/entities/role.entity';
+import { Membership } from '../memberships/entities/membership.entity';
 
 export interface RegistrationUserInput {
   firstName: string;
@@ -41,9 +25,6 @@ export class UsersService {
     private readonly repository: Repository<User>,
     @InjectRepository(Membership)
     private readonly memberships: Repository<Membership>,
-    private readonly passwords: PasswordService,
-    private readonly dataSource: DataSource,
-    @Optional() private readonly sessions?: SessionsService,
   ) {}
 
   async findAll(
@@ -96,113 +77,12 @@ export class UsersService {
     return UserMapper.toDTO(user, membership.status);
   }
 
-  async create(
-    dto: CreateUserDto,
-    organizationId: string,
-  ): Promise<UserResponseDto> {
-    return this.dataSource.transaction(async (manager) => {
-      const users = manager.getRepository(User);
-      const memberships = manager.getRepository(Membership);
-      const role = await manager.getRepository(Role).findOneByOrFail({
-        key: RoleKey.COLLABORATOR,
-        scope: RoleScope.ORGANIZATION,
-      });
-      const user = await users.save(
-        users.create({
-          firstName: dto.firstName,
-          lastName: dto.lastName,
-          email: dto.email.trim().toLowerCase(),
-          passwordHash: await this.passwords.hash(dto.password),
-          phoneE164: dto.phoneE164,
-          locale: dto.locale ?? 'es-MX',
-          timezone: dto.timezone ?? 'America/Mexico_City',
-        }),
-      );
-      await memberships.save(
-        memberships.create({
-          organizationId,
-          userId: user.id,
-          roleId: role.id,
-          status: MembershipStatus.PENDING,
-        }),
-      );
-      return UserMapper.toDTO(user, MembershipStatus.PENDING);
-    });
-  }
-
   createForRegistration(
     manager: EntityManager,
     input: RegistrationUserInput,
   ): Promise<User> {
     const repository = manager.getRepository(User);
     return repository.save(repository.create(input));
-  }
-
-  async update(
-    id: string,
-    organizationId: string,
-    dto: UpdateUserDto,
-  ): Promise<UserResponseDto> {
-    const result = await this.dataSource.transaction(async (manager) => {
-      const { user, membership } = await this.ensureMember(
-        id,
-        organizationId,
-        manager,
-      );
-      if (dto.status && dto.status !== membership.status) {
-        if (!canTransitionMembership(membership.status, dto.status)) {
-          throw new BadRequestException('Invalid membership status transition');
-        }
-        if (
-          dto.status === MembershipStatus.SUSPENDED ||
-          dto.status === MembershipStatus.REVOKED
-        ) {
-          await this.assertNotLastOwner(manager, organizationId, membership);
-        }
-        const now = new Date();
-        membership.status = dto.status;
-        membership.suspendedAt =
-          dto.status === MembershipStatus.SUSPENDED ? now : null;
-        membership.revokedAt =
-          dto.status === MembershipStatus.REVOKED ? now : null;
-        if (dto.status === MembershipStatus.ACTIVE) {
-          membership.joinedAt ??= now;
-        }
-        await manager.getRepository(Membership).save(membership);
-      }
-      return { user, membership };
-    });
-    if (
-      dto.status === MembershipStatus.SUSPENDED ||
-      dto.status === MembershipStatus.REVOKED
-    ) {
-      await this.sessions?.revokeMembershipSessions(
-        organizationId,
-        result.membership.id,
-        `membership_${dto.status}`,
-      );
-    }
-    return UserMapper.toDTO(result.user, result.membership.status);
-  }
-
-  async remove(id: string, organizationId: string): Promise<void> {
-    const membership = await this.dataSource.transaction(async (manager) => {
-      const { membership } = await this.ensureMember(
-        id,
-        organizationId,
-        manager,
-      );
-      await this.assertNotLastOwner(manager, organizationId, membership);
-      membership.status = MembershipStatus.REVOKED;
-      membership.revokedAt = new Date();
-      await manager.getRepository(Membership).save(membership);
-      return membership;
-    });
-    await this.sessions?.revokeMembershipSessions(
-      organizationId,
-      membership.id,
-      'membership_revoked',
-    );
   }
 
   private async ensureMember(
@@ -219,25 +99,5 @@ export class UsersService {
     const user = await users.findOne({ where: { id } });
     if (!user) throw new NotFoundException('User not found');
     return { user, membership };
-  }
-
-  private async assertNotLastOwner(
-    manager: EntityManager,
-    organizationId: string,
-    membership: Membership,
-  ): Promise<void> {
-    if (membership.status !== MembershipStatus.ACTIVE) {
-      return;
-    }
-
-    const organization = await manager.getRepository(Organization).findOne({
-      where: { id: organizationId },
-      lock: { mode: 'pessimistic_write' },
-    });
-    if (!organization) throw new NotFoundException('Organization not found');
-
-    if (organization.ownerUserId === membership.userId) {
-      throw new ConflictException('Organization must retain an active owner');
-    }
   }
 }

@@ -64,7 +64,7 @@ export function AcceptInvitation({ locale = "es" }: { locale?: string }) {
       if (accepted.nextStep === "verify_email") {
         sessionStorage.setItem(
           "balanz_pending_registration",
-          JSON.stringify({ email }),
+          JSON.stringify({ email, membershipId: accepted.membershipId }),
         );
       }
       setResult(accepted);

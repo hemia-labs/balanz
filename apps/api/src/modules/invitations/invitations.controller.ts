@@ -8,6 +8,7 @@ import {
   ParseUUIDPipe,
   Patch,
   Post,
+  Query,
   UseGuards,
 } from '@nestjs/common';
 import { ThrottlerGuard } from '@nestjs/throttler';
@@ -24,6 +25,7 @@ import type { SessionAuthorizationContext } from '../sessions/session.types';
 import {
   AcceptInvitationDto,
   CreateInvitationDto,
+  ListInvitationsDto,
 } from './dtos/invitation.dtos';
 import { InvitationsService } from './invitations.service';
 
@@ -49,10 +51,10 @@ export class InvitationsController {
   @Permissions('members.manage')
   list(
     @Param('organizationId', ParseUUIDPipe) organizationId: string,
+    @Query() query: ListInvitationsDto,
     @CurrentTenant() tenant: SessionAuthorizationContext,
-    @CurrentRequestContext() request: RequestContext,
   ) {
-    return this.invitations.list(organizationId, tenant, request);
+    return this.invitations.list(organizationId, tenant, query);
   }
 
   @Post('invitations/:invitationId/accept')
@@ -75,6 +77,17 @@ export class InvitationsController {
     @CurrentRequestContext() request: RequestContext,
   ) {
     return this.invitations.revokeInvitation(invitationId, tenant, request);
+  }
+
+  @Post('invitations/:invitationId/resend')
+  @UseGuards(SessionGuard, TenantAccessGuard, PermissionsGuard)
+  @Permissions('members.manage')
+  resendInvitation(
+    @Param('invitationId', ParseUUIDPipe) invitationId: string,
+    @CurrentTenant() tenant: SessionAuthorizationContext,
+    @CurrentRequestContext() request: RequestContext,
+  ) {
+    return this.invitations.resendInvitation(invitationId, tenant, request);
   }
 
   @Patch('memberships/:membershipId/suspend')

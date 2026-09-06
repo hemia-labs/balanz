@@ -24,6 +24,7 @@ export class EmailService {
         'Invitation delivery failed',
         error instanceof Error ? error.stack : undefined,
       );
+      throw error;
     }
   }
 
@@ -31,6 +32,7 @@ export class EmailService {
     email: string;
     firstName?: string;
     token: string;
+    membershipId: string;
   }): Promise<void> {
     try {
       await this.delivery.sendVerification(input);

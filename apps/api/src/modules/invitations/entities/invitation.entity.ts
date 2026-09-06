@@ -19,6 +19,12 @@ export enum InvitationStatus {
   REVOKED = 'revoked',
 }
 
+export enum InvitationDeliveryStatus {
+  PENDING = 'pending',
+  SENT = 'sent',
+  FAILED = 'failed',
+}
+
 @Index('uq_invitations_token_hash', ['tokenHash'], { unique: true })
 @Index('ix_invitations_organization_status_expires', [
   'organizationId',
@@ -126,6 +132,14 @@ export class Invitation {
 
   @Column({ name: 'send_count', type: 'integer', default: 1 })
   sendCount: number;
+
+  @Column({
+    name: 'delivery_status',
+    type: 'enum',
+    enum: InvitationDeliveryStatus,
+    default: InvitationDeliveryStatus.PENDING,
+  })
+  deliveryStatus: InvitationDeliveryStatus;
 
   @Column({ name: 'accepted_at', type: 'timestamptz', nullable: true })
   acceptedAt?: Date | null;
