@@ -365,6 +365,40 @@ describe('Auth registration and MFA (e2e)', () => {
       .expect(400);
   });
 
+  it('enrolls MFA for an active membership without changing its status', async () => {
+    const registration = await register('active-membership-mfa');
+    const confirmation = await confirm(
+      registration.token,
+      registration.ipAddress,
+    );
+    const cookie = sessionCookie(confirmation);
+    await dataSource.query(
+      `UPDATE memberships SET status = 'active', joined_at = now()
+       WHERE id = $1`,
+      [registration.membershipId],
+    );
+
+    const setup = await request(app.getHttpServer())
+      .post(`${apiPrefix}/auth/mfa/totp/setup`)
+      .set('Origin', allowedOrigin)
+      .set('Cookie', cookie)
+      .send({})
+      .expect(201);
+    const setupBody = setup.body as { secret: string };
+    await request(app.getHttpServer())
+      .post(`${apiPrefix}/auth/mfa/totp/verify`)
+      .set('Origin', allowedOrigin)
+      .set('Cookie', cookie)
+      .send({ code: totpCode(setupBody.secret) })
+      .expect(201);
+
+    const [membership] = await dataSource.query<Array<{ status: string }>>(
+      'SELECT status FROM memberships WHERE id = $1',
+      [registration.membershipId],
+    );
+    expect(membership).toEqual({ status: 'active' });
+  });
+
   async function register(label: string): Promise<Registration> {
     const suffix = `${label}-${randomUUID()}`;
     const email = `${suffix}@example.test`;

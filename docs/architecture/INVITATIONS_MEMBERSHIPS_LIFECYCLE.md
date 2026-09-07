@@ -23,9 +23,11 @@ Membership suspended ── authorized reactivate ──> active
 
 Los estados terminales de una invitación no tienen transiciones de salida. Una
 membresía revocada no puede reactivarse directamente: una invitación nueva debe
-reutilizar bajo lock la misma fila, devolverla a `pending` y limpiar sus fechas
-de activación, suspensión y revocación. Sus permisos personalizados y
-asignaciones anteriores quedan revocados y no se recuperan automáticamente.
+reutilizar bajo lock la misma fila y limpiar sus fechas de activación,
+suspensión y revocación. Vuelve a `pending`, salvo que la identidad ya tenga
+correo verificado y un factor MFA activo, en cuyo caso el nuevo flujo puede
+completarla como `active`. Sus permisos personalizados y asignaciones anteriores
+quedan revocados y no se recuperan automáticamente.
 
 ## Integridad y aislamiento
 
@@ -88,7 +90,9 @@ ni registra el token o su hash.
 Para una identidad nueva, la aceptación exige nombre, apellido y contraseña y
 mantiene la membresía `pending`. Verificar el correo habilita la configuración
 de MFA, pero no activa por sí solo la membresía. `completeMfa` realiza la
-transición `pending → active` al confirmar el enrolamiento TOTP y vuelve a
-comprobar que el correo esté verificado. Una identidad existente sólo puede
+transición `pending → active` al confirmar el enrolamiento TOTP cuando
+corresponde, pero también permite enrolar el factor desde una membresía ya
+`active` o desde una sesión global sin alterar membresías. En todos los casos
+vuelve a comprobar que el correo esté verificado. Una identidad existente sólo puede
 quedar `active` al aceptar si ya tiene correo verificado y un factor MFA activo;
 esto no crea una sesión ni concede alcance fiscal por sí solo.

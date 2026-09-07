@@ -30,8 +30,9 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { PermissionAdministrationScreen } from "@/features/permissions/permission-administration-screen";
+import { reauthenticateSession } from "@/features/auth/api";
 import { useSession } from "@/features/session/session-provider";
-import { isAbortError } from "@/lib/api-client";
+import { classifyApiError, isAbortError } from "@/lib/api-client";
 import { hasCapability } from "@/lib/permissions";
 import {
   getTeamMembers,
@@ -41,18 +42,24 @@ import {
   type TeamMember,
 } from "./api";
 import { teamErrorMessage } from "./team-errors";
+import { TeamReauthenticationDialog } from "./team-reauthentication-dialog";
 
 type MemberOperation = "suspend" | "reactivate" | "revoke";
 
 export function TeamMemberScreen({ membershipId }: { membershipId: string }) {
   const { capabilities, locale, organization } = useAccountingContext();
-  const { session } = useSession();
+  const { session, refreshSession } = useSession();
   const [member, setMember] = useState<TeamMember | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [operation, setOperation] = useState<MemberOperation | null>(null);
   const [busy, setBusy] = useState(false);
+  const [reauthenticationOpen, setReauthenticationOpen] = useState(false);
+  const [reauthenticationCode, setReauthenticationCode] = useState("");
+  const [reauthenticationError, setReauthenticationError] = useState<
+    string | null
+  >(null);
   const teamHref = `/${locale}/organizations/${encodeURIComponent(organization.slug)}/team`;
   const canManageMembers = hasCapability(capabilities, "members.manage");
   const canManagePermissions = hasCapability(
@@ -108,8 +115,35 @@ export function TeamMemberScreen({ membershipId }: { membershipId: string }) {
       await load();
       setSuccess(message);
     } catch (cause) {
-      setError(teamErrorMessage(cause, "No pudimos actualizar la membresía."));
+      if (classifyApiError(cause) === "reauthentication_required") {
+        setReauthenticationCode("");
+        setReauthenticationError(null);
+        setReauthenticationOpen(true);
+      } else {
+        setError(
+          teamErrorMessage(cause, "No pudimos actualizar la membresía."),
+        );
+      }
     } finally {
+      setBusy(false);
+    }
+  }
+
+  async function confirmReauthentication() {
+    if (reauthenticationCode.length !== 6 || !operation) return;
+    setBusy(true);
+    setReauthenticationError(null);
+    try {
+      await reauthenticateSession(reauthenticationCode);
+      await refreshSession();
+      setReauthenticationOpen(false);
+      setReauthenticationCode("");
+      setBusy(false);
+      await confirmOperation();
+    } catch (cause) {
+      setReauthenticationError(
+        teamErrorMessage(cause, "No pudimos reautenticar la sesión."),
+      );
       setBusy(false);
     }
   }
@@ -326,11 +360,26 @@ export function TeamMemberScreen({ membershipId }: { membershipId: string }) {
       ) : null}
 
       <OperationDialog
-        operation={operation}
+        operation={reauthenticationOpen ? null : operation}
         member={member}
         busy={busy}
         onClose={() => !busy && setOperation(null)}
         onConfirm={confirmOperation}
+      />
+      <TeamReauthenticationDialog
+        open={reauthenticationOpen}
+        code={reauthenticationCode}
+        busy={busy}
+        error={reauthenticationError}
+        onCodeChange={setReauthenticationCode}
+        onClose={() => {
+          if (busy) return;
+          setReauthenticationOpen(false);
+          setReauthenticationCode("");
+          setReauthenticationError(null);
+          setOperation(null);
+        }}
+        onConfirm={confirmReauthentication}
       />
     </div>
   );

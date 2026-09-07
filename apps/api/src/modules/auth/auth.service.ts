@@ -992,10 +992,6 @@ export class AuthService {
 
       const now = new Date();
       if (enrolling) {
-        if (!lockedSession.membershipId) {
-          throw new UnauthorizedException('Invalid session');
-        }
-        const membershipRepository = manager.getRepository(Membership);
         const enrollingUser = await manager.getRepository(User).findOne({
           where: { id: lockedSession.userId, status: UserStatus.ACTIVE },
           lock: { mode: 'pessimistic_read' },
@@ -1003,20 +999,29 @@ export class AuthService {
         if (!enrollingUser?.emailVerifiedAt) {
           throw new UnauthorizedException('Verified email required');
         }
-        const membership = await membershipRepository.findOne({
-          where: {
-            id: lockedSession.membershipId,
-            userId: lockedSession.userId,
-            status: MembershipStatus.PENDING,
-          },
-          lock: { mode: 'pessimistic_write' },
-        });
-        if (!membership) {
-          throw new UnauthorizedException('Pending membership required');
+        if (lockedSession.membershipId) {
+          const membershipRepository = manager.getRepository(Membership);
+          const membership = await membershipRepository.findOne({
+            where: {
+              id: lockedSession.membershipId,
+              userId: lockedSession.userId,
+            },
+            lock: { mode: 'pessimistic_write' },
+          });
+          if (
+            !membership ||
+            ![MembershipStatus.PENDING, MembershipStatus.ACTIVE].includes(
+              membership.status,
+            )
+          ) {
+            throw new UnauthorizedException('Eligible membership required');
+          }
+          if (membership.status === MembershipStatus.PENDING) {
+            membership.status = MembershipStatus.ACTIVE;
+            membership.joinedAt = now;
+            await membershipRepository.save(membership);
+          }
         }
-        membership.status = MembershipStatus.ACTIVE;
-        membership.joinedAt = now;
-        await membershipRepository.save(membership);
       }
       if (!enrolling && !lockedSession.requiresMfa)
         throw new UnauthorizedException('MFA is not active');

@@ -136,6 +136,34 @@ export class InvitationsService {
         }
 
         const repository = manager.getRepository(Invitation);
+        const previousPending = await repository
+          .createQueryBuilder('invitation')
+          .where('invitation.organization_id = :organizationId', {
+            organizationId,
+          })
+          .andWhere('invitation.email_normalized = :emailNormalized', {
+            emailNormalized,
+          })
+          .andWhere('invitation.status = :status', {
+            status: InvitationStatus.PENDING,
+          })
+          .setLock('pessimistic_write')
+          .getOne();
+        if (previousPending) {
+          if (previousPending.expiresAt.getTime() > now.getTime()) {
+            throw new ConflictException('A pending invitation already exists');
+          }
+          previousPending.status = InvitationStatus.EXPIRED;
+          await repository.save(previousPending);
+          await this.recordPublicAcceptance(
+            manager,
+            previousPending,
+            request,
+            'invitation.expire',
+            InvitationStatus.PENDING,
+            InvitationStatus.EXPIRED,
+          );
+        }
         const saved = await repository.save(
           repository.create({
             organizationId,
@@ -189,7 +217,7 @@ export class InvitationsService {
     this.requireReauthentication(tenant);
     const rawToken = randomBytes(32).toString('hex');
     const now = new Date();
-    const invitation = await this.dataSource.transaction(async (manager) => {
+    const result = await this.dataSource.transaction(async (manager) => {
       const repository = manager.getRepository(Invitation);
       const current = await repository
         .createQueryBuilder('invitation')
@@ -208,7 +236,15 @@ export class InvitationsService {
       if (current.expiresAt.getTime() <= now.getTime()) {
         current.status = InvitationStatus.EXPIRED;
         await repository.save(current);
-        throw new ConflictException('Invitation has expired');
+        await this.recordPublicAcceptance(
+          manager,
+          current,
+          request,
+          'invitation.expire',
+          InvitationStatus.PENDING,
+          InvitationStatus.EXPIRED,
+        );
+        return { expired: true as const };
       }
       current.tokenHash = this.hashToken(rawToken);
       current.lastSentAt = now;
@@ -224,9 +260,14 @@ export class InvitationsService {
         objectId: current.id,
         metadata: { sendCount: current.sendCount },
       });
-      return current;
+      return { expired: false as const, invitation: current };
     });
 
+    if (result.expired) {
+      throw new ConflictException('Invitation has expired');
+    }
+
+    const invitation = result.invitation;
     await this.deliverInvitation(invitation, rawToken);
     invitation.deliveryStatus = InvitationDeliveryStatus.SENT;
     return this.toResponse(invitation, invitation.role.key);
@@ -263,8 +304,8 @@ export class InvitationsService {
     const items = await builder
       .orderBy('invitation.created_at', 'DESC')
       .addOrderBy('invitation.id', 'DESC')
-      .skip((query.page - 1) * query.limit)
-      .take(query.limit)
+      .offset((query.page - 1) * query.limit)
+      .limit(query.limit)
       .getRawMany();
     return {
       items,
@@ -373,7 +414,7 @@ export class InvitationsService {
             })
           : false;
         const membershipStatus =
-          !existing && user.emailVerifiedAt && activeMfaFactor
+          user.emailVerifiedAt && activeMfaFactor
             ? MembershipStatus.ACTIVE
             : MembershipStatus.PENDING;
         const membership =
@@ -415,7 +456,7 @@ export class InvitationsService {
             },
           );
         }
-        if (!user.emailVerifiedAt) {
+        if (membership.status === MembershipStatus.PENDING) {
           const rawVerificationToken = randomBytes(32).toString('hex');
           const verificationTokens = manager.getRepository(
             EmailVerificationToken,
@@ -472,7 +513,10 @@ export class InvitationsService {
           membershipId: membership.id,
           membershipStatus: membership.status,
           role: invitation.role.key,
-          nextStep: user.emailVerifiedAt ? 'ready' : 'verify_email',
+          nextStep:
+            membership.status === MembershipStatus.ACTIVE
+              ? 'ready'
+              : 'verify_email',
         };
       })
       .catch((error: unknown) => {

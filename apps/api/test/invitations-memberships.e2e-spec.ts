@@ -11,6 +11,7 @@ import { AppModule } from '../src/app.module';
 import { AllExceptionsFilter } from '../src/common/filters/all-exceptions.filter';
 import { API_VALIDATION_PIPE_OPTIONS } from '../src/common/validation/validation-exception.factory';
 import { EmailService } from '../src/modules/email/email.service';
+import { AuthFactorStatus } from '../src/modules/auth/entities/auth-factor.entity';
 import { MembershipStatus } from '../src/modules/memberships/entities/membership.entity';
 import { OrganizationStatus } from '../src/modules/organizations/entities/organization.entity';
 import { RoleKey } from '../src/modules/permissions/entities/role.entity';
@@ -35,7 +36,15 @@ type AcceptanceResponse = {
   membershipStatus: string;
   nextStep: string;
 };
-type InvitationListResponse = { items: Array<{ id: string; status: string }> };
+type InvitationListResponse = {
+  items: Array<{ id: string; status: string }>;
+  meta: {
+    page: number;
+    limit: number;
+    total: number;
+    totalPages: number;
+  };
+};
 
 describe('Invitations and memberships (e2e)', () => {
   const apiPrefix = '/api/v1';
@@ -124,6 +133,43 @@ describe('Invitations and memberships (e2e)', () => {
         expect.objectContaining({ id: invitation.id, status: 'pending' }),
       ]),
     );
+  });
+
+  it('paginates joined invitation results without overlap', async () => {
+    await Promise.all(
+      Array.from({ length: 5 }, (_, index) =>
+        createInvitation(ownerA, `pagination-${index}-${fixture}@example.test`),
+      ),
+    );
+
+    const firstPage = responseBody<InvitationListResponse>(
+      await request(app.getHttpServer())
+        .get(
+          `${apiPrefix}/organizations/${ownerA.organizationId}/invitations?page=1&limit=2`,
+        )
+        .set('Cookie', ownerA.cookie)
+        .expect(200),
+    );
+    const secondPage = responseBody<InvitationListResponse>(
+      await request(app.getHttpServer())
+        .get(
+          `${apiPrefix}/organizations/${ownerA.organizationId}/invitations?page=2&limit=2`,
+        )
+        .set('Cookie', ownerA.cookie)
+        .expect(200),
+    );
+
+    expect(firstPage.items).toHaveLength(2);
+    expect(secondPage.items).toHaveLength(2);
+    expect(firstPage.meta).toMatchObject({ page: 1, limit: 2 });
+    expect(secondPage.meta).toMatchObject({ page: 2, limit: 2 });
+    expect(firstPage.meta.total).toBeGreaterThan(2);
+    expect(secondPage.meta.total).toBe(firstPage.meta.total);
+    expect(
+      firstPage.items.some(({ id }) =>
+        secondPage.items.some((item) => item.id === id),
+      ),
+    ).toBe(false);
   });
 
   it('accepts once, scopes verification and keeps membership pending until MFA', async () => {
@@ -333,6 +379,79 @@ describe('Invitations and memberships (e2e)', () => {
     expect(audit.count).toBe(1);
   });
 
+  it('expires a stale pending invitation before creating its replacement', async () => {
+    const email = `replacement-${fixture}@example.test`;
+    const first = responseBody<InvitationResponse>(
+      await createInvitation(ownerA, email),
+    );
+    await dataSource.query(
+      `UPDATE invitations
+       SET expires_at = now() - interval '1 hour'
+       WHERE id = $1`,
+      [first.id],
+    );
+
+    const second = responseBody<InvitationResponse>(
+      await createInvitation(ownerA, email),
+    );
+    expect(second.id).not.toBe(first.id);
+
+    const invitations = await dataSource.query<
+      Array<{ id: string; status: string }>
+    >(
+      `SELECT id, status
+       FROM invitations
+       WHERE id = ANY($1::uuid[])
+       ORDER BY created_at ASC`,
+      [[first.id, second.id]],
+    );
+    expect(invitations).toEqual([
+      { id: first.id, status: 'expired' },
+      { id: second.id, status: 'pending' },
+    ]);
+    const [audit] = await dataSource.query<
+      Array<{ actorType: string; count: number }>
+    >(
+      `SELECT min(actor_type) AS "actorType", count(*)::int AS count
+       FROM audit_events
+       WHERE object_id = $1 AND action = 'invitation.expire'`,
+      [first.id],
+    );
+    expect(audit).toEqual({ actorType: 'system', count: 1 });
+  });
+
+  it('commits expiration when attempting to resend a stale invitation', async () => {
+    const email = `expired-resend-${fixture}@example.test`;
+    const invitation = responseBody<InvitationResponse>(
+      await createInvitation(ownerA, email),
+    );
+    await dataSource.query(
+      `UPDATE invitations
+       SET expires_at = now() - interval '1 hour'
+       WHERE id = $1`,
+      [invitation.id],
+    );
+
+    await request(app.getHttpServer())
+      .post(`${apiPrefix}/invitations/${invitation.id}/resend`)
+      .set('Cookie', ownerA.cookie)
+      .set('Origin', allowedOrigin)
+      .expect(409);
+
+    const [state] = await dataSource.query<
+      Array<{ status: string; expirationAudits: number }>
+    >(
+      `SELECT invitation.status,
+        (SELECT count(*)::int FROM audit_events audit
+         WHERE audit.object_id = invitation.id
+           AND audit.action = 'invitation.expire') AS "expirationAudits"
+       FROM invitations invitation
+       WHERE invitation.id = $1`,
+      [invitation.id],
+    );
+    expect(state).toEqual({ status: 'expired', expirationAudits: 1 });
+  });
+
   it('rejects a revoked invitation and keeps repeated revocation idempotent', async () => {
     const email = `revoked-invitation-${fixture}@example.test`;
     const created = responseBody<InvitationResponse>(
@@ -499,10 +618,16 @@ describe('Invitations and memberships (e2e)', () => {
       .expect(422);
   });
 
-  it('reincorporates a revoked member through a new pending invitation', async () => {
+  it('reincorporates a revoked verified member with active MFA through a new invitation', async () => {
     const label = 'revoked-reinvite';
     const email = `${label}-${fixture}@example.test`;
     const user = await createUser(label, true);
+    await dataSource.getRepository('auth_factors').save({
+      userId: user.id,
+      secretEncrypted: 'e2e-not-decrypted',
+      status: AuthFactorStatus.ACTIVE,
+      verifiedAt: new Date(),
+    });
     const role = await dataSource.getRepository('roles').findOneByOrFail({
       key: RoleKey.COLLABORATOR,
     });
@@ -535,15 +660,15 @@ describe('Invitations and memberships (e2e)', () => {
     expect(acceptedBody).toMatchObject({
       userId: user.id,
       membershipId: String(original.id),
-      membershipStatus: MembershipStatus.PENDING,
+      membershipStatus: MembershipStatus.ACTIVE,
+      nextStep: 'ready',
     });
 
     const reincorporated = await dataSource
       .getRepository('memberships')
       .findOneByOrFail({ id: String(original.id) });
     expect(reincorporated).toMatchObject({
-      status: MembershipStatus.PENDING,
-      joinedAt: null,
+      status: MembershipStatus.ACTIVE,
       suspendedAt: null,
       revokedAt: null,
     });
@@ -733,6 +858,10 @@ describe('Invitations and memberships (e2e)', () => {
     );
     await dataSource.query(
       'DELETE FROM email_verification_tokens WHERE user_id = ANY($1::uuid[])',
+      [userIds],
+    );
+    await dataSource.query(
+      'DELETE FROM auth_factors WHERE user_id = ANY($1::uuid[])',
       [userIds],
     );
     await dataSource.query(

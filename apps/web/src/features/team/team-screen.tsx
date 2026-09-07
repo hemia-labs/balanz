@@ -58,6 +58,7 @@ import {
   type TeamRole,
 } from "./api";
 import { teamErrorMessage } from "./team-errors";
+import { TeamReauthenticationDialog } from "./team-reauthentication-dialog";
 
 const roleLabels: Record<TeamRole, string> = {
   admin: "Administrador",
@@ -81,6 +82,7 @@ const invitationLabels = {
 
 type PendingAction =
   | { kind: "invitation-revoke"; invitation: InvitationItem }
+  | { kind: "invitation-resend"; invitation: InvitationItem }
   | {
       kind:
         "membership-suspend" | "membership-reactivate" | "membership-revoke";
@@ -90,6 +92,7 @@ type PendingAction =
 export function TeamScreen() {
   const { capabilities, locale, organization } = useAccountingContext();
   const canManage = hasCapability(capabilities, "members.manage");
+  const { refreshSession } = useSession();
   const [members, setMembers] = useState<TeamMember[]>([]);
   const [invitations, setInvitations] = useState<InvitationItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -100,6 +103,11 @@ export function TeamScreen() {
     null,
   );
   const [busyAction, setBusyAction] = useState<string | null>(null);
+  const [reauthenticationOpen, setReauthenticationOpen] = useState(false);
+  const [reauthenticationCode, setReauthenticationCode] = useState("");
+  const [reauthenticationError, setReauthenticationError] = useState<
+    string | null
+  >(null);
 
   const load = useCallback(
     async (signal?: AbortSignal) => {
@@ -144,49 +152,74 @@ export function TeamScreen() {
     setSuccess(message);
   };
 
-  const confirmAction = async () => {
-    if (!pendingAction) return;
+  const executeAction = async (action: PendingAction) => {
     const key =
-      pendingAction.kind === "invitation-revoke"
-        ? pendingAction.invitation.id
-        : pendingAction.member.membershipId;
+      action.kind === "invitation-revoke" || action.kind === "invitation-resend"
+        ? action.invitation.id
+        : action.member.membershipId;
     setBusyAction(key);
     setError(null);
     try {
-      if (pendingAction.kind === "invitation-revoke") {
-        await revokeInvitation(pendingAction.invitation.id);
+      if (action.kind === "invitation-revoke") {
+        await revokeInvitation(action.invitation.id);
         await refresh("La invitación quedó revocada.");
-      } else if (pendingAction.kind === "membership-suspend") {
-        await suspendMembership(pendingAction.member.membershipId);
+      } else if (action.kind === "invitation-resend") {
+        await resendInvitation(action.invitation.id);
+        await refresh("La invitación fue reenviada.");
+      } else if (action.kind === "membership-suspend") {
+        await suspendMembership(action.member.membershipId);
         await refresh(
           "La membresía quedó suspendida y sus sesiones se cerraron.",
         );
-      } else if (pendingAction.kind === "membership-reactivate") {
-        await reactivateMembership(pendingAction.member.membershipId);
+      } else if (action.kind === "membership-reactivate") {
+        await reactivateMembership(action.member.membershipId);
         await refresh("La membresía quedó activa nuevamente.");
       } else {
-        await revokeMembership(pendingAction.member.membershipId);
+        await revokeMembership(action.member.membershipId);
         await refresh("La membresía quedó revocada permanentemente.");
       }
       setPendingAction(null);
+      return true;
     } catch (cause) {
-      setError(
-        teamErrorMessage(cause, "No pudimos completar el cambio solicitado."),
-      );
+      if (classifyApiError(cause) === "reauthentication_required") {
+        setPendingAction(action);
+        setReauthenticationCode("");
+        setReauthenticationError(null);
+        setReauthenticationOpen(true);
+      } else {
+        setError(
+          teamErrorMessage(cause, "No pudimos completar el cambio solicitado."),
+        );
+      }
+      return false;
     } finally {
       setBusyAction(null);
     }
   };
 
+  const confirmAction = async () => {
+    if (pendingAction) await executeAction(pendingAction);
+  };
+
   const resend = async (invitation: InvitationItem) => {
-    setBusyAction(invitation.id);
-    setError(null);
+    await executeAction({ kind: "invitation-resend", invitation });
+  };
+
+  const confirmReauthentication = async () => {
+    if (reauthenticationCode.length !== 6 || !pendingAction) return;
+    setBusyAction("reauthentication");
+    setReauthenticationError(null);
     try {
-      await resendInvitation(invitation.id);
-      await refresh("La invitación fue reenviada.");
+      await reauthenticateSession(reauthenticationCode);
+      await refreshSession();
+      setReauthenticationOpen(false);
+      setReauthenticationCode("");
+      setBusyAction(null);
+      await executeAction(pendingAction);
     } catch (cause) {
-      setError(teamErrorMessage(cause, "No pudimos reenviar la invitación."));
-    } finally {
+      setReauthenticationError(
+        teamErrorMessage(cause, "No pudimos reautenticar la sesión."),
+      );
       setBusyAction(null);
     }
   };
@@ -276,10 +309,25 @@ export function TeamScreen() {
         ) : null}
 
         <ConfirmationDialog
-          action={pendingAction}
+          action={reauthenticationOpen ? null : pendingAction}
           busy={busyAction !== null}
           onClose={() => !busyAction && setPendingAction(null)}
           onConfirm={confirmAction}
+        />
+        <TeamReauthenticationDialog
+          open={reauthenticationOpen}
+          code={reauthenticationCode}
+          busy={busyAction !== null}
+          error={reauthenticationError}
+          onCodeChange={setReauthenticationCode}
+          onClose={() => {
+            if (busyAction) return;
+            setReauthenticationOpen(false);
+            setReauthenticationCode("");
+            setReauthenticationError(null);
+            setPendingAction(null);
+          }}
+          onConfirm={confirmReauthentication}
         />
       </>
     </div>
@@ -708,6 +756,13 @@ function confirmationCopy(action: PendingAction | null) {
       description: `La invitación para ${action.invitation.email} dejará de ser válida inmediatamente.`,
       confirm: "Revocar invitación",
       destructive: true,
+    };
+  if (action.kind === "invitation-resend")
+    return {
+      title: "Reenviar invitación",
+      description: `Se enviará un enlace nuevo a ${action.invitation.email}.`,
+      confirm: "Reenviar invitación",
+      destructive: false,
     };
   if (action.kind === "membership-suspend")
     return {
