@@ -2,7 +2,13 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
-import { AlertCircle, RefreshCw, UserPlus } from "lucide-react";
+import {
+  AlertCircle,
+  ChevronLeft,
+  ChevronRight,
+  RefreshCw,
+  UserPlus,
+} from "lucide-react";
 import { useAccountingContext } from "@/components/accounting-context";
 import { Surface, SurfaceHeader } from "@/components/product-patterns";
 import { StatusBadge } from "@/components/status-badge";
@@ -53,6 +59,7 @@ import {
   revokeMembership,
   suspendMembership,
   type InvitationItem,
+  type InvitationPage,
   type MembershipStatus,
   type TeamMember,
   type TeamRole,
@@ -80,6 +87,14 @@ const invitationLabels = {
   revoked: "Revocada",
 } as const;
 
+const invitationsPageSize = 25;
+const emptyInvitationPage: InvitationPage["meta"] = {
+  page: 1,
+  limit: invitationsPageSize,
+  total: 0,
+  totalPages: 0,
+};
+
 type PendingAction =
   | { kind: "invitation-revoke"; invitation: InvitationItem }
   | { kind: "invitation-resend"; invitation: InvitationItem }
@@ -95,6 +110,16 @@ export function TeamScreen() {
   const { refreshSession } = useSession();
   const [members, setMembers] = useState<TeamMember[]>([]);
   const [invitations, setInvitations] = useState<InvitationItem[]>([]);
+  const [invitationPagination, setInvitationPagination] = useState({
+    organizationId: organization.id,
+    page: 1,
+  });
+  const invitationsPage =
+    invitationPagination.organizationId === organization.id
+      ? invitationPagination.page
+      : 1;
+  const [invitationsMeta, setInvitationsMeta] =
+    useState<InvitationPage["meta"]>(emptyInvitationPage);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
@@ -117,12 +142,29 @@ export function TeamScreen() {
         const [nextMembers, nextInvitations] = await Promise.all([
           getTeamMembers(organization.id, signal),
           canManage
-            ? getInvitations(organization.id, signal)
-            : Promise.resolve({ items: [] }),
+            ? getInvitations(organization.id, {
+                page: invitationsPage,
+                limit: invitationsPageSize,
+                signal,
+              })
+            : Promise.resolve({
+                items: [],
+                meta: emptyInvitationPage,
+              }),
         ]);
         if (signal?.aborted) return;
         setMembers(nextMembers);
         setInvitations(nextInvitations.items);
+        setInvitationsMeta(nextInvitations.meta);
+        if (
+          nextInvitations.meta.totalPages > 0 &&
+          invitationsPage > nextInvitations.meta.totalPages
+        ) {
+          setInvitationPagination({
+            organizationId: organization.id,
+            page: nextInvitations.meta.totalPages,
+          });
+        }
       } catch (cause) {
         if (isAbortError(cause)) return;
         setError(
@@ -135,7 +177,7 @@ export function TeamScreen() {
         if (!signal?.aborted) setLoading(false);
       }
     },
-    [canManage, organization.id],
+    [canManage, invitationsPage, organization.id],
   );
 
   useEffect(() => {
@@ -298,8 +340,15 @@ export function TeamScreen() {
             />
             <InvitationsTable
               invitations={invitations}
+              meta={invitationsMeta}
               loading={loading}
               busyAction={busyAction}
+              onPageChange={(page) =>
+                setInvitationPagination({
+                  organizationId: organization.id,
+                  page,
+                })
+              }
               onRevoke={(invitation) =>
                 setPendingAction({ kind: "invitation-revoke", invitation })
               }
@@ -609,95 +658,132 @@ function MemberActions({ detailHref }: { detailHref: string }) {
 
 function InvitationsTable({
   invitations,
+  meta,
   loading,
   busyAction,
+  onPageChange,
   onRevoke,
   onResend,
 }: {
   invitations: InvitationItem[];
+  meta: InvitationPage["meta"];
   loading: boolean;
   busyAction: string | null;
+  onPageChange: (page: number) => void;
   onRevoke: (invitation: InvitationItem) => void;
   onResend: (invitation: InvitationItem) => void;
 }) {
   return (
-    <div className="overflow-x-auto" aria-busy={loading}>
-      <Table>
-        <TableCaption className="sr-only">
-          Invitaciones del despacho activo
-        </TableCaption>
-        <TableHeader>
-          <TableRow>
-            <TableHead scope="col">Destinatario</TableHead>
-            <TableHead scope="col">Rol</TableHead>
-            <TableHead scope="col">Estado</TableHead>
-            <TableHead scope="col">Entrega</TableHead>
-            <TableHead scope="col">Expira</TableHead>
-            <TableHead scope="col">Último envío</TableHead>
-            <TableHead scope="col">Acción</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {loading ? (
-            <LoadingRow columns={7} />
-          ) : invitations.length === 0 ? (
-            <EmptyRow columns={7} message="No hay invitaciones para mostrar." />
-          ) : (
-            invitations.map((invitation) => (
-              <TableRow key={invitation.id}>
-                <TableCell className="font-semibold">
-                  {invitation.email}
-                </TableCell>
-                <TableCell>{roleLabels[invitation.role]}</TableCell>
-                <TableCell>
-                  <StatusBadge status={invitationLabels[invitation.status]} />
-                </TableCell>
-                <TableCell>
-                  {invitation.deliveryStatus === "sent"
-                    ? "Enviado"
-                    : invitation.deliveryStatus === "failed"
-                      ? "Falló"
-                      : "Procesando"}
-                </TableCell>
-                <TableCell className="numeric whitespace-nowrap">
-                  {formatDate(invitation.expiresAt)}
-                </TableCell>
-                <TableCell className="numeric whitespace-nowrap">
-                  {formatDate(invitation.lastSentAt)}
-                </TableCell>
-                <TableCell>
-                  {invitation.status === "pending" ? (
-                    <div className="flex flex-wrap gap-2">
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="outline"
-                        disabled={busyAction === invitation.id}
-                        onClick={() => onResend(invitation)}
-                      >
-                        Reenviar
-                      </Button>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="outline"
-                        disabled={busyAction === invitation.id}
-                        onClick={() => onRevoke(invitation)}
-                      >
-                        Revocar invitación
-                      </Button>
-                    </div>
-                  ) : (
-                    <span className="text-caption text-muted-foreground">
-                      Sin acciones disponibles
-                    </span>
-                  )}
-                </TableCell>
-              </TableRow>
-            ))
-          )}
-        </TableBody>
-      </Table>
+    <div aria-busy={loading}>
+      <div className="overflow-x-auto">
+        <Table>
+          <TableCaption className="sr-only">
+            Invitaciones del despacho activo
+          </TableCaption>
+          <TableHeader>
+            <TableRow>
+              <TableHead scope="col">Destinatario</TableHead>
+              <TableHead scope="col">Rol</TableHead>
+              <TableHead scope="col">Estado</TableHead>
+              <TableHead scope="col">Entrega</TableHead>
+              <TableHead scope="col">Expira</TableHead>
+              <TableHead scope="col">Último envío</TableHead>
+              <TableHead scope="col">Acción</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {loading ? (
+              <LoadingRow columns={7} />
+            ) : invitations.length === 0 ? (
+              <EmptyRow
+                columns={7}
+                message="No hay invitaciones para mostrar."
+              />
+            ) : (
+              invitations.map((invitation) => (
+                <TableRow key={invitation.id}>
+                  <TableCell className="font-semibold">
+                    {invitation.email}
+                  </TableCell>
+                  <TableCell>{roleLabels[invitation.role]}</TableCell>
+                  <TableCell>
+                    <StatusBadge status={invitationLabels[invitation.status]} />
+                  </TableCell>
+                  <TableCell>
+                    {invitation.deliveryStatus === "sent"
+                      ? "Enviado"
+                      : invitation.deliveryStatus === "failed"
+                        ? "Falló"
+                        : "Procesando"}
+                  </TableCell>
+                  <TableCell className="numeric whitespace-nowrap">
+                    {formatDate(invitation.expiresAt)}
+                  </TableCell>
+                  <TableCell className="numeric whitespace-nowrap">
+                    {formatDate(invitation.lastSentAt)}
+                  </TableCell>
+                  <TableCell>
+                    {invitation.status === "pending" ? (
+                      <div className="flex flex-wrap gap-2">
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          disabled={busyAction === invitation.id}
+                          onClick={() => onResend(invitation)}
+                        >
+                          Reenviar
+                        </Button>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          disabled={busyAction === invitation.id}
+                          onClick={() => onRevoke(invitation)}
+                        >
+                          Revocar invitación
+                        </Button>
+                      </div>
+                    ) : (
+                      <span className="text-caption text-muted-foreground">
+                        Sin acciones disponibles
+                      </span>
+                    )}
+                  </TableCell>
+                </TableRow>
+              ))
+            )}
+          </TableBody>
+        </Table>
+      </div>
+      <div className="flex flex-col gap-3 border-t border-border px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+        <p className="text-caption text-muted-foreground" aria-live="polite">
+          Página {meta.page} de {Math.max(meta.totalPages, 1)} · {meta.total}{" "}
+          {meta.total === 1 ? "invitación" : "invitaciones"}
+        </p>
+        <div className="flex items-center gap-2">
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            disabled={loading || meta.page <= 1}
+            onClick={() => onPageChange(meta.page - 1)}
+          >
+            <ChevronLeft aria-hidden />
+            Anterior
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            disabled={loading || meta.page >= meta.totalPages}
+            onClick={() => onPageChange(meta.page + 1)}
+          >
+            Siguiente
+            <ChevronRight aria-hidden />
+          </Button>
+        </div>
+      </div>
     </div>
   );
 }

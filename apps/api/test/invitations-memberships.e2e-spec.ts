@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { createHmac, randomUUID } from 'node:crypto';
 import { ValidationPipe } from '@nestjs/common';
 import type { INestApplication } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -61,8 +61,10 @@ describe('Invitations and memberships (e2e)', () => {
   let allowedOrigin: string;
   const invitationTokens = new Map<string, string>();
   const verificationTokens = new Map<string, string>();
+  const membershipVerificationTokens = new Map<string, string>();
 
   beforeAll(async () => {
+    process.env.AUTH_VERIFICATION_CONFIRM_LIMIT = '100';
     const moduleFixture = await Test.createTestingModule({
       imports: [AppModule],
     }).compile();
@@ -72,7 +74,25 @@ describe('Invitations and memberships (e2e)', () => {
     app.useGlobalPipes(new ValidationPipe(API_VALIDATION_PIPE_OPTIONS));
     app.useGlobalFilters(new AllExceptionsFilter());
     await app.init();
-    dataSource = app.get(DataSource);
+    const runtimeDataSource = app.get(DataSource);
+    const fixtureUsername = process.env.E2E_DB_USERNAME?.trim();
+    const fixturePassword = process.env.E2E_DB_PASSWORD;
+    if (!fixtureUsername || !fixturePassword) {
+      throw new Error(
+        'E2E_DB_USERNAME and E2E_DB_PASSWORD are required for fixture setup and cleanup',
+      );
+    }
+    dataSource = new DataSource({
+      ...runtimeDataSource.options,
+      username: fixtureUsername,
+      password: fixturePassword,
+      logging: false,
+      extra: {
+        ...((runtimeDataSource.options.extra as Record<string, unknown>) ?? {}),
+        options: '-c timezone=America/Mexico_City -c search_path=public',
+      },
+    });
+    await dataSource.initialize();
     sessions = app.get(SessionsService);
     const config = app.get(ConfigService);
     cookieName = config.get<string>('cookies.sessionName', 'balanz_session');
@@ -91,6 +111,7 @@ describe('Invitations and memberships (e2e)', () => {
       .spyOn(app.get(EmailService), 'sendVerification')
       .mockImplementation((input) => {
         verificationTokens.set(input.email, input.token);
+        membershipVerificationTokens.set(input.membershipId, input.token);
         return Promise.resolve();
       });
     ownerA = await createOrganization('a');
@@ -101,7 +122,8 @@ describe('Invitations and memberships (e2e)', () => {
     try {
       await cleanup();
     } finally {
-      await app.close();
+      if (dataSource?.isInitialized) await dataSource.destroy();
+      if (app) await app.close();
     }
   });
 
@@ -318,6 +340,89 @@ describe('Invitations and memberships (e2e)', () => {
     expect(firstToken.active).toBe(true);
   });
 
+  it('activates two pending memberships by verifying the same existing MFA factor', async () => {
+    const email = `shared-mfa-${fixture}@example.test`;
+    const invitationA = responseBody<InvitationResponse>(
+      await createInvitation(ownerA, email),
+    );
+    const acceptanceA = responseBody<AcceptanceResponse>(
+      await request(app.getHttpServer())
+        .post(`${apiPrefix}/invitations/${invitationA.id}/accept`)
+        .set('Origin', allowedOrigin)
+        .send({
+          token: invitationTokens.get(invitationA.id),
+          email,
+          firstName: 'MFA',
+          lastName: 'Compartido',
+          password: 'StrongPassword-123',
+        })
+        .expect(200),
+    );
+    userIds.push(acceptanceA.userId);
+    const invitationB = responseBody<InvitationResponse>(
+      await createInvitation(ownerB, email),
+    );
+    const acceptanceB = responseBody<AcceptanceResponse>(
+      await request(app.getHttpServer())
+        .post(`${apiPrefix}/invitations/${invitationB.id}/accept`)
+        .set('Origin', allowedOrigin)
+        .send({ token: invitationTokens.get(invitationB.id), email })
+        .expect(200),
+    );
+
+    const confirmationA = await request(app.getHttpServer())
+      .post(`${apiPrefix}/auth/email/verification/confirm`)
+      .set('Origin', allowedOrigin)
+      .send({
+        token: membershipVerificationTokens.get(acceptanceA.membershipId),
+      })
+      .expect(201);
+    const cookieA = sessionCookie(confirmationA);
+    const setup = await request(app.getHttpServer())
+      .post(`${apiPrefix}/auth/mfa/totp/setup`)
+      .set('Origin', allowedOrigin)
+      .set('Cookie', cookieA)
+      .send({})
+      .expect(201);
+    const secret = (setup.body as { secret: string }).secret;
+    await request(app.getHttpServer())
+      .post(`${apiPrefix}/auth/mfa/totp/verify`)
+      .set('Origin', allowedOrigin)
+      .set('Cookie', cookieA)
+      .send({ code: totpCode(secret) })
+      .expect(201);
+
+    const confirmationB = await request(app.getHttpServer())
+      .post(`${apiPrefix}/auth/email/verification/confirm`)
+      .set('Origin', allowedOrigin)
+      .send({
+        token: membershipVerificationTokens.get(acceptanceB.membershipId),
+      })
+      .expect(201);
+    expect(confirmationB.body).toMatchObject({
+      nextStep: 'verify_mfa',
+      mfaStatus: 'active',
+    });
+    await dataSource.query(
+      `UPDATE auth_factors SET last_used_counter = NULL WHERE user_id = $1`,
+      [acceptanceA.userId],
+    );
+    await request(app.getHttpServer())
+      .post(`${apiPrefix}/auth/login/mfa`)
+      .set('Origin', allowedOrigin)
+      .set('Cookie', sessionCookie(confirmationB))
+      .send({ code: totpCode(secret) })
+      .expect(201);
+
+    const memberships = await dataSource.query<Array<{ status: string }>>(
+      `SELECT status FROM memberships
+       WHERE id = ANY($1::uuid[])
+       ORDER BY id`,
+      [[acceptanceA.membershipId, acceptanceB.membershipId]],
+    );
+    expect(memberships).toEqual([{ status: 'active' }, { status: 'active' }]);
+  });
+
   it('rejects an invalid token without changing the invitation or creating a membership', async () => {
     const email = `invalid-token-${fixture}@example.test`;
     const created = responseBody<InvitationResponse>(
@@ -386,7 +491,8 @@ describe('Invitations and memberships (e2e)', () => {
     );
     await dataSource.query(
       `UPDATE invitations
-       SET expires_at = now() - interval '1 hour'
+       SET created_at = now() - interval '2 hours',
+           expires_at = now() - interval '1 hour'
        WHERE id = $1`,
       [first.id],
     );
@@ -427,7 +533,8 @@ describe('Invitations and memberships (e2e)', () => {
     );
     await dataSource.query(
       `UPDATE invitations
-       SET expires_at = now() - interval '1 hour'
+       SET created_at = now() - interval '2 hours',
+           expires_at = now() - interval '1 hour'
        WHERE id = $1`,
       [invitation.id],
     );
@@ -707,12 +814,15 @@ describe('Invitations and memberships (e2e)', () => {
       status: 'active',
     });
     const unassignedUser = await createUser('unassigned-member', true);
+    const accountantRole = await dataSource
+      .getRepository('roles')
+      .findOneByOrFail({ key: RoleKey.ACCOUNTANT });
     const unassignedMembership = await dataSource
       .getRepository('memberships')
       .save({
         organizationId: ownerA.organizationId,
         userId: unassignedUser.id,
-        roleId: String(role.id),
+        roleId: String(accountantRole.id),
         status: MembershipStatus.ACTIVE,
         joinedAt: new Date(),
       });
@@ -840,6 +950,42 @@ describe('Invitations and memberships (e2e)', () => {
 
   function responseBody<T>(response: { body: unknown }): T {
     return response.body as T;
+  }
+
+  function sessionCookie(response: {
+    headers: Record<string, string | string[]>;
+  }): string {
+    const cookies = response.headers['set-cookie'];
+    const values = Array.isArray(cookies) ? cookies : cookies ? [cookies] : [];
+    const cookie = values.find((value) => value.startsWith(`${cookieName}=`));
+    if (!cookie) throw new Error('Session cookie was not returned');
+    return cookie.split(';', 1)[0];
+  }
+
+  function totpCode(secret: string): string {
+    const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+    let bits = 0;
+    let buffer = 0;
+    const bytes: number[] = [];
+    for (const character of secret.replace(/=+$/, '').toUpperCase()) {
+      const digit = alphabet.indexOf(character);
+      if (digit < 0) throw new Error('Invalid base32 secret');
+      buffer = (buffer << 5) | digit;
+      bits += 5;
+      if (bits >= 8) {
+        bits -= 8;
+        bytes.push((buffer >> bits) & 0xff);
+      }
+    }
+    const counter = Math.floor(Date.now() / 1_000 / 30);
+    const counterBuffer = Buffer.alloc(8);
+    counterBuffer.writeBigUInt64BE(BigInt(counter));
+    const digest = createHmac('sha1', Buffer.from(bytes))
+      .update(counterBuffer)
+      .digest();
+    const offset = digest[digest.length - 1] & 0x0f;
+    const value = (digest.readUInt32BE(offset) & 0x7fffffff) % 1_000_000;
+    return String(value).padStart(6, '0');
   }
 
   async function cleanup(): Promise<void> {

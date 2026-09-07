@@ -34,6 +34,22 @@ export interface InvitationItem {
   createdAt: string;
 }
 
+export interface InvitationPage {
+  items: InvitationItem[];
+  meta: {
+    page: number;
+    limit: number;
+    total: number;
+    totalPages: number;
+  };
+}
+
+export interface InvitationPageQuery {
+  page: number;
+  limit: number;
+  signal?: AbortSignal;
+}
+
 export interface CreateInvitationInput {
   email: string;
   role: TeamRole;
@@ -60,11 +76,19 @@ export const getTeamMembers = (organizationId: string, signal?: AbortSignal) =>
     signal,
   });
 
-export const getInvitations = (organizationId: string, signal?: AbortSignal) =>
-  apiClient<{ items: InvitationItem[] }>(
-    `/organizations/${organizationId}/invitations`,
+export const getInvitations = (
+  organizationId: string,
+  { page, limit, signal }: InvitationPageQuery,
+) => {
+  const query = new URLSearchParams({
+    page: String(page),
+    limit: String(limit),
+  });
+  return apiClient<InvitationPage>(
+    `/organizations/${encodeURIComponent(organizationId)}/invitations?${query}`,
     { signal },
   );
+};
 
 export const createInvitation = (
   organizationId: string,

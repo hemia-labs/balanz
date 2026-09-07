@@ -100,7 +100,6 @@ export class InvitationsService {
       .transaction(async (manager) => {
         const organization = await manager.getRepository(Organization).findOne({
           where: { id: organizationId, status: OrganizationStatus.ACTIVE },
-          lock: { mode: 'pessimistic_read' },
         });
         if (!organization)
           throw new NotFoundException('Organization not found');
@@ -227,7 +226,7 @@ export class InvitationsService {
         .andWhere('invitation.organization_id = :organizationId', {
           organizationId,
         })
-        .setLock('pessimistic_write')
+        .setLock('pessimistic_write', undefined, ['invitation'])
         .getOne();
       if (!current) throw new NotFoundException('Invitation not found');
       if (current.status !== InvitationStatus.PENDING) {
@@ -341,7 +340,7 @@ export class InvitationsService {
           .addSelect('invitation.tokenHash')
           .innerJoinAndSelect('invitation.role', 'role')
           .where('invitation.id = :invitationId', { invitationId })
-          .setLock('pessimistic_write')
+          .setLock('pessimistic_write', undefined, ['invitation'])
           .getOne();
         if (
           !invitation ||

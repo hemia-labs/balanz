@@ -93,6 +93,9 @@ de MFA, pero no activa por sí solo la membresía. `completeMfa` realiza la
 transición `pending → active` al confirmar el enrolamiento TOTP cuando
 corresponde, pero también permite enrolar el factor desde una membresía ya
 `active` o desde una sesión global sin alterar membresías. En todos los casos
-vuelve a comprobar que el correo esté verificado. Una identidad existente sólo puede
+vuelve a comprobar que el correo esté verificado. Si la identidad ya tiene un
+factor MFA `active`, la confirmación de correo crea una sesión ligada a la
+membresía pendiente y exige comprobar ese mismo factor; la verificación activa
+exclusivamente la membresía de esa sesión. Una identidad existente sólo puede
 quedar `active` al aceptar si ya tiene correo verificado y un factor MFA activo;
 esto no crea una sesión ni concede alcance fiscal por sí solo.

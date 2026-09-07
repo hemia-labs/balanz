@@ -24,7 +24,7 @@ export interface EmailVerificationResult {
     startedAt?: Date;
     endsAt?: Date;
   };
-  nextStep: 'setup_mfa';
-  mfaStatus: 'disabled';
+  nextStep: 'setup_mfa' | 'verify_mfa';
+  mfaStatus: 'disabled' | 'active';
   organizationOwner: boolean;
 }

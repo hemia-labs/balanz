@@ -645,12 +645,15 @@ export class AuthService {
           throw new BadRequestException('Invalid verification token');
         }
 
+        const hasActiveMfa = await manager.getRepository(AuthFactor).exists({
+          where: { userId: user.id, status: AuthFactorStatus.ACTIVE },
+        });
         const session = await this.sessions.createForManager(manager, {
           userId: user.id,
           organizationId: organization.id,
           membershipId: membership.id,
           mfaVerifiedAt: null,
-          requiresMfa: false,
+          requiresMfa: hasActiveMfa,
           ipAddress: input.ipAddress,
           userAgent: input.userAgent,
         });
@@ -676,8 +679,12 @@ export class AuthService {
               ...(trialStartedAt ? { startedAt: trialStartedAt } : {}),
               ...(trialEndsAt ? { endsAt: trialEndsAt } : {}),
             },
-            nextStep: 'setup_mfa' as const,
-            mfaStatus: 'disabled' as const,
+            nextStep: hasActiveMfa
+              ? ('verify_mfa' as const)
+              : ('setup_mfa' as const),
+            mfaStatus: hasActiveMfa
+              ? ('active' as const)
+              : ('disabled' as const),
             organizationOwner,
           },
           rawSessionToken: session.rawToken,
@@ -991,7 +998,7 @@ export class AuthService {
         throw new UnauthorizedException('Invalid session');
 
       const now = new Date();
-      if (enrolling) {
+      if (enrolling || lockedSession.membershipId) {
         const enrollingUser = await manager.getRepository(User).findOne({
           where: { id: lockedSession.userId, status: UserStatus.ACTIVE },
           lock: { mode: 'pessimistic_read' },

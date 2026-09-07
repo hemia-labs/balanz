@@ -6,8 +6,13 @@ import { useParams, useRouter } from "next/navigation";
 import { MfaSettings } from "@/components/mfa-settings";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
-import { ApiError } from "@/lib/api-client";
-import { getOnboarding } from "@/features/auth/api";
+import {
+  InputOTP,
+  InputOTPGroup,
+  InputOTPSlot,
+} from "@/components/ui/input-otp";
+import { ApiError, apiErrorMessage } from "@/lib/api-client";
+import { completeMfa, getOnboarding } from "@/features/auth/api";
 import type { OnboardingResponse } from "@/features/session/types";
 
 type MfaStatus = "disabled" | "pending" | "active";
@@ -20,6 +25,9 @@ export default function OnboardingPage() {
   const [error, setError] = useState<string | null>(null);
   const [showMfa, setShowMfa] = useState(false);
   const [mfaActivated, setMfaActivated] = useState(false);
+  const [existingMfaCode, setExistingMfaCode] = useState("");
+  const [verifyingExistingMfa, setVerifyingExistingMfa] = useState(false);
+  const [existingMfaError, setExistingMfaError] = useState<string | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -61,8 +69,30 @@ export default function OnboardingPage() {
 
   const mfaStatus = data.mfaStatus as MfaStatus;
   const alreadyActive = mfaStatus === "active";
-  const setupView = showMfa || mfaStatus === "pending" || alreadyActive;
-  const activationComplete = mfaActivated || alreadyActive;
+  const requiresExistingMfaVerification =
+    data.nextStep === "activate_membership" && alreadyActive;
+  const setupView =
+    showMfa ||
+    mfaStatus === "pending" ||
+    alreadyActive ||
+    requiresExistingMfaVerification;
+  const activationComplete =
+    mfaActivated || (alreadyActive && !requiresExistingMfaVerification);
+
+  async function verifyExistingMfa(event: React.FormEvent) {
+    event.preventDefault();
+    if (existingMfaCode.length !== 6 || verifyingExistingMfa) return;
+    setVerifyingExistingMfa(true);
+    setExistingMfaError(null);
+    try {
+      await completeMfa(existingMfaCode);
+      router.push(`/${locale}`);
+    } catch (cause) {
+      setExistingMfaError(apiErrorMessage(cause, "El código no es válido."));
+    } finally {
+      setVerifyingExistingMfa(false);
+    }
+  }
 
   return (
     <main
@@ -77,29 +107,75 @@ export default function OnboardingPage() {
             </div>
             <div>
               <h1 className="text-heading-md font-bold">
-                {activationComplete
-                  ? "Verificación en dos pasos activada"
-                  : "Configura la verificación en dos pasos"}
+                {requiresExistingMfaVerification
+                  ? "Confirma tu verificación en dos pasos"
+                  : activationComplete
+                    ? "Verificación en dos pasos activada"
+                    : "Configura la verificación en dos pasos"}
               </h1>
               <p className="mt-2 text-body-sm text-muted-foreground">
-                {activationComplete
-                  ? "Tu cuenta ya está protegida. Ahora puedes continuar al inicio de Balanz."
-                  : "Añade una capa extra de seguridad. Necesitarás tu teléfono además de tu contraseña para iniciar sesión."}
+                {requiresExistingMfaVerification
+                  ? "Tu cuenta ya tiene MFA. Ingresa el código actual para activar tu acceso a esta organización."
+                  : activationComplete
+                    ? "Tu cuenta ya está protegida. Ahora puedes continuar al inicio de Balanz."
+                    : "Añade una capa extra de seguridad. Necesitarás tu teléfono además de tu contraseña para iniciar sesión."}
               </p>
             </div>
           </CardHeader>
           <CardContent className="px-7 pb-7 sm:px-8 sm:pb-8">
-            <MfaSettings
-              compact
-              startOnMount
-              onActivated={() => setMfaActivated(true)}
-              onContinue={() => router.push(`/${locale}`)}
-              onCancel={() => {
-                setShowMfa(false);
-                setMfaActivated(false);
-              }}
-              initialStatus={mfaStatus}
-            />
+            {requiresExistingMfaVerification ? (
+              <form className="space-y-5" onSubmit={verifyExistingMfa}>
+                <div className="space-y-2">
+                  <label className="text-body-sm font-semibold">
+                    Código de 6 dígitos
+                  </label>
+                  <InputOTP
+                    maxLength={6}
+                    value={existingMfaCode}
+                    onChange={setExistingMfaCode}
+                    inputMode="numeric"
+                    pattern="[0-9]*"
+                    autoComplete="one-time-code"
+                    autoFocus
+                    aria-label="Código MFA de 6 dígitos"
+                  >
+                    <InputOTPGroup className="w-full justify-between gap-2">
+                      {Array.from({ length: 6 }, (_, index) => (
+                        <InputOTPSlot key={index} index={index} />
+                      ))}
+                    </InputOTPGroup>
+                  </InputOTP>
+                </div>
+                {existingMfaError ? (
+                  <p role="alert" className="text-body-sm text-destructive">
+                    {existingMfaError}
+                  </p>
+                ) : null}
+                <Button
+                  className="w-full"
+                  type="submit"
+                  disabled={
+                    verifyingExistingMfa || existingMfaCode.length !== 6
+                  }
+                >
+                  {verifyingExistingMfa
+                    ? "Verificando…"
+                    : "Verificar y activar acceso"}
+                </Button>
+              </form>
+            ) : (
+              <MfaSettings
+                compact
+                startOnMount
+                onActivated={() => setMfaActivated(true)}
+                onContinue={() => router.push(`/${locale}`)}
+                onCancel={() => {
+                  setShowMfa(false);
+                  setMfaActivated(false);
+                }}
+                initialStatus={mfaStatus}
+              />
+            )}
           </CardContent>
         </Card>
       ) : (
