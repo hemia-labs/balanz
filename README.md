@@ -24,17 +24,115 @@ del MVP está en [`docs/AUTHORIZATION_MODEL.md`](docs/AUTHORIZATION_MODEL.md).
 
 ```bash
 npm install
-cp apps/api/.env.example apps/api/.env
+cp apps/api/.env.api.example apps/api/.env.api.local
+cp apps/api/.env.worker.example apps/api/.env.worker.local
 ```
 
-Completa las variables de PostgreSQL y autenticación en `apps/api/.env` antes de
-iniciar la API o ejecutar migraciones.
+Completa ambos archivos locales con valores propios del entorno. En particular,
+`DB_API_PASSWORD` y `DB_WORKER_PASSWORD` deben ser contraseñas distintas de al
+menos 16 caracteres. Estos archivos coinciden con `.env*.local`, están ignorados
+por Git y nunca deben versionarse.
 
 Con Bun:
 
 ```bash
 bun install
-cp apps/api/.env.example apps/api/.env
+cp apps/api/.env.api.example apps/api/.env.api.local
+cp apps/api/.env.worker.example apps/api/.env.worker.local
+```
+
+### Preparar PostgreSQL local por primera vez
+
+La API ya no usa la cuenta administradora de PostgreSQL. El migrador, la API y
+el worker tienen identidades separadas:
+
+- `DB_USERNAME`/`DB_PASSWORD`: sólo migraciones, seeds y aprovisionamiento.
+- `DB_API_USERNAME`/`DB_API_PASSWORD`: sólo el proceso HTTP de NestJS.
+- `DB_WORKER_USERNAME`/`DB_WORKER_PASSWORD`: sólo el worker.
+
+Por este motivo, las variables administrativas que antes se utilizaban para
+levantar todo el proyecto:
+
+```dotenv
+DB_USERNAME=balanz
+DB_PASSWORD=balanz_local
+```
+
+ya no deben estar en `apps/api/.env`, `apps/api/.env.local` ni en el entorno del
+proceso que ejecuta `npm run dev`. La API rechaza deliberadamente esas variables
+durante el arranque. `DB_USERNAME` suele corresponder al owner o superusuario
+local necesario para modificar el esquema; permitir que el servidor HTTP use
+esa identidad ampliaría innecesariamente el impacto de una vulnerabilidad y
+permitiría evadir las restricciones y los permisos destinados al runtime.
+
+La API se conecta al mismo motor y a la misma base, pero utiliza
+`DB_API_USERNAME`/`DB_API_PASSWORD`. El LOGIN técnico pertenece únicamente al
+grupo PostgreSQL `balanz_api`, no es owner ni superusuario y recibe sólo los
+permisos requeridos por el proceso HTTP. El worker aplica el mismo principio con
+el grupo `balanz_worker`.
+
+`DB_USERNAME` y `DB_PASSWORD` no fueron eliminadas del proyecto: siguen siendo
+válidas para comandos administrativos como migraciones, seeds y
+aprovisionamiento. La diferencia es que deben cargarse únicamente durante esos
+comandos, desde `.env.migrator.local`, y no durante la ejecución normal de la
+aplicación.
+
+Crea `apps/api/.env.migrator.local` con la cuenta administradora de tu base
+local. El patrón `.env*.local` también mantiene este archivo fuera de Git:
+
+```dotenv
+NODE_ENV=development
+DB_HOST=localhost
+DB_PORT=5434
+DB_DATABASE=balanz_sandbox
+DB_USERNAME=<usuario-administrador-local>
+DB_PASSWORD=<contraseña-administrador-local>
+SECRETS_ENABLED=false
+```
+
+Asegúrate de que `.env.api.local` y `.env.worker.local` apunten al mismo host,
+puerto y base, y define en ellos los LOGIN técnicos que deseas aprovisionar:
+
+```dotenv
+# .env.api.local
+DB_API_USERNAME=balanz_api_login
+DB_API_PASSWORD=<contraseña-api-local-de-16-o-más-caracteres>
+
+# .env.worker.local
+DB_WORKER_USERNAME=balanz_worker_login
+DB_WORKER_PASSWORD=<contraseña-worker-local-de-16-o-más-caracteres>
+```
+
+Aplica migraciones y crea o actualiza los LOGIN técnicos desde un subshell. Al
+terminar, las credenciales administrativas no permanecen exportadas en la
+terminal que después ejecutará la aplicación:
+
+```bash
+(
+  cd apps/api
+  set -a
+  source .env.migrator.local
+  source .env.api.local
+  source .env.worker.local
+  set +a
+  npm run migration:run
+  CFDI_PROVISION_RUNTIME_LOGINS=true npm run db:runtime:provision
+  npm run seed:run
+)
+```
+
+Con Bun, sustituye los tres comandos `npm run` por `bun run`.
+
+No copies `.env.example` a `.env` para levantar la aplicación: ese archivo es
+un catálogo para tooling e incluye credenciales que los runtimes rechazan. Del
+mismo modo, elimina `DB_USERNAME`, `DB_PASSWORD` y `DB_WORKER_*` de cualquier
+archivo legado `.env` o `.env.local`; la API carga esos archivos como respaldo
+y rechazará credenciales de otro perfil. Tampoco dejes esas variables exportadas
+en la terminal antes de iniciar la API. Si antes ejecutaste
+`source .env.local`, abre una terminal nueva o ejecuta:
+
+```bash
+unset DB_USERNAME DB_PASSWORD DB_WORKER_USERNAME DB_WORKER_PASSWORD
 ```
 
 Los comandos siguientes muestran primero la variante con `npm` y después la
@@ -68,6 +166,8 @@ balanz/
 
 ## Desarrollo
 
+Después de completar la preparación local anterior, desde la raíz ejecuta:
+
 ```bash
 npm run dev
 ```
@@ -78,7 +178,10 @@ Con Bun:
 bun run dev
 ```
 
-Inicia el frontend y la API en paralelo.
+Inicia el frontend y la API en paralelo. Si PostgreSQL responde
+`password authentication failed for user "balanz_api_login"`, la contraseña de
+`DB_API_PASSWORD` no coincide con la usada durante `db:runtime:provision`;
+vuelve a ejecutar el aprovisionamiento con los mismos archivos locales.
 
 ```bash
 npm run dev:web
@@ -159,14 +262,29 @@ las instrucciones `up` y `down`. Revisa el archivo generado antes de aplicarlo.
 
 ### Ejecutar las migraciones pendientes
 
+Las migraciones requieren la identidad administrativa de
+`.env.migrator.local`; no uses `DB_API_USERNAME` para aplicarlas:
+
 ```bash
-npm --prefix apps/api run migration:run
+(
+  cd apps/api
+  set -a
+  source .env.migrator.local
+  set +a
+  npm run migration:run
+)
 ```
 
 Con Bun:
 
 ```bash
-bun run --cwd apps/api migration:run
+(
+  cd apps/api
+  set -a
+  source .env.migrator.local
+  set +a
+  bun run migration:run
+)
 ```
 
 Aplica en PostgreSQL todas las migraciones que todavía no estén registradas como

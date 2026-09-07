@@ -1,15 +1,9 @@
 import {
-  Body,
   Controller,
-  Delete,
   ForbiddenException,
   Get,
-  HttpCode,
-  HttpStatus,
   Param,
   ParseUUIDPipe,
-  Post,
-  Put,
   Query,
   UseGuards,
 } from '@nestjs/common';
@@ -19,9 +13,7 @@ import { PermissionsGuard } from '../../common/guards/permissions.guard';
 import { SessionGuard } from '../../common/guards/session.guard';
 import { TenantAccessGuard } from '../../common/guards/tenant-access.guard';
 import type { SessionAuthorizationContext } from '../sessions/session.types';
-import { CreateUserDto } from './dtos/create-user.dto';
 import { FindUsersDto } from './dtos/find-users.dto';
-import { UpdateUserDto } from './dtos/update-user.dto';
 import { UserResponseDto } from './dtos/user-response.dto';
 import { UsersPageResponseDto } from './dtos/users-page-response.dto';
 import { UsersService } from './users.service';
@@ -47,35 +39,6 @@ export class UsersController {
     @CurrentTenant() tenant: SessionAuthorizationContext,
   ): Promise<UserResponseDto> {
     return this.service.findOne(id, this.organizationId(tenant));
-  }
-
-  @Post()
-  @Permissions('members.manage')
-  create(
-    @Body() dto: CreateUserDto,
-    @CurrentTenant() tenant: SessionAuthorizationContext,
-  ): Promise<UserResponseDto> {
-    return this.service.create(dto, this.organizationId(tenant));
-  }
-
-  @Put(':id')
-  @Permissions('members.manage')
-  update(
-    @Param('id', ParseUUIDPipe) id: string,
-    @Body() dto: UpdateUserDto,
-    @CurrentTenant() tenant: SessionAuthorizationContext,
-  ): Promise<UserResponseDto> {
-    return this.service.update(id, this.organizationId(tenant), dto);
-  }
-
-  @Delete(':id')
-  @Permissions('members.manage')
-  @HttpCode(HttpStatus.NO_CONTENT)
-  remove(
-    @Param('id', ParseUUIDPipe) id: string,
-    @CurrentTenant() tenant: SessionAuthorizationContext,
-  ): Promise<void> {
-    return this.service.remove(id, this.organizationId(tenant));
   }
 
   private organizationId(tenant: SessionAuthorizationContext): string {

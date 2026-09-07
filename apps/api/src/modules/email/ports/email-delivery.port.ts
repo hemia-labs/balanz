@@ -1,10 +1,18 @@
 export const EMAIL_DELIVERY_PORT = Symbol('EMAIL_DELIVERY_PORT');
 
 export interface EmailDeliveryPort {
+  sendInvitation(input: {
+    email: string;
+    token: string;
+    invitationId: string;
+    expiresAt: Date;
+  }): Promise<void>;
+
   sendVerification(input: {
     email: string;
     firstName?: string;
     token: string;
+    membershipId: string;
   }): Promise<void>;
 
   sendPasswordReset(input: {

@@ -140,6 +140,21 @@ const statusMap = {
     icon: CheckCircle2,
     labels: { es: "Activo", en: "Active" },
   },
+  Permitido: {
+    variant: "success",
+    icon: CheckCircle2,
+    labels: { es: "Permitido", en: "Allowed" },
+  },
+  Denegado: {
+    variant: "destructive",
+    icon: LockKeyhole,
+    labels: { es: "Denegado", en: "Denied" },
+  },
+  Aceptada: {
+    variant: "success",
+    icon: CheckCircle2,
+    labels: { es: "Aceptada", en: "Accepted" },
+  },
   Suspendido: {
     variant: "warning",
     icon: AlertCircle,
@@ -154,6 +169,16 @@ const statusMap = {
     variant: "destructive",
     icon: LockKeyhole,
     labels: { es: "Revocado", en: "Revoked" },
+  },
+  Revocada: {
+    variant: "destructive",
+    icon: AlertCircle,
+    labels: { es: "Revocada", en: "Revoked" },
+  },
+  Expirada: {
+    variant: "warning",
+    icon: AlertCircle,
+    labels: { es: "Expirada", en: "Expired" },
   },
   "Invitación pendiente": {
     variant: "warning",

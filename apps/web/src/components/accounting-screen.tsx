@@ -37,9 +37,13 @@ const LiveFiscalYearScreen = dynamic(() =>
   ),
 );
 
-const PermissionAdministrationScreen = dynamic(() =>
-  import("@/features/permissions/permission-administration-screen").then(
-    (module) => module.PermissionAdministrationScreen,
+const LiveTeamScreen = dynamic(() =>
+  import("@/features/team/team-screen").then((module) => module.TeamScreen),
+);
+
+const LiveTeamMemberScreen = dynamic(() =>
+  import("@/features/team/team-member-screen").then(
+    (module) => module.TeamMemberScreen,
   ),
 );
 
@@ -64,7 +68,7 @@ const LiveCfdiDetailScreen = dynamic(() =>
 export function AccountingScreen({ route }: { route: ResolvedProductRoute }) {
   const { accountAccessMode, capabilities, locale, membership, organization } =
     useAccountingContext();
-  const { clientId } = route;
+  const { organizationId, clientId } = route;
   if (!canOpenResolvedProductRoute(route, capabilities)) {
     return <LiveForbiddenScreen capability={route.capability!} />;
   }
@@ -108,7 +112,14 @@ export function AccountingScreen({ route }: { route: ResolvedProductRoute }) {
     case "clients":
       return <LiveClientsScreen />;
     case "team":
-      return <PermissionAdministrationScreen />;
+      return <LiveTeamScreen key={organizationId} />;
+    case "team-member":
+      return (
+        <LiveTeamMemberScreen
+          key={`${organizationId}:${route.membershipId}`}
+          membershipId={route.membershipId!}
+        />
+      );
     case "client-overview":
       return <LiveClientDetailScreen clientId={clientId!} section="overview" />;
     case "client-settings":

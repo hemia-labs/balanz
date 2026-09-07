@@ -37,4 +37,12 @@ describe('UsersController read authorization', () => {
       );
     },
   );
+
+  it('does not expose legacy membership mutation routes', () => {
+    const methods = Object.getOwnPropertyNames(UsersController.prototype);
+
+    expect(methods).not.toEqual(
+      expect.arrayContaining(['create', 'update', 'remove']),
+    );
+  });
 });

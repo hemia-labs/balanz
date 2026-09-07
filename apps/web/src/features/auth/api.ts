@@ -55,10 +55,14 @@ export function confirmEmail(token: string, signal?: AbortSignal) {
   );
 }
 
-export function resendEmailVerification(email: string, signal?: AbortSignal) {
+export function resendEmailVerification(
+  email: string,
+  membershipId: string,
+  signal?: AbortSignal,
+) {
   return apiClient<void>("/auth/email/verification/resend", {
     method: "POST",
-    body: JSON.stringify({ email }),
+    body: JSON.stringify({ email, membershipId }),
     signal,
   });
 }

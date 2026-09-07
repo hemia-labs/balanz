@@ -1,0 +1,1033 @@
+import { createHmac, randomUUID } from 'node:crypto';
+import { ValidationPipe } from '@nestjs/common';
+import type { INestApplication } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { Test } from '@nestjs/testing';
+import cookieParser from 'cookie-parser';
+import request from 'supertest';
+import type { App } from 'supertest/types';
+import { DataSource } from 'typeorm';
+import { AppModule } from '../src/app.module';
+import { AllExceptionsFilter } from '../src/common/filters/all-exceptions.filter';
+import { API_VALIDATION_PIPE_OPTIONS } from '../src/common/validation/validation-exception.factory';
+import { EmailService } from '../src/modules/email/email.service';
+import { AuthFactorStatus } from '../src/modules/auth/entities/auth-factor.entity';
+import { MembershipStatus } from '../src/modules/memberships/entities/membership.entity';
+import { OrganizationStatus } from '../src/modules/organizations/entities/organization.entity';
+import { RoleKey } from '../src/modules/permissions/entities/role.entity';
+import { SessionsService } from '../src/modules/sessions/sessions.service';
+import { SubscriptionStatus } from '../src/modules/subscriptions/entities/subscription.entity';
+import { UserStatus } from '../src/modules/users/entities/user.entity';
+
+jest.setTimeout(60_000);
+
+type Actor = {
+  userId: string;
+  organizationId: string;
+  membershipId: string;
+  cookie: string;
+};
+
+type InvitationResponse = { id: string; organizationId: string };
+type AcceptanceResponse = {
+  userId: string;
+  membershipId: string;
+  invitationStatus: string;
+  membershipStatus: string;
+  nextStep: string;
+};
+type InvitationListResponse = {
+  items: Array<{ id: string; status: string }>;
+  meta: {
+    page: number;
+    limit: number;
+    total: number;
+    totalPages: number;
+  };
+};
+
+describe('Invitations and memberships (e2e)', () => {
+  const apiPrefix = '/api/v1';
+  const fixture = randomUUID();
+  const organizationIds: string[] = [];
+  const userIds: string[] = [];
+  const clientAccountIds: string[] = [];
+  let app: INestApplication<App>;
+  let dataSource: DataSource;
+  let sessions: SessionsService;
+  let ownerA: Actor;
+  let ownerB: Actor;
+  let cookieName: string;
+  let allowedOrigin: string;
+  const invitationTokens = new Map<string, string>();
+  const verificationTokens = new Map<string, string>();
+  const membershipVerificationTokens = new Map<string, string>();
+
+  beforeAll(async () => {
+    process.env.AUTH_VERIFICATION_CONFIRM_LIMIT = '100';
+    const moduleFixture = await Test.createTestingModule({
+      imports: [AppModule],
+    }).compile();
+    app = moduleFixture.createNestApplication();
+    app.use(cookieParser());
+    app.setGlobalPrefix(apiPrefix.slice(1));
+    app.useGlobalPipes(new ValidationPipe(API_VALIDATION_PIPE_OPTIONS));
+    app.useGlobalFilters(new AllExceptionsFilter());
+    await app.init();
+    const runtimeDataSource = app.get(DataSource);
+    const fixtureUsername = process.env.E2E_DB_USERNAME?.trim();
+    const fixturePassword = process.env.E2E_DB_PASSWORD;
+    if (!fixtureUsername || !fixturePassword) {
+      throw new Error(
+        'E2E_DB_USERNAME and E2E_DB_PASSWORD are required for fixture setup and cleanup',
+      );
+    }
+    dataSource = new DataSource({
+      ...runtimeDataSource.options,
+      username: fixtureUsername,
+      password: fixturePassword,
+      logging: false,
+      extra: {
+        ...((runtimeDataSource.options.extra as Record<string, unknown>) ?? {}),
+        options: '-c timezone=America/Mexico_City -c search_path=public',
+      },
+    });
+    await dataSource.initialize();
+    sessions = app.get(SessionsService);
+    const config = app.get(ConfigService);
+    cookieName = config.get<string>('cookies.sessionName', 'balanz_session');
+    allowedOrigin =
+      config
+        .get<string[]>('app.corsOrigins', [])
+        .find((origin) => origin.startsWith('http')) ?? '';
+    if (!allowedOrigin) throw new Error('APP_CORS_ORIGINS is required');
+    jest
+      .spyOn(app.get(EmailService), 'sendInvitation')
+      .mockImplementation((input) => {
+        invitationTokens.set(input.invitationId, input.token);
+        return Promise.resolve();
+      });
+    jest
+      .spyOn(app.get(EmailService), 'sendVerification')
+      .mockImplementation((input) => {
+        verificationTokens.set(input.email, input.token);
+        membershipVerificationTokens.set(input.membershipId, input.token);
+        return Promise.resolve();
+      });
+    ownerA = await createOrganization('a');
+    ownerB = await createOrganization('b');
+  });
+
+  afterAll(async () => {
+    try {
+      await cleanup();
+    } finally {
+      if (dataSource?.isInitialized) await dataSource.destroy();
+      if (app) await app.close();
+    }
+  });
+
+  it('creates and lists an invitation only inside the active tenant', async () => {
+    const response = await createInvitation(
+      ownerA,
+      `new-${fixture}@example.test`,
+    );
+    const invitation = responseBody<InvitationResponse>(response);
+    expect(invitation).toMatchObject({
+      organizationId: ownerA.organizationId,
+      role: RoleKey.COLLABORATOR,
+      status: 'pending',
+    });
+    expect(invitation).not.toHaveProperty('token');
+    expect(invitation).not.toHaveProperty('tokenHash');
+
+    await request(app.getHttpServer())
+      .get(`${apiPrefix}/organizations/${ownerA.organizationId}/invitations`)
+      .set('Cookie', ownerB.cookie)
+      .expect(404);
+
+    const list = await request(app.getHttpServer())
+      .get(`${apiPrefix}/organizations/${ownerA.organizationId}/invitations`)
+      .set('Cookie', ownerA.cookie)
+      .expect(200);
+    expect(responseBody<InvitationListResponse>(list).items).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: invitation.id, status: 'pending' }),
+      ]),
+    );
+  });
+
+  it('paginates joined invitation results without overlap', async () => {
+    await Promise.all(
+      Array.from({ length: 5 }, (_, index) =>
+        createInvitation(ownerA, `pagination-${index}-${fixture}@example.test`),
+      ),
+    );
+
+    const firstPage = responseBody<InvitationListResponse>(
+      await request(app.getHttpServer())
+        .get(
+          `${apiPrefix}/organizations/${ownerA.organizationId}/invitations?page=1&limit=2`,
+        )
+        .set('Cookie', ownerA.cookie)
+        .expect(200),
+    );
+    const secondPage = responseBody<InvitationListResponse>(
+      await request(app.getHttpServer())
+        .get(
+          `${apiPrefix}/organizations/${ownerA.organizationId}/invitations?page=2&limit=2`,
+        )
+        .set('Cookie', ownerA.cookie)
+        .expect(200),
+    );
+
+    expect(firstPage.items).toHaveLength(2);
+    expect(secondPage.items).toHaveLength(2);
+    expect(firstPage.meta).toMatchObject({ page: 1, limit: 2 });
+    expect(secondPage.meta).toMatchObject({ page: 2, limit: 2 });
+    expect(firstPage.meta.total).toBeGreaterThan(2);
+    expect(secondPage.meta.total).toBe(firstPage.meta.total);
+    expect(
+      firstPage.items.some(({ id }) =>
+        secondPage.items.some((item) => item.id === id),
+      ),
+    ).toBe(false);
+  });
+
+  it('accepts once, scopes verification and keeps membership pending until MFA', async () => {
+    const email = `pending-${fixture}@example.test`;
+    const created = await createInvitation(ownerA, email);
+    const createdBody = responseBody<InvitationResponse>(created);
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    const token = invitationTokens.get(createdBody.id);
+    expect(token).toBeDefined();
+
+    const accepted = await request(app.getHttpServer())
+      .post(`${apiPrefix}/invitations/${createdBody.id}/accept`)
+      .set('Origin', allowedOrigin)
+      .send({
+        token,
+        email,
+        firstName: 'Invitado',
+        lastName: 'Pendiente',
+        password: 'StrongPassword-123',
+      })
+      .expect(200);
+    const acceptedBody = responseBody<AcceptanceResponse>(accepted);
+    userIds.push(acceptedBody.userId);
+    expect(acceptedBody).toMatchObject({
+      invitationStatus: 'accepted',
+      membershipStatus: 'pending',
+      nextStep: 'verify_email',
+    });
+    const [counts] = await dataSource.query<
+      Array<{ memberships: number; assignments: number; permissions: number }>
+    >(
+      `SELECT
+        (SELECT count(*)::int FROM memberships WHERE id = $1 AND organization_id = $2) AS memberships,
+        (SELECT count(*)::int FROM account_assignments WHERE membership_id = $1) AS assignments,
+        (SELECT count(*)::int FROM membership_permissions WHERE membership_id = $1) AS permissions`,
+      [acceptedBody.membershipId, ownerA.organizationId],
+    );
+    expect(counts).toEqual({ memberships: 1, assignments: 0, permissions: 0 });
+    expect(verificationTokens.get(email)).toBeDefined();
+    const [verificationScope] = await dataSource.query<
+      Array<{ membershipId: string }>
+    >(
+      `SELECT membership_id AS "membershipId"
+       FROM email_verification_tokens
+       WHERE user_id = $1 AND used_at IS NULL`,
+      [acceptedBody.userId],
+    );
+    expect(verificationScope.membershipId).toBe(acceptedBody.membershipId);
+
+    await request(app.getHttpServer())
+      .post(`${apiPrefix}/invitations/${createdBody.id}/accept`)
+      .set('Origin', allowedOrigin)
+      .send({ token, email })
+      .expect(409);
+
+    await request(app.getHttpServer())
+      .post(`${apiPrefix}/auth/email/verification/confirm`)
+      .set('Origin', allowedOrigin)
+      .send({ token: verificationTokens.get(email) })
+      .expect(201);
+
+    const [verifiedIdentity] = await dataSource.query<
+      Array<{
+        emailVerified: boolean;
+        membershipStatus: string;
+        joined: boolean;
+      }>
+    >(
+      `SELECT
+        (app_user.email_verified_at IS NOT NULL) AS "emailVerified",
+        membership.status AS "membershipStatus",
+        (membership.joined_at IS NOT NULL) AS joined
+       FROM memberships membership
+       INNER JOIN users app_user ON app_user.id = membership.user_id
+       WHERE membership.id = $1`,
+      [acceptedBody.membershipId],
+    );
+    expect(verifiedIdentity).toEqual({
+      emailVerified: true,
+      membershipStatus: 'pending',
+      joined: false,
+    });
+  });
+
+  it('keeps verification tokens independent across pending memberships', async () => {
+    const email = `multi-tenant-${fixture}@example.test`;
+    const firstInvitation = responseBody<InvitationResponse>(
+      await createInvitation(ownerA, email),
+    );
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    const firstAcceptance = responseBody<AcceptanceResponse>(
+      await request(app.getHttpServer())
+        .post(`${apiPrefix}/invitations/${firstInvitation.id}/accept`)
+        .set('Origin', allowedOrigin)
+        .send({
+          token: invitationTokens.get(firstInvitation.id),
+          email,
+          firstName: 'Multi',
+          lastName: 'Tenant',
+          password: 'StrongPassword-123',
+        })
+        .expect(200),
+    );
+    userIds.push(firstAcceptance.userId);
+
+    const secondInvitation = responseBody<InvitationResponse>(
+      await createInvitation(ownerB, email),
+    );
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    const secondAcceptance = responseBody<AcceptanceResponse>(
+      await request(app.getHttpServer())
+        .post(`${apiPrefix}/invitations/${secondInvitation.id}/accept`)
+        .set('Origin', allowedOrigin)
+        .send({
+          token: invitationTokens.get(secondInvitation.id),
+          email,
+        })
+        .expect(200),
+    );
+
+    const activeTokens = await dataSource.query<
+      Array<{ membershipId: string }>
+    >(
+      `SELECT membership_id AS "membershipId"
+         FROM email_verification_tokens
+        WHERE user_id = $1 AND used_at IS NULL`,
+      [firstAcceptance.userId],
+    );
+    expect(activeTokens.map(({ membershipId }) => membershipId).sort()).toEqual(
+      [firstAcceptance.membershipId, secondAcceptance.membershipId].sort(),
+    );
+
+    await request(app.getHttpServer())
+      .post(`${apiPrefix}/auth/email/verification/resend`)
+      .set('Origin', allowedOrigin)
+      .send({ email, membershipId: secondAcceptance.membershipId })
+      .expect(202);
+
+    const [firstToken] = await dataSource.query<Array<{ active: boolean }>>(
+      `SELECT EXISTS (
+         SELECT 1 FROM email_verification_tokens
+          WHERE user_id = $1 AND membership_id = $2 AND used_at IS NULL
+       ) AS active`,
+      [firstAcceptance.userId, firstAcceptance.membershipId],
+    );
+    expect(firstToken.active).toBe(true);
+  });
+
+  it('activates two pending memberships by verifying the same existing MFA factor', async () => {
+    const email = `shared-mfa-${fixture}@example.test`;
+    const invitationA = responseBody<InvitationResponse>(
+      await createInvitation(ownerA, email),
+    );
+    const acceptanceA = responseBody<AcceptanceResponse>(
+      await request(app.getHttpServer())
+        .post(`${apiPrefix}/invitations/${invitationA.id}/accept`)
+        .set('Origin', allowedOrigin)
+        .send({
+          token: invitationTokens.get(invitationA.id),
+          email,
+          firstName: 'MFA',
+          lastName: 'Compartido',
+          password: 'StrongPassword-123',
+        })
+        .expect(200),
+    );
+    userIds.push(acceptanceA.userId);
+    const invitationB = responseBody<InvitationResponse>(
+      await createInvitation(ownerB, email),
+    );
+    const acceptanceB = responseBody<AcceptanceResponse>(
+      await request(app.getHttpServer())
+        .post(`${apiPrefix}/invitations/${invitationB.id}/accept`)
+        .set('Origin', allowedOrigin)
+        .send({ token: invitationTokens.get(invitationB.id), email })
+        .expect(200),
+    );
+
+    const confirmationA = await request(app.getHttpServer())
+      .post(`${apiPrefix}/auth/email/verification/confirm`)
+      .set('Origin', allowedOrigin)
+      .send({
+        token: membershipVerificationTokens.get(acceptanceA.membershipId),
+      })
+      .expect(201);
+    const cookieA = sessionCookie(confirmationA);
+    const setup = await request(app.getHttpServer())
+      .post(`${apiPrefix}/auth/mfa/totp/setup`)
+      .set('Origin', allowedOrigin)
+      .set('Cookie', cookieA)
+      .send({})
+      .expect(201);
+    const secret = (setup.body as { secret: string }).secret;
+    await request(app.getHttpServer())
+      .post(`${apiPrefix}/auth/mfa/totp/verify`)
+      .set('Origin', allowedOrigin)
+      .set('Cookie', cookieA)
+      .send({ code: totpCode(secret) })
+      .expect(201);
+
+    const confirmationB = await request(app.getHttpServer())
+      .post(`${apiPrefix}/auth/email/verification/confirm`)
+      .set('Origin', allowedOrigin)
+      .send({
+        token: membershipVerificationTokens.get(acceptanceB.membershipId),
+      })
+      .expect(201);
+    expect(confirmationB.body).toMatchObject({
+      nextStep: 'verify_mfa',
+      mfaStatus: 'active',
+    });
+    await dataSource.query(
+      `UPDATE auth_factors SET last_used_counter = NULL WHERE user_id = $1`,
+      [acceptanceA.userId],
+    );
+    await request(app.getHttpServer())
+      .post(`${apiPrefix}/auth/login/mfa`)
+      .set('Origin', allowedOrigin)
+      .set('Cookie', sessionCookie(confirmationB))
+      .send({ code: totpCode(secret) })
+      .expect(201);
+
+    const memberships = await dataSource.query<Array<{ status: string }>>(
+      `SELECT status FROM memberships
+       WHERE id = ANY($1::uuid[])
+       ORDER BY id`,
+      [[acceptanceA.membershipId, acceptanceB.membershipId]],
+    );
+    expect(memberships).toEqual([{ status: 'active' }, { status: 'active' }]);
+  });
+
+  it('rejects an invalid token without changing the invitation or creating a membership', async () => {
+    const email = `invalid-token-${fixture}@example.test`;
+    const created = responseBody<InvitationResponse>(
+      await createInvitation(ownerA, email),
+    );
+
+    await request(app.getHttpServer())
+      .post(`${apiPrefix}/invitations/${created.id}/accept`)
+      .set('Origin', allowedOrigin)
+      .send({ token: '0'.repeat(64), email })
+      .expect(401);
+
+    const [state] = await dataSource.query<
+      Array<{ status: string; memberships: number }>
+    >(
+      `SELECT invitation.status,
+        (SELECT count(*)::int FROM memberships membership
+          INNER JOIN users app_user ON app_user.id = membership.user_id
+          WHERE membership.organization_id = invitation.organization_id
+            AND app_user.email = $2) AS memberships
+       FROM invitations invitation WHERE invitation.id = $1`,
+      [created.id, email],
+    );
+    expect(state).toEqual({ status: 'pending', memberships: 0 });
+  });
+
+  it('expires an invitation atomically and rejects the expired token', async () => {
+    const email = `expired-${fixture}@example.test`;
+    const created = responseBody<InvitationResponse>(
+      await createInvitation(ownerA, email),
+    );
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    const token = invitationTokens.get(created.id);
+    expect(token).toBeDefined();
+    await dataSource.query(
+      `UPDATE invitations
+       SET created_at = now() - interval '2 hours',
+           expires_at = now() - interval '1 hour'
+       WHERE id = $1`,
+      [created.id],
+    );
+
+    await request(app.getHttpServer())
+      .post(`${apiPrefix}/invitations/${created.id}/accept`)
+      .set('Origin', allowedOrigin)
+      .send({ token, email })
+      .expect(401);
+
+    const [invitation] = await dataSource.query<Array<{ status: string }>>(
+      'SELECT status FROM invitations WHERE id = $1',
+      [created.id],
+    );
+    expect(invitation.status).toBe('expired');
+    const [audit] = await dataSource.query<Array<{ count: number }>>(
+      `SELECT count(*)::int AS count FROM audit_events
+       WHERE object_id = $1 AND action = 'invitation.expire'`,
+      [created.id],
+    );
+    expect(audit.count).toBe(1);
+  });
+
+  it('expires a stale pending invitation before creating its replacement', async () => {
+    const email = `replacement-${fixture}@example.test`;
+    const first = responseBody<InvitationResponse>(
+      await createInvitation(ownerA, email),
+    );
+    await dataSource.query(
+      `UPDATE invitations
+       SET created_at = now() - interval '2 hours',
+           expires_at = now() - interval '1 hour'
+       WHERE id = $1`,
+      [first.id],
+    );
+
+    const second = responseBody<InvitationResponse>(
+      await createInvitation(ownerA, email),
+    );
+    expect(second.id).not.toBe(first.id);
+
+    const invitations = await dataSource.query<
+      Array<{ id: string; status: string }>
+    >(
+      `SELECT id, status
+       FROM invitations
+       WHERE id = ANY($1::uuid[])
+       ORDER BY created_at ASC`,
+      [[first.id, second.id]],
+    );
+    expect(invitations).toEqual([
+      { id: first.id, status: 'expired' },
+      { id: second.id, status: 'pending' },
+    ]);
+    const [audit] = await dataSource.query<
+      Array<{ actorType: string; count: number }>
+    >(
+      `SELECT min(actor_type) AS "actorType", count(*)::int AS count
+       FROM audit_events
+       WHERE object_id = $1 AND action = 'invitation.expire'`,
+      [first.id],
+    );
+    expect(audit).toEqual({ actorType: 'system', count: 1 });
+  });
+
+  it('commits expiration when attempting to resend a stale invitation', async () => {
+    const email = `expired-resend-${fixture}@example.test`;
+    const invitation = responseBody<InvitationResponse>(
+      await createInvitation(ownerA, email),
+    );
+    await dataSource.query(
+      `UPDATE invitations
+       SET created_at = now() - interval '2 hours',
+           expires_at = now() - interval '1 hour'
+       WHERE id = $1`,
+      [invitation.id],
+    );
+
+    await request(app.getHttpServer())
+      .post(`${apiPrefix}/invitations/${invitation.id}/resend`)
+      .set('Cookie', ownerA.cookie)
+      .set('Origin', allowedOrigin)
+      .expect(409);
+
+    const [state] = await dataSource.query<
+      Array<{ status: string; expirationAudits: number }>
+    >(
+      `SELECT invitation.status,
+        (SELECT count(*)::int FROM audit_events audit
+         WHERE audit.object_id = invitation.id
+           AND audit.action = 'invitation.expire') AS "expirationAudits"
+       FROM invitations invitation
+       WHERE invitation.id = $1`,
+      [invitation.id],
+    );
+    expect(state).toEqual({ status: 'expired', expirationAudits: 1 });
+  });
+
+  it('rejects a revoked invitation and keeps repeated revocation idempotent', async () => {
+    const email = `revoked-invitation-${fixture}@example.test`;
+    const created = responseBody<InvitationResponse>(
+      await createInvitation(ownerA, email),
+    );
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    const token = invitationTokens.get(created.id);
+    expect(token).toBeDefined();
+
+    for (const expectedStatus of [204, 204]) {
+      await request(app.getHttpServer())
+        .post(`${apiPrefix}/invitations/${created.id}/revoke`)
+        .set('Cookie', ownerA.cookie)
+        .set('Origin', allowedOrigin)
+        .expect(expectedStatus);
+    }
+    await request(app.getHttpServer())
+      .post(`${apiPrefix}/invitations/${created.id}/accept`)
+      .set('Origin', allowedOrigin)
+      .send({ token, email })
+      .expect(409);
+
+    const [audit] = await dataSource.query<Array<{ count: number }>>(
+      `SELECT count(*)::int AS count FROM audit_events
+       WHERE object_id = $1 AND action = 'invitation.revoke'`,
+      [created.id],
+    );
+    expect(audit.count).toBe(1);
+  });
+
+  it('allows only one of two concurrent acceptances to create the membership', async () => {
+    const email = `concurrent-${fixture}@example.test`;
+    const created = responseBody<InvitationResponse>(
+      await createInvitation(ownerA, email),
+    );
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    const token = invitationTokens.get(created.id);
+    expect(token).toBeDefined();
+    const payload = {
+      token,
+      email,
+      firstName: 'Invitado',
+      lastName: 'Concurrente',
+      password: 'StrongPassword-123',
+    };
+
+    const responses = await Promise.all([
+      request(app.getHttpServer())
+        .post(`${apiPrefix}/invitations/${created.id}/accept`)
+        .set('Origin', allowedOrigin)
+        .send(payload),
+      request(app.getHttpServer())
+        .post(`${apiPrefix}/invitations/${created.id}/accept`)
+        .set('Origin', allowedOrigin)
+        .send(payload),
+    ]);
+    expect(responses.map(({ status }) => status).sort()).toEqual([200, 409]);
+    const accepted = responses.find(({ status }) => status === 200);
+    const acceptedBody = responseBody<AcceptanceResponse>(accepted!);
+    userIds.push(acceptedBody.userId);
+    const [counts] = await dataSource.query<
+      Array<{ memberships: number; acceptanceEvents: number }>
+    >(
+      `SELECT
+        (SELECT count(*)::int FROM memberships WHERE id = $1) AS memberships,
+        (SELECT count(*)::int FROM audit_events
+          WHERE object_id = $2 AND action = 'invitation.accept') AS "acceptanceEvents"`,
+      [acceptedBody.membershipId, created.id],
+    );
+    expect(counts).toEqual({ memberships: 1, acceptanceEvents: 1 });
+  });
+
+  it('suspends an active membership and immediately revokes its session', async () => {
+    const user = await createUser('suspended', true);
+    const role = await dataSource.getRepository('roles').findOneByOrFail({
+      key: RoleKey.COLLABORATOR,
+    });
+    const membership = await dataSource.getRepository('memberships').save({
+      organizationId: ownerA.organizationId,
+      userId: user.id,
+      roleId: String(role.id),
+      status: MembershipStatus.ACTIVE,
+      joinedAt: new Date(),
+    });
+    const memberSession = await sessions.create({
+      userId: user.id,
+      organizationId: ownerA.organizationId,
+      membershipId: String(membership.id),
+      requiresMfa: false,
+    });
+    const memberCookie = `${cookieName}=${memberSession.rawToken}`;
+    await request(app.getHttpServer())
+      .get(`${apiPrefix}/auth/session`)
+      .set('Cookie', memberCookie)
+      .expect(200);
+
+    await request(app.getHttpServer())
+      .patch(`${apiPrefix}/memberships/${String(membership.id)}/suspend`)
+      .set('Cookie', ownerA.cookie)
+      .set('Origin', allowedOrigin)
+      .expect(204);
+    await request(app.getHttpServer())
+      .get(`${apiPrefix}/auth/session`)
+      .set('Cookie', memberCookie)
+      .expect(401);
+  });
+
+  it('blocks pending memberships and revokes access permanently with the previous session', async () => {
+    const role = await dataSource.getRepository('roles').findOneByOrFail({
+      key: RoleKey.COLLABORATOR,
+    });
+    const pendingUser = await createUser('pending-session', false);
+    const pendingMembership = await dataSource
+      .getRepository('memberships')
+      .save({
+        organizationId: ownerA.organizationId,
+        userId: pendingUser.id,
+        roleId: String(role.id),
+        status: MembershipStatus.PENDING,
+      });
+    const pendingSession = await sessions.create({
+      userId: pendingUser.id,
+      organizationId: ownerA.organizationId,
+      membershipId: String(pendingMembership.id),
+      requiresMfa: false,
+    });
+    await request(app.getHttpServer())
+      .get(`${apiPrefix}/organizations/${ownerA.organizationId}/memberships`)
+      .set('Cookie', `${cookieName}=${pendingSession.rawToken}`)
+      .expect(403);
+
+    const revokedUser = await createUser('revoked-session', true);
+    const revokedMembership = await dataSource
+      .getRepository('memberships')
+      .save({
+        organizationId: ownerA.organizationId,
+        userId: revokedUser.id,
+        roleId: String(role.id),
+        status: MembershipStatus.ACTIVE,
+        joinedAt: new Date(),
+      });
+    const revokedSession = await sessions.create({
+      userId: revokedUser.id,
+      organizationId: ownerA.organizationId,
+      membershipId: String(revokedMembership.id),
+      requiresMfa: false,
+    });
+    const revokedCookie = `${cookieName}=${revokedSession.rawToken}`;
+    await request(app.getHttpServer())
+      .post(`${apiPrefix}/memberships/${String(revokedMembership.id)}/revoke`)
+      .set('Cookie', ownerA.cookie)
+      .set('Origin', allowedOrigin)
+      .expect(204);
+    await request(app.getHttpServer())
+      .get(`${apiPrefix}/auth/session`)
+      .set('Cookie', revokedCookie)
+      .expect(401);
+    await request(app.getHttpServer())
+      .patch(
+        `${apiPrefix}/memberships/${String(revokedMembership.id)}/reactivate`,
+      )
+      .set('Cookie', ownerA.cookie)
+      .set('Origin', allowedOrigin)
+      .expect(422);
+  });
+
+  it('reincorporates a revoked verified member with active MFA through a new invitation', async () => {
+    const label = 'revoked-reinvite';
+    const email = `${label}-${fixture}@example.test`;
+    const user = await createUser(label, true);
+    await dataSource.getRepository('auth_factors').save({
+      userId: user.id,
+      secretEncrypted: 'e2e-not-decrypted',
+      status: AuthFactorStatus.ACTIVE,
+      verifiedAt: new Date(),
+    });
+    const role = await dataSource.getRepository('roles').findOneByOrFail({
+      key: RoleKey.COLLABORATOR,
+    });
+    const original = await dataSource.getRepository('memberships').save({
+      organizationId: ownerA.organizationId,
+      userId: user.id,
+      roleId: String(role.id),
+      status: MembershipStatus.ACTIVE,
+      joinedAt: new Date(),
+    });
+
+    await request(app.getHttpServer())
+      .post(`${apiPrefix}/memberships/${String(original.id)}/revoke`)
+      .set('Cookie', ownerA.cookie)
+      .set('Origin', allowedOrigin)
+      .expect(204);
+
+    const created = await createInvitation(ownerA, email);
+    const invitation = responseBody<InvitationResponse>(created);
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    const token = invitationTokens.get(invitation.id);
+    expect(token).toBeDefined();
+
+    const accepted = await request(app.getHttpServer())
+      .post(`${apiPrefix}/invitations/${invitation.id}/accept`)
+      .set('Origin', allowedOrigin)
+      .send({ token, email })
+      .expect(200);
+    const acceptedBody = responseBody<AcceptanceResponse>(accepted);
+    expect(acceptedBody).toMatchObject({
+      userId: user.id,
+      membershipId: String(original.id),
+      membershipStatus: MembershipStatus.ACTIVE,
+      nextStep: 'ready',
+    });
+
+    const reincorporated = await dataSource
+      .getRepository('memberships')
+      .findOneByOrFail({ id: String(original.id) });
+    expect(reincorporated).toMatchObject({
+      status: MembershipStatus.ACTIVE,
+      suspendedAt: null,
+      revokedAt: null,
+    });
+  });
+
+  it('masks cross-tenant membership identifiers and unassigned client accounts', async () => {
+    const role = await dataSource.getRepository('roles').findOneByOrFail({
+      key: RoleKey.COLLABORATOR,
+    });
+    const foreignUser = await createUser('foreign-member', true);
+    const foreignMembership = await dataSource
+      .getRepository('memberships')
+      .save({
+        organizationId: ownerB.organizationId,
+        userId: foreignUser.id,
+        roleId: String(role.id),
+        status: MembershipStatus.ACTIVE,
+        joinedAt: new Date(),
+      });
+    await request(app.getHttpServer())
+      .patch(`${apiPrefix}/memberships/${String(foreignMembership.id)}/suspend`)
+      .set('Cookie', ownerA.cookie)
+      .set('Origin', allowedOrigin)
+      .expect(404);
+    const unchanged = await dataSource.getRepository('memberships').findOneBy({
+      id: String(foreignMembership.id),
+    });
+    expect(unchanged?.status).toBe(MembershipStatus.ACTIVE);
+
+    const accountId = randomUUID();
+    clientAccountIds.push(accountId);
+    await dataSource.getRepository('client_accounts').save({
+      id: accountId,
+      organizationId: ownerA.organizationId,
+      name: 'Cuenta sin asignación',
+      status: 'active',
+    });
+    const unassignedUser = await createUser('unassigned-member', true);
+    const accountantRole = await dataSource
+      .getRepository('roles')
+      .findOneByOrFail({ key: RoleKey.ACCOUNTANT });
+    const unassignedMembership = await dataSource
+      .getRepository('memberships')
+      .save({
+        organizationId: ownerA.organizationId,
+        userId: unassignedUser.id,
+        roleId: String(accountantRole.id),
+        status: MembershipStatus.ACTIVE,
+        joinedAt: new Date(),
+      });
+    const unassignedSession = await sessions.create({
+      userId: unassignedUser.id,
+      organizationId: ownerA.organizationId,
+      membershipId: String(unassignedMembership.id),
+      requiresMfa: false,
+    });
+    await request(app.getHttpServer())
+      .get(`${apiPrefix}/client-accounts/${accountId}`)
+      .set('Cookie', `${cookieName}=${unassignedSession.rawToken}`)
+      .expect(404);
+  });
+
+  it('audits lifecycle transitions without tokens, passwords or secrets', async () => {
+    const events = await dataSource.query<
+      Array<{ action: string; correlationId: string; metadata: unknown }>
+    >(
+      `SELECT action, correlation_id AS "correlationId", metadata
+       FROM audit_events
+       WHERE organization_id = $1
+         AND action = ANY($2::text[])`,
+      [
+        ownerA.organizationId,
+        [
+          'invitation.accept',
+          'invitation.expire',
+          'invitation.revoke',
+          'membership.suspend',
+          'membership.revoke',
+        ],
+      ],
+    );
+    expect(new Set(events.map(({ action }) => action))).toEqual(
+      new Set([
+        'invitation.accept',
+        'invitation.expire',
+        'invitation.revoke',
+        'membership.suspend',
+        'membership.revoke',
+      ]),
+    );
+    expect(events.every(({ correlationId }) => Boolean(correlationId))).toBe(
+      true,
+    );
+    expect(JSON.stringify(events)).not.toMatch(
+      /token|password|secret|mfa.?code/i,
+    );
+  });
+
+  async function createInvitation(actor: Actor, email: string) {
+    return request(app.getHttpServer())
+      .post(`${apiPrefix}/organizations/${actor.organizationId}/invitations`)
+      .set('Cookie', actor.cookie)
+      .set('Origin', allowedOrigin)
+      .send({
+        email,
+        role: RoleKey.COLLABORATOR,
+        expiresAt: new Date(Date.now() + 60 * 60_000).toISOString(),
+      })
+      .expect(201);
+  }
+
+  async function createOrganization(label: string): Promise<Actor> {
+    const user = await createUser(`${label}-owner`, true);
+    const organization = await dataSource.getRepository('organizations').save({
+      name: `Invitation E2E ${label}`,
+      slug: `invitation-${label}-${fixture}`,
+      timezone: 'America/Mexico_City',
+      ownerUserId: user.id,
+      status: OrganizationStatus.ACTIVE,
+    });
+    const organizationId = String(organization.id);
+    organizationIds.push(organizationId);
+    const trialStartedAt = new Date();
+    await dataSource.getRepository('subscriptions').save({
+      organizationId,
+      subscriptionType: 'trial',
+      status: SubscriptionStatus.TRIALING,
+      trialStartedAt,
+      trialEndsAt: new Date(trialStartedAt.getTime() + 30 * 86_400_000),
+    });
+    const role = await dataSource.getRepository('roles').findOneByOrFail({
+      key: RoleKey.ADMIN,
+    });
+    const membership = await dataSource.getRepository('memberships').save({
+      organizationId,
+      userId: user.id,
+      roleId: String(role.id),
+      status: MembershipStatus.ACTIVE,
+      joinedAt: new Date(),
+    });
+    const pair = await sessions.create({
+      userId: user.id,
+      organizationId,
+      membershipId: String(membership.id),
+      requiresMfa: true,
+      mfaVerifiedAt: new Date(),
+      reauthenticatedAt: new Date(),
+    });
+    return {
+      userId: user.id,
+      organizationId,
+      membershipId: String(membership.id),
+      cookie: `${cookieName}=${pair.rawToken}`,
+    };
+  }
+
+  async function createUser(label: string, verified: boolean) {
+    const user = await dataSource.getRepository('users').save({
+      firstName: 'E2E',
+      lastName: label,
+      email: `${label}-${fixture}@example.test`,
+      emailVerifiedAt: verified ? new Date() : null,
+      locale: 'es-MX',
+      timezone: 'America/Mexico_City',
+      status: UserStatus.ACTIVE,
+      passwordHash: 'not-used-by-invitation-e2e',
+    });
+    const userId = String(user.id);
+    userIds.push(userId);
+    return { id: userId };
+  }
+
+  function responseBody<T>(response: { body: unknown }): T {
+    return response.body as T;
+  }
+
+  function sessionCookie(response: {
+    headers: Record<string, string | string[]>;
+  }): string {
+    const cookies = response.headers['set-cookie'];
+    const values = Array.isArray(cookies) ? cookies : cookies ? [cookies] : [];
+    const cookie = values.find((value) => value.startsWith(`${cookieName}=`));
+    if (!cookie) throw new Error('Session cookie was not returned');
+    return cookie.split(';', 1)[0];
+  }
+
+  function totpCode(secret: string): string {
+    const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+    let bits = 0;
+    let buffer = 0;
+    const bytes: number[] = [];
+    for (const character of secret.replace(/=+$/, '').toUpperCase()) {
+      const digit = alphabet.indexOf(character);
+      if (digit < 0) throw new Error('Invalid base32 secret');
+      buffer = (buffer << 5) | digit;
+      bits += 5;
+      if (bits >= 8) {
+        bits -= 8;
+        bytes.push((buffer >> bits) & 0xff);
+      }
+    }
+    const counter = Math.floor(Date.now() / 1_000 / 30);
+    const counterBuffer = Buffer.alloc(8);
+    counterBuffer.writeBigUInt64BE(BigInt(counter));
+    const digest = createHmac('sha1', Buffer.from(bytes))
+      .update(counterBuffer)
+      .digest();
+    const offset = digest[digest.length - 1] & 0x0f;
+    const value = (digest.readUInt32BE(offset) & 0x7fffffff) % 1_000_000;
+    return String(value).padStart(6, '0');
+  }
+
+  async function cleanup(): Promise<void> {
+    if (!dataSource?.isInitialized) return;
+    await dataSource.query(
+      'DELETE FROM invitations WHERE organization_id = ANY($1::uuid[])',
+      [organizationIds],
+    );
+    await dataSource.query(
+      'DELETE FROM audit_events WHERE organization_id = ANY($1::uuid[])',
+      [organizationIds],
+    );
+    await dataSource.query(
+      'DELETE FROM auth_sessions WHERE user_id = ANY($1::uuid[])',
+      [userIds],
+    );
+    await dataSource.query(
+      'DELETE FROM email_verification_tokens WHERE user_id = ANY($1::uuid[])',
+      [userIds],
+    );
+    await dataSource.query(
+      'DELETE FROM auth_factors WHERE user_id = ANY($1::uuid[])',
+      [userIds],
+    );
+    await dataSource.query(
+      'DELETE FROM client_accounts WHERE id = ANY($1::uuid[])',
+      [clientAccountIds],
+    );
+    await dataSource.query(
+      'DELETE FROM memberships WHERE organization_id = ANY($1::uuid[])',
+      [organizationIds],
+    );
+    await dataSource.query(
+      'DELETE FROM subscriptions WHERE organization_id = ANY($1::uuid[])',
+      [organizationIds],
+    );
+    await dataSource.query(
+      'DELETE FROM organizations WHERE id = ANY($1::uuid[])',
+      [organizationIds],
+    );
+    await dataSource.query('DELETE FROM users WHERE id = ANY($1::uuid[])', [
+      userIds,
+    ]);
+  }
+});

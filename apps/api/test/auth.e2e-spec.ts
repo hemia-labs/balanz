@@ -210,7 +210,7 @@ describe('Auth registration and MFA (e2e)', () => {
     expect(successfulConfirmation?.body).toEqual(
       expect.objectContaining({
         emailVerified: true,
-        nextStep: 'ready',
+        nextStep: 'setup_mfa',
         mfaStatus: 'disabled',
       }),
     );
@@ -228,8 +228,8 @@ describe('Auth registration and MFA (e2e)', () => {
         userId: registration.userId,
         organizationId: registration.organizationId,
         membershipId: registration.membershipId,
-        role: 'owner',
-        tenantActive: true,
+        role: 'admin',
+        tenantActive: false,
         mfaStatus: 'disabled',
         account: {
           id: registration.userId,
@@ -263,12 +263,20 @@ describe('Auth registration and MFA (e2e)', () => {
       .expect(200);
     expect(verifiedSession.body).toEqual(
       expect.objectContaining({
-        role: 'owner',
+        role: 'admin',
         tenantActive: true,
         requiresMfa: true,
         mfaStatus: 'active',
       }),
     );
+    const [activatedMembership] = await dataSource.query<
+      Array<{ status: string; joined: boolean }>
+    >(
+      `SELECT status, joined_at IS NOT NULL AS joined
+       FROM memberships WHERE id = $1`,
+      [registration.membershipId],
+    );
+    expect(activatedMembership).toEqual({ status: 'active', joined: true });
 
     await request(app.getHttpServer())
       .delete(`${apiPrefix}/auth/session`)
@@ -355,6 +363,40 @@ describe('Auth registration and MFA (e2e)', () => {
       .set('X-Forwarded-For', runIp(35))
       .send({ token: rawToken })
       .expect(400);
+  });
+
+  it('enrolls MFA for an active membership without changing its status', async () => {
+    const registration = await register('active-membership-mfa');
+    const confirmation = await confirm(
+      registration.token,
+      registration.ipAddress,
+    );
+    const cookie = sessionCookie(confirmation);
+    await dataSource.query(
+      `UPDATE memberships SET status = 'active', joined_at = now()
+       WHERE id = $1`,
+      [registration.membershipId],
+    );
+
+    const setup = await request(app.getHttpServer())
+      .post(`${apiPrefix}/auth/mfa/totp/setup`)
+      .set('Origin', allowedOrigin)
+      .set('Cookie', cookie)
+      .send({})
+      .expect(201);
+    const setupBody = setup.body as { secret: string };
+    await request(app.getHttpServer())
+      .post(`${apiPrefix}/auth/mfa/totp/verify`)
+      .set('Origin', allowedOrigin)
+      .set('Cookie', cookie)
+      .send({ code: totpCode(setupBody.secret) })
+      .expect(201);
+
+    const [membership] = await dataSource.query<Array<{ status: string }>>(
+      'SELECT status FROM memberships WHERE id = $1',
+      [registration.membershipId],
+    );
+    expect(membership).toEqual({ status: 'active' });
   });
 
   async function register(label: string): Promise<Registration> {
