@@ -79,6 +79,24 @@ async function validateMigrationLifecycle(): Promise<void> {
   }
 
   const dataSource = new DataSource({ ...options, logging: false });
+  // TypeORM introspects column types concurrently on one connection. Serialize
+  // this QA data source's queries instead of relying on pg's deprecated queue.
+  const createQueryRunner: DataSource['createQueryRunner'] =
+    dataSource.createQueryRunner.bind(dataSource);
+  dataSource.createQueryRunner = (...args) => {
+    const runner = createQueryRunner(...args);
+    const query: typeof runner.query = runner.query.bind(runner);
+    let pending = Promise.resolve();
+    runner.query = (...queryArgs: Parameters<typeof query>) => {
+      const result = pending.then(() => query(...queryArgs));
+      pending = result.then(
+        () => undefined,
+        () => undefined,
+      );
+      return result;
+    };
+    return runner;
+  };
   const report: Record<string, unknown> = {
     mode: 'TRANSACTIONAL_DEVELOPMENT_VALIDATION',
     persistentDestructiveDatabaseOperations: false,
@@ -473,13 +491,72 @@ async function validatePhaseOneCfdiSchema(
   const state = await inspectPhaseOneCfdiState(manager);
   assertPhaseOneCfdiState(state);
   report.phaseOneCfdiSchema = state;
+  await manager.query('SAVEPOINT phase_one_foreign_key_validation');
+  try {
+    await manager.query(`
+      ALTER TABLE cfdi_access_grants ADD CONSTRAINT qa_unscoped_grant_cfdi
+      FOREIGN KEY (cfdi_id) REFERENCES cfdis(id)
+    `);
+    assertEqual(
+      (await inspectPhaseOneCfdiState(manager)).allforeignkeyscarryscope,
+      false,
+      'additional unscoped CFDI foreign key rejected',
+    );
+    await manager.query(
+      'ROLLBACK TO SAVEPOINT phase_one_foreign_key_validation',
+    );
+    await manager.query(`
+      ALTER TABLE cfdi_access_grants DROP CONSTRAINT fk_cfdi_access_grants_session
+    `);
+    assertEqual(
+      (await inspectPhaseOneCfdiState(manager)).sessionforeignkey,
+      false,
+      'missing session foreign key rejected',
+    );
+    await manager.query(`
+      ALTER TABLE cfdi_access_grants ADD CONSTRAINT fk_cfdi_access_grants_session
+      FOREIGN KEY (session_id) REFERENCES cfdis(id)
+    `);
+    const invalid = await inspectPhaseOneCfdiState(manager);
+    assertEqual(
+      invalid.sessionforeignkey,
+      false,
+      'wrong session target rejected',
+    );
+    assertEqual(
+      invalid.allforeignkeyscarryscope,
+      false,
+      'constraint name alone must not bypass scope validation',
+    );
+  } finally {
+    await manager.query(
+      'ROLLBACK TO SAVEPOINT phase_one_foreign_key_validation',
+    );
+    await manager.query('RELEASE SAVEPOINT phase_one_foreign_key_validation');
+  }
 }
 
 async function inspectPhaseOneCfdiState(
   manager: EntityManager,
 ): Promise<Record<string, unknown>> {
   const [state] = await manager.query(
-    `SELECT
+    `WITH session_fk AS (
+       SELECT oid FROM pg_constraint
+       WHERE conrelid = 'public.cfdi_access_grants'::regclass
+         AND confrelid = 'public.auth_sessions'::regclass
+         AND contype = 'f'
+         AND conkey = ARRAY[(
+           SELECT attnum FROM pg_attribute
+           WHERE attrelid = 'public.cfdi_access_grants'::regclass
+             AND attname = 'session_id'
+         )]::smallint[]
+         AND confkey = ARRAY[(
+           SELECT attnum FROM pg_attribute
+           WHERE attrelid = 'public.auth_sessions'::regclass
+             AND attname = 'id'
+         )]::smallint[]
+     ) SELECT
+       EXISTS (SELECT 1 FROM session_fk) AS sessionForeignKey,
        (SELECT count(*)::integer
           FROM information_schema.tables
          WHERE table_schema = 'public'
@@ -511,8 +588,12 @@ async function inspectPhaseOneCfdiState(
        ) AS logicalIdentityUnique,
        COALESCE((
          SELECT bool_and(
-           cardinality(conkey) >= 2
-           AND pg_get_constraintdef(oid) ~ '^FOREIGN KEY \\(organization_id,'
+           oid IN (SELECT oid FROM session_fk)
+           OR (
+             cardinality(conkey) >= 2
+             AND pg_get_constraintdef(oid) ~
+               '^FOREIGN KEY \\(organization_id,.*REFERENCES .+\\(organization_id,'
+           )
          )
          FROM pg_constraint
          WHERE connamespace = 'public'::regnamespace
@@ -592,6 +673,7 @@ async function inspectPhaseOneCfdiState(
 }
 
 function assertPhaseOneCfdiState(state: Record<string, unknown>): void {
+  assertEqual(state.sessionforeignkey, true, 'Phase 1 session FK');
   assertEqual(state.domaintables, 14, 'Phase 1 CFDI table count');
   assertEqual(state.forcedrlstables, 14, 'Phase 1 FORCE RLS table count');
   assertEqual(state.tenantpolicies, 27, 'Phase 1 RLS policy count');
