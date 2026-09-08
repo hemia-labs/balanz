@@ -28,6 +28,12 @@ export enum PeriodStatus {
   { name: 'fk_periods_fiscal_year', onDelete: 'RESTRICT' },
 )
 @Unique('uq_periods_org_id', ['organizationId', 'id'])
+@Unique('uq_periods_scope_id', [
+  'organizationId',
+  'clientAccountId',
+  'legalEntityId',
+  'id',
+])
 @Unique('uq_periods_year_month', ['organizationId', 'fiscalYearId', 'month'])
 @Check('ck_periods_month', 'month BETWEEN 1 AND 12')
 @Index('ix_periods_year_month', ['organizationId', 'fiscalYearId', 'month'])

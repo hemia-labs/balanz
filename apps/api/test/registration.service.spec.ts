@@ -154,6 +154,7 @@ describe('AuthService', () => {
     expect(email.sendVerification).toHaveBeenCalledWith({
       email: 'ana@example.test',
       firstName: 'Ana',
+      membershipId: 'membership-1',
       token: deliveryInput.token,
     });
     if (!auditInput) throw new Error('Registration audit was not recorded');

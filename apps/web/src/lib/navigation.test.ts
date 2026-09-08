@@ -208,6 +208,36 @@ test("incluye legalEntityId en rutas fiscales multi-RFC", () => {
   assert.equal(payroll?.capability, "payroll.view");
 });
 
+test("resuelve procesos y CFDI con capacidades específicas de Fase 1", () => {
+  const processes = resolveProductRoute("demo", ["processes"]);
+  assert.equal(processes?.capability, "processes.view");
+
+  const selector = resolveProductRoute("demo", ["clients", "account", "cfdi"]);
+  assert.equal(selector?.screen, "client-cfdi");
+  assert.equal(selector?.capability, "cfdi.view");
+
+  const list = resolveProductRoute("demo", [
+    "clients",
+    "account",
+    "legal-entities",
+    "entity",
+    "cfdi",
+  ]);
+  assert.equal(list?.legalEntityId, "entity");
+  assert.equal(list?.capability, "cfdi.view");
+
+  const detail = resolveProductRoute("demo", [
+    "clients",
+    "account",
+    "legal-entities",
+    "entity",
+    "cfdi",
+    "cfdi-id",
+  ]);
+  assert.equal(detail?.screen, "cfdi-detail");
+  assert.equal(detail?.cfdiId, "cfdi-id");
+});
+
 test("protege rutas live y no interpreta pestañas fuera de alcance como resumen", () => {
   const responsibles = resolveProductRoute("demo", [
     "clients",

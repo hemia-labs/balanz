@@ -13,7 +13,7 @@ export function NotificationsDrawer() {
   const locale = pathname.split("/").filter(Boolean)[0] ?? "es";
   return (
     <DetailDrawer
-      trigger={<Button type="button" variant="ghost" size="icon" aria-label="Abrir notificaciones"><Bell className="size-4" /><span className="sr-only">4 notificaciones</span></Button>}
+      trigger={<Button type="button" variant="ghost" size="icon" aria-label="Abrir notificaciones"><Bell className="size-4" /></Button>}
       title="Notificaciones"
       description="Eventos de los contextos a los que tienes acceso."
     >

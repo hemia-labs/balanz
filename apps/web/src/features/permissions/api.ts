@@ -14,6 +14,10 @@ export interface MembershipItem {
   email: string;
   role: RoleCatalogItem["key"];
   status: string;
+  isOwner?: boolean;
+  mfaConfigured?: boolean;
+  joinedAt?: string | null;
+  updatedAt?: string;
 }
 
 export interface MembershipAuthorization {

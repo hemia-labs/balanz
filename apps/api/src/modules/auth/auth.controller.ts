@@ -88,6 +88,7 @@ export class AuthController {
   ): Promise<void> {
     await this.auth.resendVerification({
       email: input.email,
+      membershipId: input.membershipId,
       ipAddress: this.clientIp(request),
     });
   }

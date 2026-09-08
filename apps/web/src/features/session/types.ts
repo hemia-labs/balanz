@@ -40,6 +40,7 @@ export interface EmailVerificationResult {
   trial: { status: string; startedAt?: string; endsAt?: string };
   nextStep: string;
   mfaStatus: string;
+  organizationOwner: boolean;
 }
 
 export interface OnboardingResponse {

@@ -6,6 +6,7 @@ export type ProductScreen =
   | "clients"
   | "processes"
   | "team"
+  | "team-member"
   | "audit"
   | "organization-settings"
   | "client-overview"
@@ -27,11 +28,12 @@ export interface ResolvedProductRoute {
   screen: ProductScreen;
   organizationId: string;
   clientId?: string;
+  membershipId?: string;
   legalEntityId?: string;
   year?: string;
   period?: string;
   tab?: string;
-  uuid?: string;
+  cfdiId?: string;
   instanceId?: string;
   section?: string;
   capability?: Capability;
@@ -84,10 +86,17 @@ export function resolveProductRoute(
     return {
       screen: "processes",
       organizationId,
-      capability: "organization.view",
+      capability: "processes.view",
     };
   if (first === "team" && !second)
     return { screen: "team", organizationId, capability: "team.view" };
+  if (first === "team" && second && !third)
+    return {
+      screen: "team-member",
+      organizationId,
+      membershipId: second,
+      capability: "team.view",
+    };
   if (first === "settings") {
     const capability =
       second === "billing-plan" ? "billing.manage" : "organization.view";
@@ -103,6 +112,34 @@ export function resolveProductRoute(
   const base = { organizationId, clientId: second };
   if (!third || third === "overview")
     return { screen: "client-overview", ...base, capability: "clients.view" };
+  if (
+    third === "legal-entities" &&
+    fourth &&
+    fifth === "cfdi" &&
+    !sixth
+  ) {
+    return {
+      screen: "client-cfdi",
+      ...base,
+      legalEntityId: fourth,
+      capability: "cfdi.view",
+    };
+  }
+  if (
+    third === "legal-entities" &&
+    fourth &&
+    fifth === "cfdi" &&
+    sixth &&
+    !seventh
+  ) {
+    return {
+      screen: "cfdi-detail",
+      ...base,
+      legalEntityId: fourth,
+      cfdiId: sixth,
+      capability: "cfdi.view",
+    };
+  }
   if (
     third === "legal-entities" &&
     fourth &&
@@ -173,13 +210,13 @@ export function resolveProductRoute(
     };
   }
   if (third === "cfdi" && !fourth)
-    return { screen: "client-cfdi", ...base, capability: "clients.view" };
+    return { screen: "client-cfdi", ...base, capability: "cfdi.view" };
   if (third === "cfdi" && fourth)
     return {
       screen: "cfdi-detail",
       ...base,
-      uuid: fourth,
-      capability: "clients.view",
+      cfdiId: fourth,
+      capability: "cfdi.view",
     };
   if (third === "alerts" && !fourth)
     return { screen: "client-alerts", ...base, capability: "clients.view" };

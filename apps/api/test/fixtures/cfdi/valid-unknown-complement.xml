@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<cfdi:Comprobante xmlns:cfdi="http://www.sat.gob.mx/cfd/4"
+  xmlns:custom="urn:balanz:synthetic:unsupported-complement"
+  xmlns:tfd="http://www.sat.gob.mx/TimbreFiscalDigital"
+  Version="4.0" Fecha="2026-08-15T12:30:00"
+  Sello="U0VMTE8=" NoCertificado="00000000000000000000" Certificado="Q0VSVA=="
+  SubTotal="1.00" Moneda="MXN"
+  Total="1.00" TipoDeComprobante="I" Exportacion="01" MetodoPago="PUE"
+  LugarExpedicion="00000">
+  <cfdi:Emisor Rfc="AAA010101AAA" Nombre="EMISOR SINTETICO" RegimenFiscal="601"/>
+  <cfdi:Receptor Rfc="XAXX010101000" Nombre="RECEPTOR SINTETICO"
+    DomicilioFiscalReceptor="00000" RegimenFiscalReceptor="616" UsoCFDI="G03"/>
+  <cfdi:Conceptos>
+    <cfdi:Concepto ClaveProdServ="01010101" Cantidad="1" ClaveUnidad="H87"
+      Descripcion="CONCEPTO SINTETICO" ValorUnitario="1.00" Importe="1.00"
+      ObjetoImp="01"/>
+  </cfdi:Conceptos>
+  <cfdi:Complemento>
+    <custom:Extension Version="9.9"><custom:OpaqueField>IGNORED</custom:OpaqueField></custom:Extension>
+    <tfd:TimbreFiscalDigital Version="1.1"
+      UUID="DDDDDDDD-DDDD-4DDD-8DDD-DDDDDDDDDDDD"
+      FechaTimbrado="2026-08-15T12:31:00" RfcProvCertif="AAA010101AAA"
+      SelloCFD="SELLO-CFD-SINTETICO" NoCertificadoSAT="00000000000000000000"
+      SelloSAT="SELLO-SAT-SINTETICO"/>
+  </cfdi:Complemento>
+</cfdi:Comprobante>

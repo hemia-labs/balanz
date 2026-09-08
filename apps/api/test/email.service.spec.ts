@@ -2,6 +2,22 @@ import { EmailService } from '../src/modules/email/email.service';
 import type { EmailDeliveryPort } from '../src/modules/email/ports/email-delivery.port';
 
 describe('EmailService', () => {
+  it('reports an invitation delivery failure to its caller', async () => {
+    const delivery = {
+      sendInvitation: jest.fn().mockRejectedValue(new Error('provider down')),
+    } as unknown as EmailDeliveryPort;
+    const service = new EmailService(delivery);
+
+    await expect(
+      service.sendInvitation({
+        email: 'invitee@example.test',
+        token: 'raw-token',
+        invitationId: 'invitation-1',
+        expiresAt: new Date('2026-09-08T00:00:00.000Z'),
+      }),
+    ).rejects.toThrow('provider down');
+  });
+
   it('sends verification directly through SES', async () => {
     const delivery = {
       sendVerification: jest.fn().mockResolvedValue(undefined),
@@ -11,6 +27,7 @@ describe('EmailService', () => {
       email: 'ana@example.test',
       firstName: 'Ana',
       token: 'raw-token',
+      membershipId: 'membership-1',
     };
 
     await service.sendVerification(input);
@@ -28,6 +45,7 @@ describe('EmailService', () => {
       service.sendVerification({
         email: 'ana@example.test',
         token: 'raw-token',
+        membershipId: 'membership-1',
       }),
     ).resolves.toBeUndefined();
   });

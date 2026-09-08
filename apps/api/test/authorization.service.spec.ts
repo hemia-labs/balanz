@@ -82,7 +82,7 @@ describe('AuthorizationService', () => {
     expect(context.permissions).toContain('periods.close');
     expect(context.permissions).not.toContain('exports.generate');
     expect(context.assignedAccountIds).toEqual([]);
-    expect(context.accountAccessMode).toBe('assigned');
+    expect(context.accountAccessMode).toBe('tenant');
     expect(memberships.findOne).toHaveBeenCalledWith({
       where: {
         id: 'membership-1',
@@ -148,5 +148,53 @@ describe('AuthorizationService', () => {
 
     expect(context.accountAccessMode).toBe('assigned');
     expect(context.assignedAccountIds).toEqual([]);
+  });
+
+  it('does not grant tenant-wide scope to a non-owner admin', async () => {
+    const users = {
+      findOne: jest
+        .fn()
+        .mockResolvedValue({ id: 'user-2', status: UserStatus.ACTIVE }),
+    };
+    const organizations = {
+      findOne: jest.fn().mockResolvedValue({
+        id: 'org-1',
+        ownerUserId: 'user-1',
+        status: OrganizationStatus.ACTIVE,
+      }),
+    };
+    const memberships = {
+      findOne: jest.fn().mockResolvedValue({
+        id: 'membership-2',
+        organizationId: 'org-1',
+        userId: 'user-2',
+        roleId: 'role-admin',
+        role: { id: 'role-admin', key: MembershipRole.ADMIN },
+        status: MembershipStatus.ACTIVE,
+      }),
+    };
+    const rolePermissions = { find: jest.fn().mockResolvedValue([]) };
+    const service = new AuthorizationService(
+      users as never,
+      organizations as never,
+      memberships as never,
+      rolePermissions as never,
+      {} as never,
+      {} as never,
+    );
+    const session = {
+      id: 'session-2',
+      userId: 'user-2',
+      organizationId: 'org-1',
+      membershipId: 'membership-2',
+      status: AuthSessionStatus.ACTIVE,
+      mfaVerifiedAt: new Date(),
+      expiresAt: new Date(Date.now() + 60_000),
+    } as AuthSession;
+
+    const context = await service.resolve(session);
+
+    expect(context.role).toBe(MembershipRole.ADMIN);
+    expect(context.accountAccessMode).toBe('assigned');
   });
 });

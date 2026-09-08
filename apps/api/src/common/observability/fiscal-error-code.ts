@@ -11,10 +11,12 @@ const CANONICAL_FISCAL_ERROR_CODES: ReadonlySet<string> = new Set([
   'IDEMPOTENCY_CONFLICT',
   'IDEMPOTENCY_KEY_EXPIRED',
   'IDEMPOTENCY_KEY_REQUIRED',
+  'INGESTION_ACTIVE_JOB_LIMIT',
   'INGESTION_FILE_REQUIRED',
   'INGESTION_FILE_TOO_LARGE',
   'INGESTION_TOO_MANY_FILES',
   'INGESTION_UNSUPPORTED_MEDIA_TYPE',
+  'INGESTION_UPLOAD_ABORTED',
   'INVALID_HANDLER_RESULT',
   'JOB_CLAIM_FAILED',
   'JOB_LEASE_LOST',
@@ -75,4 +77,8 @@ export function assertCanonicalFiscalErrorCode(value: string): void {
   if (!CANONICAL_FISCAL_ERROR_CODES.has(value)) {
     throw new Error('Error code must be a canonical safe token');
   }
+}
+
+export function isCanonicalFiscalErrorCode(value: unknown): value is string {
+  return typeof value === 'string' && CANONICAL_FISCAL_ERROR_CODES.has(value);
 }

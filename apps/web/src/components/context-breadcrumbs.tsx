@@ -98,6 +98,16 @@ export function buildClientTrail(
     );
   }
 
+  if (section === "legal-entities" && second && third === "cfdi") {
+    const listHref = `${clientHref}/legal-entities/${second}/cfdi`;
+    return fourth
+      ? [
+          { label: "CFDI", href: listHref },
+          { label: "Detalle CFDI" },
+        ]
+      : [{ label: "CFDI" }];
+  }
+
   if (section === "cfdi" && second) {
     return [
       { label: "CFDI", href: `${clientHref}/cfdi` },

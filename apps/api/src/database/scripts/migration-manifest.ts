@@ -32,6 +32,19 @@ export const EXPECTED_MIGRATION_IDENTITIES = [
     name: 'PhaseZeroRuntimeCompatibility1787690630000',
     timestamp: 1787690630000,
   },
+  { name: 'PhaseOneCfdiDomain1787690700000', timestamp: 1787690700000 },
+  {
+    name: 'CfdiUsageCodeLength1787690710000',
+    timestamp: 1787690710000,
+  },
+  {
+    name: 'InvitationsLifecycle1787690800000',
+    timestamp: 1787690800000,
+  },
+  {
+    name: 'ScopeEmailVerificationTokens1787690810000',
+    timestamp: 1787690810000,
+  },
 ] as const;
 
 export const EXPECTED_MIGRATION_NAMES: readonly string[] =

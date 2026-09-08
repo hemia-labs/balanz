@@ -1,9 +1,11 @@
 # Matriz de permisos de la plataforma CFDI
 
-- Versión: 1.0
-- Fecha: 2026-08-28
-- Fase 0: `BLOCKED`
-- Fases 1–8: `NOT_STARTED`
+- Versión: 1.1
+- Fecha: 2026-09-03
+- Fase 0 desarrollo: `ACCEPTED`
+- Fase 0 release: `BLOCKED`
+- Fase 1 XML: `IN_PROGRESS`
+- Fases 2–8: `NOT_STARTED`
 
 ## 1. Principios
 
@@ -30,19 +32,19 @@ Los seeds de Fase 0 registran idempotentemente estas keys para que las fases
 posteriores no reconstruyan autorización. Registrar una key no crea endpoint,
 UI ni capacidad de producto.
 
-| Permiso            | Intención                                 | Capacidad que lo consume | Estado funcional en F0   |
-| ------------------ | ----------------------------------------- | ------------------------ | ------------------------ |
-| `ingestion.view`   | ver una ingesta y sus resultados técnicos | XML/ZIP/SAT              | Sin endpoint de producto |
-| `ingestion.create` | iniciar una ingesta autorizada            | XML/ZIP/SAT              | Sin endpoint de producto |
-| `ingestion.retry`  | solicitar retry durable                   | procesos de ingesta      | Sin endpoint de producto |
-| `ingestion.cancel` | solicitar cancelación durable             | procesos de ingesta      | Sin endpoint de producto |
-| `processes.view`   | ver jobs/procesos fiscales                | centro de procesos       | Sin endpoint de producto |
-| `processes.retry`  | reintentar un proceso elegible            | centro de procesos       | Sin endpoint de producto |
-| `processes.cancel` | cancelar un proceso elegible              | centro de procesos       | Sin endpoint de producto |
-| `cfdi.view`        | consultar dominio CFDI                    | lista/detalle F1         | `NOT_STARTED`            |
-| `cfdi.download`    | obtener acceso temporal al original       | descarga F1              | `NOT_STARTED`; exige MFA |
-| `incidents.view`   | consultar incidencias fiscales            | incidentes F1+           | `NOT_STARTED`            |
-| `incidents.manage` | resolver/clasificar incidencias           | incidentes F1+           | `NOT_STARTED`            |
+| Permiso            | Intención                                 | Capacidad que lo consume | Estado funcional actual                        |
+| ------------------ | ----------------------------------------- | ------------------------ | ---------------------------------------------- |
+| `ingestion.view`   | ver una ingesta y sus resultados técnicos | XML/ZIP/SAT              | F1 XML: consulta de job/items                  |
+| `ingestion.create` | iniciar una ingesta autorizada            | XML/ZIP/SAT              | F1 XML: multipart individual                   |
+| `ingestion.retry`  | solicitar retry durable                   | procesos de ingesta      | F1 XML: retry manual elegible                  |
+| `ingestion.cancel` | solicitar cancelación durable             | procesos de ingesta      | F1 XML: cancelación durable                    |
+| `processes.view`   | ver jobs/procesos fiscales                | centro de procesos       | F1 XML: lista de procesos `manual_xml`         |
+| `processes.retry`  | reintentar un proceso elegible            | centro de procesos       | Reservado; F1 usa `ingestion.retry`            |
+| `processes.cancel` | cancelar un proceso elegible              | centro de procesos       | Reservado; F1 usa `ingestion.cancel`           |
+| `cfdi.view`        | consultar dominio CFDI                    | lista/detalle F1         | F1 XML: lista y detalle                        |
+| `cfdi.download`    | obtener acceso temporal al original       | descarga F1              | F1 XML: grant de un solo uso; exige MFA        |
+| `incidents.view`   | consultar incidencias fiscales            | incidentes F1+           | F1 XML: sección protegida del detalle          |
+| `incidents.manage` | resolver/clasificar incidencias           | incidentes F1+           | Reservado; F1 no gestiona resolución           |
 
 ## 3. Defaults por rol
 
@@ -64,9 +66,9 @@ scope actualmente asignado; `No` = denegado por defecto.
 | `incidents.view`   | Tenant       | Asignadas       | Asignadas           | No             |
 | `incidents.manage` | Tenant       | Asignadas       | Asignadas           | No             |
 
-La carga manual futura no exige reautenticación adicional; sí exige sesión,
-permiso, asignación y límites. MFA para `cfdi.download` no puede satisfacerse
-por una bandera del cliente. Las operaciones e.firma/SAT/cierre de fases
+La carga XML manual de Fase 1 no exige reautenticación adicional; sí exige
+sesión, permiso, asignación y límites. MFA para `cfdi.download` no puede
+satisfacerse por una bandera del cliente. Las operaciones e.firma/SAT/cierre de fases
 posteriores definirán MFA+reauth purpose-bound en su propio gate.
 
 ## 4. Reglas por recurso
@@ -86,9 +88,10 @@ posteriores definirán MFA+reauth purpose-bound en su propio gate.
 
 - `ObjectStoragePort` no es una superficie de autorización; el servicio de
   aplicación decide scope antes de llamar al adapter.
-- Fase 0 no expone descarga fiscal.
-- La futura descarga exige `cfdi.view` + `cfdi.download`, asignación y MFA; URL
-  breve, de un solo recurso y nunca registrada.
+- Fase 1 expone descarga fiscal mediante un grant breve, de un solo uso y
+  ligado a la misma sesión/membresía.
+- La descarga exige `cfdi.view` + `cfdi.download`, asignación y MFA; no expone
+  la object key ni registra el token/URL.
 
 ### Incidentes
 
@@ -105,8 +108,9 @@ posteriores definirán MFA+reauth purpose-bound en su propio gate.
   siguiente poll; no depende de reiniciar el proceso.
 - Un job ya reclamado vuelve a validar scope/autorización técnica antes de
   publicar resultados, y RLS sigue aplicando.
-- URLs/grants futuros deben ser breves y revocables; una sesión cerrada no
-  convierte una URL larga en aceptable.
+- Los grants de descarga de Fase 1 son breves, de un solo uso y ligados a la
+  sesión; al cerrar la sesión dejan de autorizar el acceso y nunca se sustituyen
+  por una URL de larga duración.
 
 ## 6. Tests obligatorios
 
@@ -129,6 +133,6 @@ posteriores definirán MFA+reauth purpose-bound en su propio gate.
 
 Modificar defaults requiere migración/seed append-only, revisión de seguridad y
 test de regresión. Fase 0 entrega catálogo y grants base, pero no debe simular
-consumo de permisos mediante rutas ficticias. Fase 1 permanece `NOT_STARTED` y
-es el primer consumidor público previsto de permisos `ingestion.*`,
-`cfdi.*` e `incidents.*`.
+consumo de permisos mediante rutas ficticias. Fase 1 es el primer consumidor
+público de permisos `ingestion.*`, `cfdi.*` e `incidents.view`; las capacidades
+de fases posteriores siguen reservadas.

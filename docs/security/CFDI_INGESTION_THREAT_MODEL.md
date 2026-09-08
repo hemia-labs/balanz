@@ -1,18 +1,18 @@
 # Threat model de la plataforma de ingesta CFDI
 
-- Versión: 1.0
-- Fecha: 2026-08-28
-- Fase evaluada: `PHASE_0_SHARED_FISCAL_PLATFORM` — `BLOCKED`
-- Próxima revisión: antes de iniciar Fase 1 y ante cambios de trust boundary
+- Versión: 1.1
+- Fecha: 2026-09-03
+- Fase evaluada: `PHASE_1_XML` — `IN_PROGRESS`
+- Estado base: Fase 0 desarrollo `ACCEPTED`; release `BLOCKED`
+- Próxima revisión: antes de Fase 2 y ante cambios de trust boundary
 
 ## 1. Alcance y supuesto de seguridad
 
-Este modelo cubre la plataforma fundacional de Fase 0: API y worker NestJS,
-PostgreSQL, RLS, Redis wakeup, storage local/S3-compatible, ClamAV, health,
-métricas, logs y reconciliadores. No afirma que exista carga XML, parser,
-dominio CFDI, ZIP, e.firma, SAT, mesa mensual ni exportación. Fase 1 permanece
-`NOT_STARTED`; sus riesgos de parser se anticipan para no bloquear controles
-fundacionales.
+Este modelo cubre la plataforma fundacional de Fase 0 y la vertical XML
+individual de Fase 1: navegador/API, multipart streaming, worker, parser
+endurecido, dominio/consulta/descarga CFDI, PostgreSQL/RLS, Redis wakeup,
+storage privado, ClamAV, health, métricas, logs y reconciliadores. No afirma que
+existan ZIP, e.firma, SAT, mesa mensual completa ni exportaciones.
 
 Supuesto central: toda entrada, referencia de storage, mensaje wakeup, fila
 durable y respuesta de dependencia puede ser maliciosa, corrupta, repetida o
@@ -101,7 +101,7 @@ Boundaries:
 | T-19 | Elevation              | Abuso de SECURITY DEFINER/search_path          | owner no-login, path fijo, sin SQL dinámico, PUBLIC revoke, retorno mínimo                        | revisión función y grants               |
 | T-20 | Elevation              | Traversal/symlink en filesystem local          | key opaca, resolución bajo raíz, no seguir escape, permisos mínimos                               | corpus traversal/symlink                |
 | T-21 | Supply chain           | SDK/scanner/schema alterado                    | lockfile, audit, imágenes fijadas, manifests y hashes                                             | CI/inventario                           |
-| T-22 | XML futuro             | XXE/SSRF/entity expansion/DoS                  | ADR-005: sin red/DTD/entities, límites, XSD local allowlisted                                     | corpus Fase 1                           |
+| T-22 | XML Fase 1             | XXE/SSRF/entity expansion/DoS                  | ADR-005: sin red/DTD/entities, límites, esquemas locales allowlisted                               | corpus hostil sintético                 |
 | T-23 | ZIP futuro             | bomb/traversal/nested/encrypted                | límites de expansión/entries/depth/path; extracción segura                                        | corpus Fase 2                           |
 | T-24 | Secrets futuro         | e.firma/password persiste o se registra        | KMS/Vault, TTL one-time, reauth/MFA, redacción                                                    | Fase 3                                  |
 
@@ -226,6 +226,8 @@ técnicos acotados. Se prueba la salida capturada con canarios sintéticos.
 | Reconciliación | objetos/uploads/jobs huérfanos, expiración, repetición | bloqueo de salida            |
 | Logs/métricas  | canarios de secreto/PII, labels acotados               | bloqueo de salida            |
 | Health         | API/worker; DB/storage/scanner; Redis no readiness     | bloqueo de salida            |
+| XML Fase 1     | MIME falso, DTD/XXE, expansión, límites y namespaces  | bloqueo de salida            |
+| Descarga Fase 1| permisos, MFA, scope y grant temporal de un solo uso   | bloqueo de salida            |
 
 ## 9. Riesgos residuales y aceptación
 
@@ -234,7 +236,7 @@ técnicos acotados. Se prueba la salida capturada con canarios sintéticos.
 | Vulnerabilidad desconocida de SDK/storage/scanner   | versiones fijadas, audit y defensa en profundidad     | auditoría continua/F8         |
 | DoS distribuido antes de límites de aplicación      | límites app y concurrencia                            | rate limiting/capacidad F7–F8 |
 | Error de operador con privilegio de infraestructura | mínimo privilegio, auditoría y runbook                | IAM/pentest F8                |
-| Parser XML aún no implementado/validado             | ADR-005, ninguna superficie pública en F0             | gate obligatorio F1           |
+| Cambio futuro de schemas/catálogos SAT               | manifest versionado, SHA-256 y sin descarga runtime   | revisión explícita del parser  |
 | Política legal de retención por confirmar           | clases configurables, no purga irreversible implícita | aprobación antes F6           |
 
 Ningún riesgo residual autoriza declarar listo un control ausente. Un hallazgo

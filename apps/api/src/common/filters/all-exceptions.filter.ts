@@ -8,6 +8,7 @@ import {
 } from '@nestjs/common';
 import { Request, Response } from 'express';
 import { captureException } from '@hemia/horus';
+import { isCanonicalFiscalErrorCode } from '../observability/fiscal-error-code';
 
 interface ErrorBody {
   statusCode: number;
@@ -91,7 +92,16 @@ export class AllExceptionsFilter implements ExceptionFilter {
         message = (body.message as string | string[]) ?? exception.message;
         error = (body.error as string) ?? exception.name;
         code = typeof body.code === 'string' ? body.code : undefined;
+        if (!code && isCanonicalFiscalErrorCode(body.message)) {
+          code = body.message;
+        }
         fieldErrors = this.fieldErrors(body.fieldErrors);
+      }
+    } else if (exception instanceof HttpException) {
+      const res = exception.getResponse();
+      if (typeof res === 'object' && res !== null) {
+        const candidate = (res as Record<string, unknown>).code;
+        if (isCanonicalFiscalErrorCode(candidate)) code = candidate;
       }
     }
 

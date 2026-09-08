@@ -5,29 +5,42 @@
 | Campo               | Valor                                                                             |
 | ------------------- | --------------------------------------------------------------------------------- |
 | Programa            | Plataforma CFDI de Balanz                                                         |
-| Fecha de corte      | 2026-09-03 (`America/Mexico_City`)                                                |
-| Rama de trabajo     | `codex/cfdis`                                                                     |
-| SHA base integrada  | `origin/develop` en `e3d4f432dca1df6bbd0877d86e60bd52d8c15325`                    |
-| Autoridad operativa | Este plan y los ADRs, dentro del alcance aprobado de Fase 0 |
-| Fase en ejecución   | `PHASE_0_SHARED_FISCAL_PLATFORM`                                                  |
-| Estado de Fase 0    | `PHASE_0_BLOCKED`                                                                 |
-| Estado de Fases 1–8 | `NOT_STARTED`                                                                     |
+| Fecha de corte      | 2026-09-04 (`America/Mexico_City`)                                                |
+| Rama de trabajo     | `codex/cfdi-phase1-xml`                                                           |
+| Base actual de PR   | `origin/develop` en `a6ee35fc117c34bcf097c1afae2f773fc57fc3fd`                  |
+| Autoridad operativa | Este plan, los ADR vigentes y la decisión de inicio de Fase 1                     |
+| Fase en ejecución   | `PHASE_1_XML`                                                                     |
+| Desarrollo Fase 0   | `ACCEPTED`                                                                        |
+| Release Fase 0      | `BLOCKED`                                                                         |
+| Implementación F1   | `COMPLETE`                                                                        |
+| Validación F1       | `PASS`                                                                            |
+| Estado de Fase 1    | `BLOCKED` por validación Full pendiente y gates de release de Fase 0               |
+| Estado Fases 2–8    | `NOT_STARTED`                                                                     |
 | Regla de cierre     | No declarar `DONE` sin evidencia ejecutada de toda la Definition of Done          |
 
-Este archivo es la fuente de verdad operativa del programa CFDI. El alcance
-aprobado de esta PR limita la implementación a la Fase 0. El prompt de
-implementación histórico se conserva en Git; el límite vigente es:
-**detenerse al cerrar y reportar Fase 0; Fase 1 permanece `NOT_STARTED`**.
+Este archivo y los ADR vigentes son la fuente de verdad operativa del programa
+CFDI. El diseño histórico usado para crear Fase 0 ya no es una instrucción de
+ejecución. La plataforma compartida queda aceptada para continuar desarrollo,
+pero su release permanece bloqueado por la validación `Full` pendiente y
+`SHARED_VAULT_POSTGRES_RUNTIME_SECRETS`: no hay nueva evidencia de los secretos
+canónicos API/worker. Se corrigieron el `EACCES` de los perfiles sintéticos de CI
+y el conteo de FKs incompatible con Fase 1; una ejecución local debe confirmar
+el resultado. Por solicitud del equipo se retira el workflow aislado de GitHub
+Actions y su invocación desde el despliegue para evitar consumo de minutos CI.
+El procedimiento manual vive en `infra/cfdi-phase0/README.md`; retirar el
+workflow no equivale a validar los cambios. Como `develop` despliega
+automáticamente, estos gates impiden integrar o liberar; no bloquearon el
+desarrollo autorizado de `PHASE_1_XML`.
 
 ## 1. Autoridad, contexto y límites
 
 Orden de autoridad aplicado:
 
-1. Alcance aprobado de Fase 0 y sus ADRs.
-2. Código, migraciones, pruebas y configuración ejecutable del repositorio.
-3. [Control mensual CFDI 3.3](../architecture/CONTROL_MENSUAL_CFDI_V3_3.md).
-4. `docs/architecture/ARCHITECTURE.md`.
-5. Este plan maestro.
+1. Decisión explícita vigente de inicio y alcance de Fase 1.
+2. Este roadmap y los ADR `ADR-CFDI-001` a `ADR-CFDI-005` vigentes.
+3. Código, migraciones, pruebas y configuración ejecutable del repositorio.
+4. [Control mensual CFDI 3.3](../architecture/CONTROL_MENSUAL_CFDI_V3_3.md).
+5. `docs/architecture/ARCHITECTURE.md`.
 6. `CORRECTED_POSTGRESQL_DATA_MODEL.md`, corregido por los ADR de este programa.
 7. UI actual como contrato visual, nunca como prueba de capacidad.
 8. Legacy sólo como inventario de campos y casos de prueba.
@@ -38,9 +51,9 @@ ejercicios, períodos, auditoría, correlación y Redis opcional para sesiones. 
 inicio de esta rama no existía una plataforma ejecutable de objetos, ingesta,
 jobs, worker, RLS fiscal, storage S3/local ni scanner ClamAV.
 
-### Exclusiones estrictas de esta ejecución
+### Exclusiones estrictas de la ejecución histórica de Fase 0
 
-No se implementan ni se presentan como disponibles:
+Durante Fase 0 no se implementaron ni se presentaron como disponibles:
 
 - endpoint de carga XML o ZIP;
 - parser funcional de CFDI o validación XSD;
@@ -49,8 +62,10 @@ No se implementan ni se presentan como disponibles:
 - cambios frontend de carga o consulta CFDI;
 - custodia de e.firma, descarga SAT, mesa mensual o exportaciones.
 
-La seguridad futura del parser sí se decide documentalmente en
-`ADR-CFDI-005-XML-PARSER.md`, sin código de parsing en Fase 0.
+La seguridad del parser se decidió documentalmente en
+`ADR-CFDI-005-XML-PARSER.md`, sin código de parsing en Fase 0. La ejecución
+actual de Fase 1 implementa únicamente el subconjunto XML autorizado en su
+sección propia.
 
 ## 2. Decisiones bloqueadas
 
@@ -166,10 +181,10 @@ fundacional termina sin extraer ni enlazar un CFDI real.
 | Item técnico      | `pending`, `processing`, `terminal`                                                                                                                  |
 | Resultado de item | `incorporated`, `duplicate`, `foreign`, `invalid`, `unsupported`, `internal_error`                                                                   |
 
-En Fase 0 los handlers de prueba pueden producir resultados para comprobar la
-maquinaria, pero ningún tipo de job ficticio queda registrado como capacidad de
-producción. `extracting`, `parsing`, `persisting` y los resultados fiscales son
-contrato reservado para fases posteriores.
+En Fase 0 los handlers de prueba podían producir resultados para comprobar la
+maquinaria, pero ningún tipo de job ficticio quedó registrado como capacidad
+de producción. Fase 1 activa `scanning`, `parsing`, `persisting` y los
+resultados fiscales para `manual_xml`; `extracting` permanece reservada a ZIP.
 
 ## 5. Trabajo durable
 
@@ -224,7 +239,7 @@ flowchart TD
 - Object storage: [`../architecture/decisions/ADR-CFDI-002-OBJECT-STORAGE.md`](../architecture/decisions/ADR-CFDI-002-OBJECT-STORAGE.md).
 - RLS: [`../architecture/decisions/ADR-CFDI-003-RLS.md`](../architecture/decisions/ADR-CFDI-003-RLS.md).
 - Idempotencia/procedencia: [`../architecture/decisions/ADR-CFDI-004-IDEMPOTENCY-PROVENANCE.md`](../architecture/decisions/ADR-CFDI-004-IDEMPOTENCY-PROVENANCE.md).
-- Seguridad del parser futuro: [`../architecture/decisions/ADR-CFDI-005-XML-PARSER.md`](../architecture/decisions/ADR-CFDI-005-XML-PARSER.md).
+- Seguridad del parser XML: [`../architecture/decisions/ADR-CFDI-005-XML-PARSER.md`](../architecture/decisions/ADR-CFDI-005-XML-PARSER.md).
 - Permisos: [`../security/CFDI_INGESTION_PERMISSION_MATRIX.md`](../security/CFDI_INGESTION_PERMISSION_MATRIX.md).
 - Configuración: [`../operations/CFDI_INGESTION_CONFIGURATION_MATRIX.md`](../operations/CFDI_INGESTION_CONFIGURATION_MATRIX.md).
 - Errores: [`../contracts/CFDI_INGESTION_ERROR_CATALOG.md`](../contracts/CFDI_INGESTION_ERROR_CATALOG.md).
@@ -289,14 +304,14 @@ con `BYPASSRLS`.
 
 ## 9. APIs y frontend por fase
 
-Fase 0 no expone carga XML/ZIP ni una API CFDI. Puede exponer probes operativos
-y métricas según la convención del repositorio; el worker no es controlable por
-un endpoint público. Los contratos de upload/consulta que aparecen en el
-contrato técnico están etiquetados `FUTURE / PHASE_1` o posterior y no habilitan
-una ruta.
+Durante Fase 0 no se expuso carga XML/ZIP ni una API CFDI. Sólo podía exponer
+probes operativos y métricas según la convención del repositorio; el worker no
+es controlable por un endpoint público. Las reservas `FUTURE / PHASE_1` de aquel
+cierre ya fueron activadas exclusivamente para XML individual por la
+autorización de Fase 1.
 
-No hay trabajo frontend en Fase 0. La UI demo no se conecta, no se presenta un
-botón de carga funcional y no se crea fallback silencioso.
+Fase 0 no incluyó trabajo frontend. Fase 1 sustituye la demostración de carga y
+consulta CFDI por datos reales y no admite fallback silencioso.
 
 ## 10. Observabilidad y operación
 
@@ -379,6 +394,14 @@ ClamAV y Vault; no se sustituyó su semántica por mocks. Redis compartido de
 desarrollo también fue encontrado en Vault y validado tanto en línea —incluido
 pub/sub— como con Redis apagado, manteniendo polling PostgreSQL como fallback.
 
+Los adapters finales volvieron a validarse externamente con Docker operativo:
+ClamAV real pasó health, limpio, EICAR y caída fail-closed; MinIO real pasó
+bucket SSE privado, round-trip streaming con hash íntegro, acceso anónimo y URL
+expirada denegados, URL temporal y cleanup. Esa evidencia histórica no acredita
+el nuevo árbol combinado. Los checks requeridos se repiten después de resolver
+los conflictos y los fallos del validador; el gate de secretos compartidos
+permanece abierto. `develop` auto-despliega API/worker.
+
 El único control externo pendiente es el aprovisionamiento de los secretos
 canónicos de runtime `database/postgres-api` y `database/postgres-worker` en
 Vault. Ambos están `NOT_FOUND` y el AppRole disponible responde
@@ -431,8 +454,8 @@ requiere crear otra base de datos. La ejecución final de cierre no se declara
 | Criterios de salida  | Definition of Done completa, migraciones/seeds ejecutados, pruebas reales verdes, cero defectos/deuda y reporte con evidencia.                                                                                                                                            |
 | Riesgos              | R-001 a R-005, R-009 y R-010.                                                                                                                                                                                                                                             |
 | Rollback             | Aplicación compatible hacia atrás; conservar tablas aditivas; limpieza destructiva sólo en DB de QA inequívocamente aislada.                                                                                                                                              |
-| Estado               | `PHASE_0_BLOCKED`                                                                                                                                                                                                                                                         |
-| Evidencia            | `docs/qa/CFDI_PHASE_0_VALIDATION_REPORT.md`: migraciones 030/050 reconciliadas, 060/061/062/063 aplicadas, stack aislado real y Redis compartido validados; bloquean exclusivamente los secretos Vault canónicos y logins runtime de API/worker en desarrollo compartido. |
+| Estado               | Desarrollo `ACCEPTED`; release `BLOCKED`                                                                                                                                                                                                                                 |
+| Evidencia            | `docs/qa/CFDI_PHASE_0_VALIDATION_REPORT.md`: plataforma real validada; bloquean el check runtime (`EACCES`) y los secretos Vault API/worker `NOT_FOUND`.                                                                                                                       |
 
 ### Fase 1 — XML individual end-to-end
 
@@ -441,13 +464,13 @@ requiere crear otra base de datos. La ejecución final de cierre no se declara
 | ID                   | `PHASE_1_XML`                                                                                                                  |
 | Objetivo             | Cargar un XML individual, escanearlo, parsearlo, persistir el dominio y consultarlo de extremo a extremo.                      |
 | Valor de producto    | Primera vertical fiscal real y recuperable.                                                                                    |
-| Dependencias         | Fase 0 `DONE`; corpus/XSD oficiales versionados.                                                                               |
+| Dependencias         | Desarrollo de Fase 0 `ACCEPTED`; release de Fase 0 aún bloqueado; corpus/XSD oficiales versionados.                           |
 | Alcance              | multipart streaming 5 MiB, parser CFDI 4.0/TFD 1.1/Pagos 2.0/Nómina 1.2, I/E/T/N/P, dedupe, períodos, incidentes, API/UI real. |
 | Fuera de alcance     | ZIP, e.firma, SAT, mesa completa y exportaciones.                                                                              |
-| Tablas/migraciones   | `cfdis`, conceptos, impuestos, relaciones, pagos, nómina core, procedencia, participaciones e incidentes.                      |
+| Tablas/migraciones   | Dominio fiscal en `070`; `071` amplía `usage_code` a `varchar(4)` para valores como `CP01`.                                    |
 | Backend              | Upload/202/polling, consulta/detail y acceso XML autorizado.                                                                   |
 | Worker               | Handler XML real sobre la plataforma de Fase 0.                                                                                |
-| Frontend             | Cargar XML, progreso, recuperación, lista/detalle sin fallback demo.                                                           |
+| Frontend             | Carga, progreso, recuperación, lista/detalle/descarga reales; sin fallback ni contadores hardcodeados.                        |
 | Seguridad            | Parser endurecido, MFA para descarga, assignment, RLS y hash conflict.                                                         |
 | Operación            | Corpus, schemas manifest, dashboards y runbook de parser.                                                                      |
 | Configuración        | Límites XML/parser/versiones.                                                                                                  |
@@ -455,12 +478,12 @@ requiere crear otra base de datos. La ejecución final de cierre no se declara
 | Pruebas              | XML válido/hostil, tipos/complementos, dedupe, periods, cross-tenant, restart y E2E UI.                                        |
 | Datos de QA          | XML sintéticos sin PII real y fuentes oficiales versionadas.                                                                   |
 | Entregables          | Vertical completa y reporte Fase 1.                                                                                            |
-| Criterios de entrada | Fase 0 `DONE`, XSD/catálogos oficiales con SHA-256 y cero bloqueos de parser.                                                  |
+| Criterios de entrada | Desarrollo de Fase 0 aceptado, autorización explícita y XSD/catálogos oficiales con SHA-256.                                  |
 | Criterios de salida  | Definition of Done de Fase 1 completa y cero fallback demo/deuda.                                                              |
 | Riesgos              | R-006 y R-007.                                                                                                                 |
 | Rollback             | Deshabilitar rutas/UI y conservar dominio/objetos; forward-fix de migraciones.                                                 |
-| Estado               | `NOT_STARTED`                                                                                                                  |
-| Evidencia            | Ninguna; no crear reporte de Fase 1 en esta ejecución.                                                                         |
+| Estado               | `BLOCKED`: implementación `COMPLETE`, validación funcional histórica `PASS`, integración pendiente de Full local y gates de Fase 0 |
+| Evidencia            | ClamAV/MinIO, EICAR worker, 202/reload, CP01, duplicate, MFA/download y tenant switch `PASS`; 0 defectos funcionales conocidos. |
 
 ### Fase 2 — ZIP y éxito parcial
 
@@ -673,23 +696,44 @@ requiere crear otra base de datos. La ejecución final de cierre no se declara
 
 ## 15. Registro de deuda y evidencia de cierre
 
-No se acepta deuda deliberada. Fase 0 cierra esta ejecución como
-`PHASE_0_BLOCKED`: el
-registro detallado vive en el reporte QA y mantiene un único control externo
-pendiente como deuda de validación: aprovisionar en Vault las credenciales
-canónicas de los LOGINs runtime de API y worker para validar ambos contra la
-base compartida de desarrollo. Para cambiar el estado a `DONE`, el reporte
-debe declarar con evidencia:
-
-El siguiente bloque no describe el estado actual; es el gate objetivo para una
-futura transición a `DONE`. El estado actual es `TECHNICAL_DEBT: 1` y
-`KNOWN_DEFECTS: 0`.
+No se acepta deuda deliberada. El reporte histórico de Fase 0 conserva la
+evidencia y terminología del cierre que documentó; no se reescribe. La decisión
+vigente separa desarrollo de release. PR #17 ya fue fusionada en `develop`;
+ese merge no acredita el cierre de los gates de release de Fase 0.
 
 ```text
+PHASE_0_DEVELOPMENT_STATUS: ACCEPTED
+PHASE_0_RELEASE_STATUS: BLOCKED
+PHASE_0_RELEASE_GATES:
+  - LOCAL_FULL_VALIDATION: PENDING - profile permissions fixed; verify current code locally
+  - SHARED_VAULT_POSTGRES_RUNTIME_SECRETS: BLOCKED - API/worker NOT_FOUND
+PHASE_0_INTEGRATION_STATUS: MERGED - PR #17 in develop@a6ee35f
+PHASE_1_IMPLEMENTATION_STATUS: COMPLETE
+PHASE_1_VALIDATION_STATUS: PASS
+PHASE_1_INTEGRATION_STATUS: BLOCKED
+PHASE_1_XML: BLOCKED
+CLAMAV_REAL: PASS
+MINIO_REAL: PASS
+MANUAL_E2E: PASS
 TECHNICAL_DEBT: 0
-KNOWN_DEFECTS: 0
+KNOWN_FUNCTIONAL_DEFECTS: 0
+PR_18_POSTGRES_VALIDATION: PENDING - foundation FK validation fixed; verify locally
+CFDI_GITHUB_ACTIONS_WORKFLOW: REMOVED - team request to stop hosted CI consumption
+PHASE_2_ZIP: NOT_STARTED
+```
+
+ClamAV, MinIO y el recorrido manual quedaron validados en el cierre anterior. EICAR
+por worker real terminó en cuarentena sin CFDI; MFA/download y cambio de tenant
+pasaron, y el defecto TypeORM del grant quedó corregido. El detalle vive en
+`docs/qa/CFDI_PHASE_1_VALIDATION_REPORT.md`. La sección 19 registra los tres
+comentarios corregidos de PR #18 y las 514 pruebas API / 94 web ejecutadas.
+PR #17 está fusionada y PR #18 permanece en borrador con base `develop`.
+La sección 18 registra la retirada del workflow CFDI; la evidencia local
+pendiente debe identificar el SHA probado. Corregir los comentarios no
+acredita el cierre de `TD-004` ni sustituye la validación Full pendiente.
+
+```text
 DEFERRED_PRODUCT_CAPABILITIES:
-  - PHASE_1_XML
   - PHASE_2_ZIP
   - PHASE_3_REAUTH_AND_EFIRMA
   - PHASE_4_SAT_ON_DEMAND
@@ -699,15 +743,8 @@ DEFERRED_PRODUCT_CAPABILITIES:
   - PHASE_8_HARDENING_AND_PILOT
 ```
 
-Evidencia mínima para `PHASE_0_DONE`:
+Para mover Fase 1 a `DONE` sigue siendo obligatorio:
 
-- archivos y SHA exactos;
-- migraciones aplicadas e inspeccionadas;
-- seeds dos veces;
-- permisos/RLS/grants/roles/functions verificados;
-- worker y todos los adapters iniciados contra servicios reales;
-- resultados de cada prueba de la sección 11;
-- defectos encontrados y correcciones con test de regresión;
-- `git diff --check`, build, lint y tests verdes;
-- `docs/qa/CFDI_PHASE_0_VALIDATION_REPORT.md` completo;
-- Fase 1 aún `NOT_STARTED`.
+- ejecutar la validación `Full` local de los cambios integrados, incluidas las
+  regresiones PostgreSQL, y conservar el reporte junto con el SHA probado;
+- resolver antes de merge/despliegue los dos gates de release de Fase 0.

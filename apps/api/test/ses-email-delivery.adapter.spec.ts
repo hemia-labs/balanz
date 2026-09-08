@@ -36,6 +36,7 @@ describe('SesEmailDeliveryAdapter', () => {
       email: 'ana@example.test',
       firstName: 'Ana',
       token: 'raw-token',
+      membershipId: '80dedccb-124f-4524-9b36-ce637b193113',
     });
 
     const command = send.mock.calls[0]?.[0];
@@ -53,13 +54,16 @@ describe('SesEmailDeliveryAdapter', () => {
 
     const template = command.input.Content?.Template;
     if (!template?.TemplateData) throw new Error('Template data was not sent');
+    expect(template.TemplateData).toContain(
+      'membershipId=80dedccb-124f-4524-9b36-ce637b193113',
+    );
     const data = JSON.parse(template.TemplateData) as {
       verificationUrl: string;
       greeting: string;
       expirationText: string;
     };
     expect(data.verificationUrl).toBe(
-      'https://app.example.test/verify-email#token=raw-token',
+      'https://app.example.test/verify-email#token=raw-token&membershipId=80dedccb-124f-4524-9b36-ce637b193113',
     );
     expect(data.greeting).toContain('Ana');
     expect(data.expirationText).toBe('Este enlace es válido por 30 min.');

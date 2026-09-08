@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<x:Comprobante xmlns:x="http://www.sat.gob.mx/cfd/4"
+  xmlns:stamp="http://www.sat.gob.mx/TimbreFiscalDigital"
+  Version="4.0" Serie="SYN" Folio="1001" Fecha="2026-08-15T12:30:00"
+  Sello="U0VMTE8=" NoCertificado="00000000000000000000" Certificado="Q0VSVA=="
+  FormaPago="03" SubTotal="100.000000" Moneda="MXN" Total="116.000000"
+  TipoDeComprobante="I" Exportacion="01" MetodoPago="PUE" LugarExpedicion="00000">
+  <x:CfdiRelacionados TipoRelacion="04">
+    <x:CfdiRelacionado UUID="11111111-1111-4111-8111-111111111111"/>
+    <x:CfdiRelacionado UUID="22222222-2222-4222-8222-222222222222"/>
+  </x:CfdiRelacionados>
+  <x:CfdiRelacionados TipoRelacion="01">
+    <x:CfdiRelacionado UUID="33333333-3333-4333-8333-333333333333"/>
+  </x:CfdiRelacionados>
+  <x:Emisor Rfc="AAA010101AAA" Nombre="EMISOR SINTETICO" RegimenFiscal="601"/>
+  <x:Receptor Rfc="XAXX010101000" Nombre="RECEPTOR SINTETICO"
+    DomicilioFiscalReceptor="00000" RegimenFiscalReceptor="616" UsoCFDI="G03"/>
+  <x:Conceptos>
+    <x:Concepto ClaveProdServ="01010101" NoIdentificacion="SYN-1" Cantidad="1.000000"
+      ClaveUnidad="H87" Unidad="PIEZA" Descripcion="CONCEPTO SINTETICO"
+      ValorUnitario="100.000000" Importe="100.000000" ObjetoImp="02">
+      <x:Impuestos>
+        <x:Traslados>
+          <x:Traslado Base="100.000000" Impuesto="002" TipoFactor="Tasa"
+            TasaOCuota="0.160000" Importe="16.000000"/>
+        </x:Traslados>
+      </x:Impuestos>
+    </x:Concepto>
+  </x:Conceptos>
+  <x:Impuestos TotalImpuestosTrasladados="16.000000">
+    <x:Traslados>
+      <x:Traslado Base="100.000000" Impuesto="002" TipoFactor="Tasa"
+        TasaOCuota="0.160000" Importe="16.000000"/>
+    </x:Traslados>
+  </x:Impuestos>
+  <x:Complemento>
+    <stamp:TimbreFiscalDigital Version="1.1"
+      UUID="AAAAAAAA-AAAA-4AAA-8AAA-AAAAAAAAAAAA"
+      FechaTimbrado="2026-08-15T12:31:00" RfcProvCertif="AAA010101AAA"
+      SelloCFD="SELLO-CFD-SINTETICO" NoCertificadoSAT="00000000000000000000"
+      SelloSAT="SELLO-SAT-SINTETICO"/>
+  </x:Complemento>
+</x:Comprobante>

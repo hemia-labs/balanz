@@ -80,6 +80,9 @@ describe('CORS', () => {
     expect(allowed.headers['access-control-allow-origin']).toBe(
       'https://allowed.example',
     );
+    expect(allowed.headers['access-control-expose-headers']).toBe(
+      'ETag,Retry-After',
+    );
     expect(rejected.headers['access-control-allow-origin']).toBeUndefined();
 
     await app.close();

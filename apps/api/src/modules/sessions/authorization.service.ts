@@ -86,7 +86,7 @@ export class AuthorizationService {
     let permissions: string[] = [];
     let tenantActive = false;
     let assignedAccountIds: string[] = [];
-    const accountAccessMode: 'tenant' | 'assigned' = 'assigned';
+    let accountAccessMode: 'tenant' | 'assigned' = 'assigned';
     const mfaStatus =
       factor?.status === AuthFactorStatus.ACTIVE
         ? 'active'
@@ -111,6 +111,10 @@ export class AuthorizationService {
       if (!organization || !membership) {
         throw new ForbiddenException('Invalid tenant context');
       }
+      // Fiscal tenant-wide scope belongs only to the real organization owner.
+      // An admin role is not ownership and continues to require assignments.
+      accountAccessMode =
+        organization.ownerUserId === user.id ? 'tenant' : 'assigned';
       role = membership.role.key;
       const now = Date.now();
       const [defaults, overrides] = await Promise.all([

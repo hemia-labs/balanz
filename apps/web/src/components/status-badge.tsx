@@ -140,6 +140,21 @@ const statusMap = {
     icon: CheckCircle2,
     labels: { es: "Activo", en: "Active" },
   },
+  Permitido: {
+    variant: "success",
+    icon: CheckCircle2,
+    labels: { es: "Permitido", en: "Allowed" },
+  },
+  Denegado: {
+    variant: "destructive",
+    icon: LockKeyhole,
+    labels: { es: "Denegado", en: "Denied" },
+  },
+  Aceptada: {
+    variant: "success",
+    icon: CheckCircle2,
+    labels: { es: "Aceptada", en: "Accepted" },
+  },
   Suspendido: {
     variant: "warning",
     icon: AlertCircle,
@@ -154,6 +169,16 @@ const statusMap = {
     variant: "destructive",
     icon: LockKeyhole,
     labels: { es: "Revocado", en: "Revoked" },
+  },
+  Revocada: {
+    variant: "destructive",
+    icon: AlertCircle,
+    labels: { es: "Revocada", en: "Revoked" },
+  },
+  Expirada: {
+    variant: "warning",
+    icon: AlertCircle,
+    labels: { es: "Expirada", en: "Expired" },
   },
   "Invitación pendiente": {
     variant: "warning",
@@ -195,6 +220,41 @@ const statusMap = {
     icon: Clock3,
     labels: { es: "Preparado", en: "Prepared" },
   },
+  Descartado: {
+    variant: "outline",
+    icon: Circle,
+    labels: { es: "Descartado", en: "Dismissed" },
+  },
+  Incorporado: {
+    variant: "success",
+    icon: CheckCircle2,
+    labels: { es: "Incorporado", en: "Incorporated" },
+  },
+  Duplicado: {
+    variant: "info",
+    icon: CheckCircle2,
+    labels: { es: "Duplicado", en: "Duplicate" },
+  },
+  Ajeno: {
+    variant: "warning",
+    icon: AlertCircle,
+    labels: { es: "RFC ajeno", en: "Foreign RFC" },
+  },
+  "No soportado": {
+    variant: "warning",
+    icon: AlertCircle,
+    labels: { es: "No soportado", en: "Unsupported" },
+  },
+  Inválido: {
+    variant: "destructive",
+    icon: AlertCircle,
+    labels: { es: "Inválido", en: "Invalid" },
+  },
+  "Cancelación solicitada": {
+    variant: "warning",
+    icon: Clock3,
+    labels: { es: "Cancelación solicitada", en: "Cancellation requested" },
+  },
 } as const;
 
 const apiStatusAliases: Record<string, keyof typeof statusMap> = {
@@ -208,6 +268,26 @@ const apiStatusAliases: Record<string, keyof typeof statusMap> = {
   ready_to_close: "Listo para cerrar",
   closed: "Cerrado",
   completed: "Completado",
+  awaiting_upload: "Pendiente",
+  queued: "En preparación",
+  processing: "En proceso",
+  completed_with_issues: "Con observaciones",
+  failed_retryable: "Con errores",
+  failed_final: "Con errores",
+  cancel_requested: "Cancelación solicitada",
+  incorporated: "Incorporado",
+  duplicate: "Duplicado",
+  foreign: "Ajeno",
+  unsupported: "No soportado",
+  invalid: "Inválido",
+  internal_error: "Con errores",
+  high: "Bloqueante",
+  critical: "Bloqueante",
+  medium: "Advertencia",
+  low: "Información",
+  open: "Pendiente",
+  resolved: "Completado",
+  dismissed: "Descartado",
   changes_detected: "Cambios detectados",
   reopened: "Reabierto",
   blocked: "Bloqueado",

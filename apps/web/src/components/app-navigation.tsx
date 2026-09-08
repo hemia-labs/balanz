@@ -41,6 +41,7 @@ export function AppNavigation({
           [
             "client-overview",
             "fiscal-years",
+            "cfdi",
             "client-data",
             "responsibles",
             "access",

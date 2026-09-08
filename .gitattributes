@@ -1,1 +1,2 @@
 /.github/workflows/*.yml text eol=lf
+/apps/api/src/modules/cfdi-parser/schemas/*.xsd binary

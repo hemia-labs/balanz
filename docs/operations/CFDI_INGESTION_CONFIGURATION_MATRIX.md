@@ -1,8 +1,8 @@
 # Matriz de configuración de la plataforma CFDI
 
-- Versión: 1.1
-- Fecha: 2026-08-28
-- Carácter: contrato normativo de Fase 0
+- Versión: 1.2
+- Fecha: 2026-09-03
+- Carácter: contrato normativo de plataforma y Fase 1 XML
 
 ## 1. Reglas generales
 
@@ -14,9 +14,9 @@ secreta.
 
 Los defaults de esta matriz son de desarrollo. Producción no hereda un default
 inseguro: storage local, scanner bypass, HTTP a S3/MinIO, cifrado distinto de
-SSE-KMS o credenciales incompletas deben impedir el arranque. Las capacidades
-XML/ZIP siguen `NOT_STARTED`; sus límites se validan desde Fase 0 para evitar
-un cambio inseguro al activarlas.
+SSE-KMS o credenciales incompletas deben impedir el arranque. XML individual
+está activo en Fase 1; ZIP y fases posteriores siguen `NOT_STARTED`. Sus
+límites se validan desde Fase 0 para evitar cambios inseguros al activarlos.
 
 ### 1.1 Perfiles de proceso y credenciales
 
@@ -79,7 +79,7 @@ métrica/log redactado y el worker continúa con polling.
 | `OBJECT_STORAGE_DRIVER`                   | `local/s3`            | `local` o `s3`/MinIO                                                        | obligatorio `s3`                    | no                     | `local` en producción impide arranque.                                                                  |
 | `OBJECT_STORAGE_LOCAL_ROOT`               | path no vacío         | `.local/fiscal-object-storage` desde la raíz del repo                       | prohibido                           | no                     | La base no depende del cwd; debe ser raíz dedicada, fuera de `public`, con marcador y permisos mínimos. |
 | `OBJECT_STORAGE_LOCAL_WINDOWS_PRESECURED` | boolean               | `false`; `true` sólo si la raíz NTFS existente tiene DACL privada heredable | obligatorio `false`                 | no                     | Windows falla cerrado por defecto; no crea una raíz que se declare preasegurada.                        |
-| `OBJECT_STORAGE_SIGNED_URL_TTL_SECONDS`   | 15–300 s              | `60`                                                                        | 15–300, breve                       | no                     | URL futura sólo de lectura; nunca log.                                                                  |
+| `OBJECT_STORAGE_SIGNED_URL_TTL_SECONDS`   | 15–300 s              | `60`                                                                        | 15–300, breve                       | no                     | Acota el acceso temporal al original en F1; token/URL nunca se registra.                                |
 | `S3_ENDPOINT`                             | URL HTTP(S) o vacío   | URL HTTP de MinIO permitida                                                 | vacío para AWS o HTTPS              | no                     | HTTP en producción impide arranque.                                                                     |
 | `S3_REGION`                               | string no vacía       | `us-east-2`                                                                 | explícita                           | no                     | Requerida con driver S3.                                                                                |
 | `S3_BUCKET`                               | string no vacía       | `balanz-cfdi-phase0-test`                                                   | explícito, preaprovisionado/privado | no                     | Ausente con S3 impide arranque.                                                                         |
@@ -144,14 +144,14 @@ ambiente.
 
 | Variable/política                   | Tipo        | Valor F0                                            | Estado/alcance                                                             |
 | ----------------------------------- | ----------- | --------------------------------------------------- | -------------------------------------------------------------------------- |
-| `INGESTION_INCOMPLETE_UPLOAD_HOURS` | entero fijo | `24`                                                | Upload incompleto; valor del plan de Fase 0.                                |
-| `INGESTION_DUPLICATE_BYTES_HOURS`   | entero fijo | `24`                                                | Byte redundante de duplicate; consumidor F1 reservado.                     |
+| `INGESTION_INCOMPLETE_UPLOAD_HOURS` | entero fijo | `24`                                                | Upload incompleto; valor del plan de Fase 0.                     |
+| `INGESTION_DUPLICATE_BYTES_HOURS`   | entero fijo | `24`                                                | F1 activo: retención del objeto redundante clasificado `duplicate`.         |
 | `INGESTION_ORPHAN_GRACE_MINUTES`    | entero fijo | `60`                                                | Edad mínima bloqueada; el worker no puede reducirla al reconciliar.        |
-| `INGESTION_INVALID_OBJECT_DAYS`     | entero fijo | `7`                                                 | Invalid/foreign; consumidor F1 reservado.                                  |
+| `INGESTION_INVALID_OBJECT_DAYS`     | entero fijo | `7`                                                 | F1 activo: retención de `invalid` y `foreign`.                              |
 | `INGESTION_MALWARE_QUARANTINE_DAYS` | entero fijo | `7`                                                 | Malware en cuarentena; control activo de plataforma.                       |
 | `INGESTION_COMPLETED_OBJECT_DAYS`   | 1–3650      | `30` sólo para artefacto técnico con clase elegible | No autoriza borrar XML incorporado ni sustituye clases de retención.       |
-| unsupported                         | clase       | 30 días                                             | Fase 1 reservada; debe añadirse como policy explícita antes de consumirla. |
-| hash conflict                       | clase/hold  | 7 días, ampliable a 30                              | Fase 1, reservada.                                                         |
+| unsupported                         | clase       | 30 días                                             | F1 activo; objeto en cuarentena con procedencia.                            |
+| hash conflict                       | clase/hold  | 7 días, ampliable a 30                              | F1 activo; preserva el conflictivo y exige resolución antes de lifecycle.  |
 | temporal extraído                   | clase       | eliminación inmediata                               | Fase 2, reservada.                                                         |
 | XML incorporado                     | clase       | 5 ejercicios, cliente activo                        | Fase 1/6; nunca aplicar default genérico de 30 días.                       |
 | ZIP/paquete SAT procesado           | clase       | 30 días                                             | Fases 2/4, reservada.                                                      |
@@ -166,22 +166,22 @@ declarar Fase 0 terminada.
 
 | Variable                                   | Tipo/rango   |       Valor bloqueado | Consumidor                          | Estado                   |
 | ------------------------------------------ | ------------ | --------------------: | ----------------------------------- | ------------------------ |
-| `INGESTION_XML_MAX_BYTES`                  | entero fijo  |     `5242880` (5 MiB) | XML individual                      | F1 `NOT_STARTED`         |
-| `INGESTION_DIRECT_XML_MAX_COUNT`           | entero fijo  |                   `1` | multipart futuro                    | F1 `NOT_STARTED`         |
+| `INGESTION_XML_MAX_BYTES`                  | entero fijo  |     `5242880` (5 MiB) | XML individual                      | F1 activo         |
+| `INGESTION_DIRECT_XML_MAX_COUNT`           | entero fijo  |                   `1` | multipart XML                    | F1 activo         |
 | `INGESTION_ZIP_MAX_BYTES`                  | entero fijo  |   `52428800` (50 MiB) | adapters local/S3 y validación de capacidad ClamAV | F0 activo; extractor F2 pendiente |
-| `INGESTION_XML_MAX_DEPTH`                  | entero fijo  |                  `64` | parser seguro                       | F1 `NOT_STARTED`         |
-| `INGESTION_XML_MAX_NODES`                  | entero fijo  |              `200000` | parser seguro                       | F1 `NOT_STARTED`         |
-| `INGESTION_XML_MAX_ATTRIBUTES`             | entero fijo  |              `100000` | parser seguro                       | F1 `NOT_STARTED`         |
-| `INGESTION_XML_MAX_ATTRIBUTES_PER_ELEMENT` | entero fijo  |                 `128` | parser seguro                       | F1 `NOT_STARTED`         |
-| `INGESTION_XML_MAX_TEXT_NODE_BYTES`        | entero fijo  |             `1048576` | parser seguro                       | F1 `NOT_STARTED`         |
-| `INGESTION_XML_PARSE_TIMEOUT_MS`           | entero fijo  |                `5000` | parser seguro                       | F1 `NOT_STARTED`         |
+| `INGESTION_XML_MAX_DEPTH`                  | entero fijo  |                  `64` | parser seguro                       | F1 activo         |
+| `INGESTION_XML_MAX_NODES`                  | entero fijo  |              `200000` | parser seguro                       | F1 activo         |
+| `INGESTION_XML_MAX_ATTRIBUTES`             | entero fijo  |              `100000` | parser seguro                       | F1 activo         |
+| `INGESTION_XML_MAX_ATTRIBUTES_PER_ELEMENT` | entero fijo  |                 `128` | parser seguro                       | F1 activo         |
+| `INGESTION_XML_MAX_TEXT_NODE_BYTES`        | entero fijo  |             `1048576` | parser seguro                       | F1 activo         |
+| `INGESTION_XML_PARSE_TIMEOUT_MS`           | entero fijo  |                `5000` | parser seguro                       | F1 activo         |
 | `WORKER_MEMORY_TARGET_MIB`                 | entero fijo  |                 `256` | capacidad del worker                | F0 activo como guardrail |
-| `INGESTION_ACTIVE_JOBS_PER_USER`           | entero fijo  |                   `2` | fairness/límite de productor futuro | F1 `NOT_STARTED`         |
+| `INGESTION_ACTIVE_JOBS_PER_USER`           | entero fijo  |                   `2` | fairness/límite de productor XML    | F1 activo                |
 | `INGESTION_ACTIVE_JOBS_PER_TENANT`         | entero fijo  |                   `4` | fairness/límite de tenant           | F0/F1 guardrail          |
 
-Las últimas políticas pueden implementarse como constantes validadas en F0 si
-no se exponen como variables. No se permite elevar límites por request, tenant
-o header. Registrarlos no añade parser/extractor ni una ruta de carga.
+Las políticas pueden permanecer como constantes validadas si no se exponen
+como variables. No se permite elevar límites por request, tenant o header. Fase
+1 consume los límites XML; registrar límites ZIP no activa Fase 2.
 
 Las ocho opciones del extractor ZIP sin consumidor se retiraron de la
 configuración runtime de Fase 0. El contrato previsto para Fase 2 conserva:
@@ -287,7 +287,7 @@ mensaje/código libre de excepción o secreto.
 
 ## 12. Evidencia de validación
 
-El reporte de Fase 0 debe registrar configuración efectiva **redactada** por
-ambiente, casos negativos de startup, `.env.example` sin secretos y pruebas de
-Redis disponible/apagado, MinIO, ClamAV y RLS. No debe copiar valores secretos,
-DSN ni URLs firmadas al reporte.
+Los reportes de Fase 0 y Fase 1 deben registrar configuración efectiva
+**redactada** por ambiente, casos negativos de startup, `.env.example` sin
+secretos y las pruebas reales que correspondan a su alcance. No deben copiar
+valores secretos, DSN ni URLs/tokens temporales.

@@ -8,6 +8,8 @@ import {
   IngestionJobRegistry,
 } from './ingestion-job.registry';
 import { IngestionWorkerRunner } from './ingestion-worker.runner';
+import { CfdiProcessingModule } from '../../cfdi/cfdi-processing.module';
+import { ManualXmlJobHandler } from '../../cfdi/workers/manual-xml-job.handler';
 
 @Module({
   imports: [
@@ -15,11 +17,15 @@ import { IngestionWorkerRunner } from './ingestion-worker.runner';
     ObservabilityModule,
     RedisModule,
     IngestionModule,
+    CfdiProcessingModule,
   ],
   providers: [
-    // Phase 0 intentionally has no production job handler. Integration tests
-    // override this token with a handler for the real future manual_xml source.
-    { provide: INGESTION_JOB_HANDLERS, useValue: Object.freeze([]) },
+    {
+      provide: INGESTION_JOB_HANDLERS,
+      inject: [ManualXmlJobHandler],
+      useFactory: (manualXml: ManualXmlJobHandler) =>
+        Object.freeze([manualXml]),
+    },
     IngestionJobRegistry,
     IngestionWorkerRunner,
   ],

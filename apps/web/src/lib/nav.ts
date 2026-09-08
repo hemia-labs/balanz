@@ -55,7 +55,7 @@ export const appNavigation: AppNavItem[] = [
     group: "Operación",
     context: "organization",
     suffix: "processes",
-    capability: "organization.view",
+    capability: "processes.view",
     icon: Workflow,
   },
   {
@@ -108,7 +108,7 @@ export const appNavigation: AppNavItem[] = [
     group: "Cliente",
     context: "client",
     suffix: "cfdi",
-    capability: "clients.view",
+    capability: "cfdi.view",
     icon: Files,
   },
   {

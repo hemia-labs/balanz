@@ -3,14 +3,19 @@
 ## Alcance
 
 Esta matriz valida que el backend siga siendo la autoridad para sesión, MFA,
-tenant, membresía, permisos efectivos, asignaciones, reautenticación y estado
-del recurso. La tabla `roles` es catálogo controlado del MVP; sólo aporta
-defaults y no sustituye `account_assignments`.
+tenant, membresía, permisos efectivos, alcance, reautenticación y estado del
+recurso. La tabla `roles` es catálogo controlado del MVP; sólo aporta defaults:
+el titular real se determina mediante
+`user_id == organizations.owner_user_id` y tiene alcance fiscal `tenant-wide`;
+`admin` no titular, `accountant` y `collaborator` requieren una
+`account_assignment` activa.
 
 ## Casos automatizados
 
 | Canal | Caso | Resultado comprobado |
 | --- | --- | --- |
+| Política | Titular real (`user_id == organizations.owner_user_id`) | Alcance fiscal `tenant-wide`, sujeto a sesión, tenant, membresía, permiso, recurso y MFA o reautenticación cuando aplique |
+| Política | `admin` no titular sin asignación | `404/OUT_OF_SCOPE`; el nombre de rol no concede alcance global |
 | Política | `accountant` + default + asignación | `ALLOW` |
 | Política | `accountant` + `deny` + asignación | `DENY` y auditoría |
 | Política | `collaborator` + `grant` + asignación | `ALLOW` |
@@ -22,7 +27,9 @@ defaults y no sustituye `account_assignments`.
 | Sesión/worker | Sesión revocada o expirada | `401` semántico |
 | Override | `revoked_at` vigente | Se ignora el override y vuelve al default |
 | Administración | `grant`, `deny` y `revoke` | Persistencia y `audit_event` con actor, tenant, permiso, recurso y correlación |
-| Exportación | Autorización rechazada | No inicia transacción ni persiste operación |
+| Reautenticación futura | Evidencia con antigüedad máxima de 10 minutos | Sólo es válida para el mismo `session_id`, `organization_id` y `purpose` |
+| Capacidad futura | `POST /sat-download-jobs` | `FUTURE / NOT_STARTED`; no se presenta como endpoint productivo activo |
+| Capacidad futura | `POST /exports` | `FUTURE / NOT_STARTED`; no se presenta como endpoint productivo activo |
 | Worker | Job vigente | Revalida antes de reclamarlo |
 | Worker | Job expirado | Marca `expired` y no ejecuta |
 | Objeto privado | Objeto de otro tenant | `404`, sin enumeración ni mutación |
