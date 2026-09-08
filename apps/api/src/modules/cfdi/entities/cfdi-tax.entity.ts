@@ -148,9 +148,11 @@ export class CfdiTax {
   @Column({ name: 'legal_entity_id', type: 'uuid' }) legalEntityId: string;
   @Column({ name: 'cfdi_id', type: 'uuid' }) cfdiId: string;
   @Column({ name: 'concept_id', type: 'uuid', nullable: true }) conceptId?:
-    string | null;
+    | string
+    | null;
   @Column({ name: 'payment_id', type: 'uuid', nullable: true }) paymentId?:
-    string | null;
+    | string
+    | null;
   @Column({ name: 'payment_document_id', type: 'uuid', nullable: true })
   paymentDocumentId?: string | null;
   @Column({ name: 'scope_type', type: 'varchar', length: 24 })

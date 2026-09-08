@@ -102,7 +102,8 @@ export class CfdiPayroll {
   })
   employmentStartDate?: Date | null;
   @Column({ type: 'varchar', length: 20, nullable: true }) seniority?:
-    string | null;
+    | string
+    | null;
   @Column({ name: 'contract_type', type: 'varchar', length: 3, nullable: true })
   contractType?: string | null;
   @Column({ name: 'regime_type', type: 'varchar', length: 3 })
@@ -110,7 +111,8 @@ export class CfdiPayroll {
   @Column({ name: 'employee_number', type: 'varchar', length: 30 })
   employeeNumber: string;
   @Column({ type: 'varchar', length: 100, nullable: true }) position?:
-    string | null;
+    | string
+    | null;
   @Column({ name: 'risk_position', type: 'varchar', length: 3, nullable: true })
   riskPosition?: string | null;
   @Column({ name: 'payment_periodicity', type: 'varchar', length: 3 })
