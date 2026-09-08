@@ -71,6 +71,11 @@ grupo PostgreSQL `balanz_api`, no es owner ni superusuario y recibe sólo los
 permisos requeridos por el proceso HTTP. El worker aplica el mismo principio con
 el grupo `balanz_worker`.
 
+Si administras los usuarios directamente en PostgreSQL y cargas sus credenciales
+en Vault, consulta el [SQL de creación manual de LOGINs](docs/operations/CFDI_WORKER_RUNBOOK.md#35-creación-manual-de-usuarios-postgresql-sin-archivos-env).
+Ese procedimiento no requiere archivos `.env` locales; su automatización con
+Ansible se mantiene en `hemia-infra`.
+
 `DB_USERNAME` y `DB_PASSWORD` no fueron eliminadas del proyecto: siguen siendo
 válidas para comandos administrativos como migraciones, seeds y
 aprovisionamiento. La diferencia es que deben cargarse únicamente durante esos

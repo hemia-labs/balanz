@@ -45,6 +45,14 @@ export const EXPECTED_MIGRATION_IDENTITIES = [
     name: 'ScopeEmailVerificationTokens1787690810000',
     timestamp: 1787690810000,
   },
+  {
+    name: 'InvitationDeliveryStatus1787690820000',
+    timestamp: 1787690820000,
+  },
+  {
+    name: 'InvitationRuntimeAcl1787690830000',
+    timestamp: 1787690830000,
+  },
 ] as const;
 
 export const EXPECTED_MIGRATION_NAMES: readonly string[] =

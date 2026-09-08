@@ -139,9 +139,12 @@ distintos entre API y worker. El provisionador comprueba esa coincidencia y
 rechaza credenciales que apunten a otro destino. Cada runtime recibe acceso
 únicamente a su propio secreto.
 
-Las migraciones crean únicamente los grupos `NOLOGIN` `balanz_api` y
-`balanz_worker`. Después de aplicar 060/061/062/063, aprovisiona los LOGINs dedicados
-con el script dev-only e idempotente:
+Infraestructura aprovisiona los grupos `NOLOGIN` `balanz_api` y `balanz_worker`.
+La migración histórica 061 conserva su bootstrap condicional original y valida
+sus atributos seguros. No se reescribe porque ya fue aplicada; las migraciones
+asignan los permisos de aplicación, pero no crean sus LOGINs.
+Si no aprovisionas los LOGINs desde Ansible, después de aplicar las migraciones
+puedes usar el script dev-only e idempotente:
 
 ```powershell
 Set-Location apps/api
@@ -186,6 +189,83 @@ PostgreSQL y `cache/redis` si está habilitado; deniega `database/postgres-api`,
 `database/postgres-worker`. `SECRETS_SYSTEM` conserva la taxonomía Vault
 realmente aprovisionada y es obligatorio explícito en producción; no inventes
 un namespace `worker` para aparentar aislamiento.
+
+### 3.5 Creación manual de usuarios PostgreSQL (sin archivos `.env`)
+
+Este procedimiento documenta el aprovisionamiento manual equivalente al que
+administra Ansible en `hemia-infra`. Requiere PostgreSQL 16 o superior, la base
+`accounting_dev` existente y los grupos `NOLOGIN` `balanz_api` y
+`balanz_worker` ya creados. Las migraciones de Balanz deben asignar los permisos
+sobre tablas y funciones y las políticas RLS antes del arranque de los runtimes.
+
+Conéctate como administrador a `accounting_dev` y ejecuta el siguiente SQL
+para usuarios nuevos. Sustituye los placeholders por contraseñas distintas
+de al menos 16 caracteres mediante tu herramienta administrativa; no guardes
+las contraseñas reales en Git ni en esta documentación. `CREATE ROLE` fallará
+si el usuario ya existe: en ese caso revisa su configuración o reconcíliala
+con Ansible, sin eliminarlo ni recrearlo.
+
+```sql
+CREATE ROLE balanz_api_login
+  LOGIN
+  NOSUPERUSER
+  NOCREATEDB
+  NOCREATEROLE
+  NOREPLICATION
+  NOBYPASSRLS
+  NOINHERIT
+  PASSWORD '<password-api>';
+
+CREATE ROLE balanz_worker_login
+  LOGIN
+  NOSUPERUSER
+  NOCREATEDB
+  NOCREATEROLE
+  NOREPLICATION
+  NOBYPASSRLS
+  NOINHERIT
+  PASSWORD '<password-worker>';
+
+ALTER ROLE balanz_api_login SET search_path TO public;
+ALTER ROLE balanz_worker_login SET search_path TO public;
+
+GRANT balanz_api
+  TO balanz_api_login
+  WITH ADMIN FALSE, INHERIT FALSE, SET TRUE;
+
+GRANT balanz_worker
+  TO balanz_worker_login
+  WITH ADMIN FALSE, INHERIT FALSE, SET TRUE;
+
+GRANT CONNECT ON DATABASE accounting_dev TO balanz_api_login;
+GRANT CONNECT ON DATABASE accounting_dev TO balanz_worker_login;
+```
+
+Los LOGINs no deben ser propietarios de la base ni de objetos, recibir grants
+directos sobre `public`, tener `CREATE` en la base o schemas de aplicación,
+ni pertenecer a otros grupos. Cada grupo runtime debe tener únicamente su
+LOGIN correspondiente. Los permisos de objetos se administran a través de
+`balanz_api` y `balanz_worker`, mediante las migraciones.
+
+Después, actualiza manualmente los secretos de Vault:
+
+| Path lógico | `db_username` | `db_password` |
+| --- | --- | --- |
+| `database/postgres-api` | `balanz_api_login` | Contraseña usada para API |
+| `database/postgres-worker` | `balanz_worker_login` | Contraseña usada para worker |
+
+Ambos deben incluir `db_database=accounting_dev`, el mismo `db_host` y
+`db_port` del migrador y `db_logging=false` (booleano). `db_port` es numérico.
+El secreto `database/postgres` conserva la identidad administrativa para
+migraciones. API y worker consumen sólo su propio secreto, con
+`SECRETS_ENABLED=true`; no necesitan credenciales en archivos `.env` locales.
+
+Para PROD, usa `accounting_prod` en los dos `GRANT CONNECT` y en
+`db_database`, contraseñas distintas de DEV y el scope Vault `prod`.
+Los roles PostgreSQL existen a nivel de clúster: DEV y PROD con estos mismos
+nombres deben usar clústeres separados. Al arrancar, cada proceso selecciona
+su grupo (`current_user`) manteniendo el LOGIN dedicado como `session_user`;
+el guard comprueba sus privilegios antes de aceptar tráfico.
 
 ## 4. Arranque y parada
 
