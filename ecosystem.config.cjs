@@ -1,3 +1,10 @@
+const path = require("node:path");
+const runtimeConfig = path.resolve(
+  __dirname,
+  "../../runtime-config",
+  path.basename(__dirname),
+);
+
 module.exports = {
   apps: [
     {
@@ -11,14 +18,14 @@ module.exports = {
       name: "balanz-api-dev",
       cwd: `${__dirname}/apps/api`,
       script: "dist/main.js",
-      node_args: "--env-file=/srv/apps/balanz/shared/api.env",
+      node_args: `--env-file=${runtimeConfig}/api/runtime.env`,
       env: { NODE_ENV: "development" },
     },
     {
       name: "balanz-worker-dev",
       cwd: `${__dirname}/apps/api`,
       script: "dist/worker.js",
-      node_args: "--env-file=/srv/apps/balanz/shared/worker.env",
+      node_args: `--env-file=${runtimeConfig}/worker/runtime.env`,
       env: { NODE_ENV: "development" },
       kill_timeout: 125000,
     },

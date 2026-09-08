@@ -63,6 +63,7 @@ jobs:
 
       - name: Validate backend
         run: |
+          node --test infra/cfdi-phase0/deploy-release.test.cjs
           bun run --cwd apps/api lint
           bun run --cwd apps/api test --runInBand
 
@@ -110,6 +111,11 @@ jobs:
           test -d "$deploy_root/releases"
           test -d "$deploy_root/shared"
           install -d -m 0700 -- "$release_dir"
+          config_dir="$deploy_root/runtime-config/${release_dir##*/}"
+          # A release configuration is immutable once created.
+          install -d -m 0700 -- "$deploy_root/runtime-config"
+          mkdir -m 0700 -- "$config_dir"
+          install -d -m 0700 -- "$config_dir/api" "$config_dir/worker"
           REMOTE
 
       - name: Upload release
@@ -137,8 +143,12 @@ jobs:
           upload_secret() {
             value=$1
             profile=$2
-            temporary="$DEPLOY_ROOT/shared/.$profile.env.$RELEASE_ID"
-            target="$DEPLOY_ROOT/shared/$profile.env"
+            config_dir="$DEPLOY_ROOT/runtime-config/$RELEASE_ID"
+            target="$config_dir/$profile/runtime.env"
+            if [[ $profile == migration ]]; then
+              target="$config_dir/migration.env"
+            fi
+            temporary="$target.tmp"
             printf '%s\n' "$value" | ssh -i ~/.ssh/vps-deploy "$DEPLOY_USER@$VPS_HOST" \
               "set -Eeuo pipefail; umask 077; cat > '$temporary'; test -s '$temporary'; chmod 0600 -- '$temporary'; mv -f -- '$temporary' '$target'"
           }
@@ -156,7 +166,8 @@ jobs:
           current_link="$deploy_root/current"
           next_link="$deploy_root/current.next"
           rollback_link="$deploy_root/current.rollback"
-          migration_env="$deploy_root/shared/migration.env"
+          config_dir="$deploy_root/runtime-config/${release_dir##*/}"
+          migration_env="$config_dir/migration.env"
           previous_release=
           worker_paused=false
           activated=false
@@ -182,13 +193,24 @@ jobs:
 
           restore_previous() {
             if [[ -n $previous_release ]]; then
-              ln -sfn -- "$previous_release" "$rollback_link"
-              mv -Tf -- "$rollback_link" "$current_link"
-              cd "$previous_release"
-              pm2 delete balanz-worker-dev >/dev/null 2>&1 || true
-              pm2 startOrReload ecosystem.config.cjs --update-env
-              probe http://127.0.0.1:5181/
-              probe http://127.0.0.1:3021/api/v1
+              ln -sfn -- "$previous_release" "$rollback_link" || return
+              mv -Tf -- "$rollback_link" "$current_link" || return
+              cd "$previous_release" || return
+              local worker_exists
+              worker_exists=$(pm2 jlist | node -e '
+                const fs = require("node:fs");
+                const processes = JSON.parse(fs.readFileSync(0, "utf8"));
+                console.log(processes.some(p => p.name === "balanz-worker-dev"));
+              ') || return
+              if [[ $worker_exists == true ]]; then
+                pm2 delete balanz-worker-dev >/dev/null 2>&1 || return
+              fi
+              pm2 startOrReload ecosystem.config.cjs --update-env || return
+              probe http://127.0.0.1:5181/ || return
+              probe http://127.0.0.1:3021/liveness || return
+              probe http://127.0.0.1:3021/readiness || return
+              probe http://127.0.0.1:3002/liveness || return
+              probe http://127.0.0.1:3002/readiness || return
               pm2 save
             else
               pm2 delete balanz-web-dev balanz-api-dev balanz-worker-dev >/dev/null 2>&1 || true
@@ -213,6 +235,9 @@ jobs:
           trap 'exit 143' TERM
 
           cd "$release_dir"
+          test -s "$config_dir/api/runtime.env"
+          test -s "$config_dir/worker/runtime.env"
+          test -s "$migration_env"
           bun install --frozen-lockfile --ignore-scripts
 
           if pm2 describe balanz-worker-dev >/dev/null 2>&1; then
@@ -249,6 +274,6 @@ jobs:
         run: |
           if [[ -f ~/.ssh/vps-deploy ]]; then
             ssh -i ~/.ssh/vps-deploy "$DEPLOY_USER@$VPS_HOST" \
-              "rm -f -- '$DEPLOY_ROOT/shared/migration.env' '$DEPLOY_ROOT/shared/.migration.env.$RELEASE_ID' '$DEPLOY_ROOT/shared/.api.env.$RELEASE_ID' '$DEPLOY_ROOT/shared/.worker.env.$RELEASE_ID'" || true
+              "rm -f -- '$DEPLOY_ROOT/runtime-config/$RELEASE_ID/migration.env' '$DEPLOY_ROOT/runtime-config/$RELEASE_ID/migration.env.tmp' '$DEPLOY_ROOT/runtime-config/$RELEASE_ID/api/runtime.env.tmp' '$DEPLOY_ROOT/runtime-config/$RELEASE_ID/worker/runtime.env.tmp'" || true
             rm -f -- ~/.ssh/vps-deploy
           fi

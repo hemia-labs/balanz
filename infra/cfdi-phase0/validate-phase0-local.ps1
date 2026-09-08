@@ -1877,6 +1877,7 @@ const path = require('node:path');
 const configPath = path.resolve(process.argv[1]);
 const repositoryRoot = path.dirname(configPath);
 const apiRoot = path.join(repositoryRoot, 'apps', 'api');
+const runtimeConfig = path.resolve(repositoryRoot, '../../runtime-config', path.basename(repositoryRoot));
 const config = require(configPath);
 const api = config.apps?.find(({ name }) => name === 'balanz-api-dev');
 const worker = config.apps?.find(({ name }) => name === 'balanz-worker-dev');
@@ -1886,8 +1887,8 @@ const valid =
   path.resolve(worker.cwd) === apiRoot &&
   api.script === 'dist/main.js' &&
   worker.script === 'dist/worker.js' &&
-  api.node_args === '--env-file=/srv/apps/balanz/shared/api.env' &&
-  worker.node_args === '--env-file=/srv/apps/balanz/shared/worker.env' &&
+  api.node_args === `--env-file=${runtimeConfig}/api/runtime.env` &&
+  worker.node_args === `--env-file=${runtimeConfig}/worker/runtime.env` &&
   ![api.script, api.args, api.node_args, worker.script, worker.args, worker.node_args]
     .filter(Boolean)
     .some(value => /migrat|seed|release:prepare/i.test(String(value)));

@@ -601,13 +601,24 @@ La secuencia normal es:
 6. Cambiar atómicamente el enlace `current`, recargar el ecosystem de PM2 y
    validar web, liveness y readiness de API/worker.
 7. Persistir el estado de PM2. Ante un fallo, restaurar `current` y recargar el
-   release anterior.
+   release anterior con su configuración original; comprobar web y liveness/readiness
+   de API y worker.
 
-El rollback cambia únicamente la versión de la aplicación: no revierte
+El rollback restaura la versión de la aplicación y su configuración: no revierte
 migraciones. Toda migración desplegable debe seguir expand/contract y conservar
 compatibilidad con el release anterior. Los archivos runtime viven en
-`/srv/apps/balanz/shared/{api,worker}.env`; `migration.env` es efímero y el
-workflow lo elimina tanto en éxito como en fallo.
+`/srv/apps/balanz/runtime-config/<release>/{api,worker}/runtime.env`, con
+directorios `0700` y archivos `0600`. Cada release tiene configuración inmutable;
+PM2 resuelve su ruta desde el directorio del ecosystem, sin depender de `current`.
+Ambos archivos deben estar completos antes de pausar el worker o activar el release.
+`runtime-config/<release>/migration.env` es efímero y el workflow lo elimina tanto
+en éxito como en fallo, junto con los archivos temporales de carga.
+
+Conservar la configuración de todo release disponible para rollback. Durante la
+transición, conservar también `shared/{api,worker}.env`: los releases antiguos
+todavía los utilizan y el workflow nuevo no los modifica. La limpieza futura debe
+retirar un release y su configuración juntos, nunca la configuración del actual
+ni la del release reservado para rollback.
 
 ## 10. Evidencia y cierre del incidente
 

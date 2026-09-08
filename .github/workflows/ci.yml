@@ -47,6 +47,7 @@ jobs:
 
       - name: Validate backend
         run: |
+          node --test infra/cfdi-phase0/deploy-release.test.cjs
           bun run --cwd apps/api lint
           bun run --cwd apps/api test --runInBand
           bun run --cwd apps/api build
