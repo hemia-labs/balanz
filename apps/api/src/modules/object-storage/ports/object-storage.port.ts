@@ -47,6 +47,12 @@ export interface SignedObjectWriteUrl extends SignedObjectReadUrl {
   headers: Record<string, string>;
 }
 
+export interface ObjectStorageHealthDiagnostic {
+  operation: string;
+  code: string;
+  httpStatusCode?: number;
+}
+
 export type ObjectStorageHealth =
   | { status: 'up'; provider: ObjectStorageProvider; durationMs: number }
   | {
@@ -54,6 +60,7 @@ export type ObjectStorageHealth =
       provider: ObjectStorageProvider;
       durationMs: number;
       errorCode: string;
+      diagnostics?: ObjectStorageHealthDiagnostic[];
     };
 
 /**

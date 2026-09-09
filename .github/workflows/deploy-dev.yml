@@ -63,7 +63,7 @@ jobs:
 
       - name: Validate backend
         run: |
-          node --test infra/cfdi-phase0/deploy-release.test.cjs
+          node --test infra/deploy/deploy-release.test.cjs infra/deploy/retain-releases.test.cjs
           bun run --cwd apps/api lint
           bun run --cwd apps/api test --runInBand
 
@@ -186,35 +186,120 @@ jobs:
           fi
 
           probe() {
-            curl --fail --silent --show-error \
+            local status
+            echo "Checking $1"
+            if curl --fail --silent --show-error \
               --retry 10 --retry-connrefused --retry-delay 2 \
-              --connect-timeout 2 --max-time 5 "$1" >/dev/null
+              --connect-timeout 2 --max-time 5 "$1" >/dev/null; then
+              return 0
+            else
+              status=$?
+            fi
+            echo "Health check failed: $1 (curl exit $status)" >&2
+            case "$1" in
+              */readiness|*/liveness)
+                # Take a fresh bounded snapshot before restoring the old release.
+                # Do not print response bodies, credentials or application logs.
+                curl --silent --show-error --connect-timeout 2 --max-time 5 \
+                  --max-filesize 65536 "$1" | node -e '
+                  const fs = require("node:fs");
+                  try {
+                    const body = JSON.parse(fs.readFileSync(0, "utf8"));
+                    const safe = value => {
+                      const out = {};
+                      if (["up", "down", "degraded", "disabled", "bypassed"].includes(value?.status)) out.status = value.status;
+                      if (typeof value?.required === "boolean") out.required = value.required;
+                      if (typeof value?.errorCode === "string" && /^[A-Z][A-Z0-9_]{0,99}$/.test(value.errorCode)) out.errorCode = value.errorCode;
+                      if (Array.isArray(value?.diagnostics)) out.diagnostics = value.diagnostics.slice(0, 2).map(d => {
+                        const detail = {};
+                        if (["HeadBucket", "PutObject", "HeadObject", "GetObject", "DeleteObject", "ValidateMetadata", "ValidateContent"].includes(d?.operation)) detail.operation = d.operation;
+                        if (typeof d?.code === "string" && /^[A-Za-z][A-Za-z0-9_]{0,79}$/.test(d.code)) detail.code = d.code;
+                        if (Number.isInteger(d?.httpStatusCode) && d.httpStatusCode >= 100 && d.httpStatusCode <= 599) detail.httpStatusCode = d.httpStatusCode;
+                        return detail;
+                      });
+                      return out;
+                    };
+                    const result = safe(body);
+                    if (["api", "worker"].includes(body?.process)) result.process = body.process;
+                    result.dependencies = {};
+                    for (const name of ["postgres", "storage", "scanner", "redisWakeup", "workerSupervisor"]) {
+                      const value = body?.dependencies?.[name] ?? (name === "workerSupervisor" ? body?.workerSupervisor : undefined);
+                      if (value) result.dependencies[name] = safe(value);
+                    }
+                    console.error("Health diagnostic snapshot: " + JSON.stringify(result));
+                  } catch {
+                    console.error("Health diagnostic unavailable: empty or invalid JSON response");
+                  }
+                ' || echo "Health diagnostic request failed" >&2
+                ;;
+            esac
+            return "$status"
+          }
+
+          remove_balanz_processes() {
+            local names name
+            names=$(pm2 jlist | node -e '
+              const fs = require("node:fs");
+              const allowed = ["balanz-web-dev", "balanz-api-dev", "balanz-worker-dev"];
+              for (const p of JSON.parse(fs.readFileSync(0, "utf8"))) {
+                if (allowed.includes(p.name)) console.log(p.name);
+              }
+            ') || return
+            while IFS= read -r name; do
+              [[ -z $name ]] || pm2 delete "$name" >/dev/null || return
+            done <<< "$names"
+          }
+
+          start_release() {
+            cd "$1" || return
+            remove_balanz_processes || return
+            pm2 start "$1/ecosystem.config.cjs" --only balanz-web-dev,balanz-api-dev,balanz-worker-dev || return
+            pm2 jlist | node -e '
+              const fs = require("node:fs");
+              const path = require("node:path");
+              const root = process.argv[1];
+              const names = ["balanz-web-dev", "balanz-api-dev", "balanz-worker-dev"];
+              const expected = require(path.join(root, "ecosystem.config.cjs")).apps.filter(a => names.includes(a.name));
+              const actual = JSON.parse(fs.readFileSync(0, "utf8"));
+              const args = value => Array.isArray(value) ? value : value ? value.split(/\s+/) : [];
+              for (const name of names) {
+                const app = expected.find(a => a.name === name);
+                const matches = actual.filter(p => p.name === name);
+                if (!app && matches.length === 0) continue;
+                const state = matches[0]?.pm2_env;
+                if (!app || matches.length !== 1 || !state ||
+                    state.pm_cwd !== path.resolve(root, app.cwd || ".") ||
+                    state.pm_exec_path !== path.resolve(root, app.cwd || ".", app.script) ||
+                    JSON.stringify(args(state.node_args)) !== JSON.stringify(args(app.node_args))) {
+                  console.error("PM2 release definition mismatch: " + name);
+                  process.exit(1);
+                }
+              }
+            ' "$1" || return
           }
 
           restore_previous() {
             if [[ -n $previous_release ]]; then
               ln -sfn -- "$previous_release" "$rollback_link" || return
               mv -Tf -- "$rollback_link" "$current_link" || return
-              cd "$previous_release" || return
-              local worker_exists
-              worker_exists=$(pm2 jlist | node -e '
-                const fs = require("node:fs");
-                const processes = JSON.parse(fs.readFileSync(0, "utf8"));
-                console.log(processes.some(p => p.name === "balanz-worker-dev"));
-              ') || return
-              if [[ $worker_exists == true ]]; then
-                pm2 delete balanz-worker-dev >/dev/null 2>&1 || return
-              fi
-              pm2 startOrReload ecosystem.config.cjs --update-env || return
+              start_release "$previous_release" || return
               probe http://127.0.0.1:5181/ || return
+              local has_worker
+              has_worker=$(node -e 'console.log(require(process.argv[1]).apps.some(a => a.name === "balanz-worker-dev"))' "$previous_release/ecosystem.config.cjs") || return
+              if [[ $has_worker == false ]]; then
+                # Legacy releases predate the fiscal worker and health endpoints.
+                probe http://127.0.0.1:3021/api/v1 || return
+                pm2 save || return
+                return 0
+              fi
               probe http://127.0.0.1:3021/liveness || return
               probe http://127.0.0.1:3021/readiness || return
               probe http://127.0.0.1:3002/liveness || return
               probe http://127.0.0.1:3002/readiness || return
               pm2 save
             else
-              pm2 delete balanz-web-dev balanz-api-dev balanz-worker-dev >/dev/null 2>&1 || true
-              pm2 save --force >/dev/null 2>&1 || true
+              remove_balanz_processes || return
+              pm2 save --force >/dev/null || return
               rm -f -- "$current_link"
             fi
           }
@@ -256,7 +341,7 @@ jobs:
           activated=true
 
           cd "$release_dir"
-          pm2 startOrReload ecosystem.config.cjs --update-env
+          start_release "$release_dir"
           probe http://127.0.0.1:5181/
           probe http://127.0.0.1:3021/liveness
           probe http://127.0.0.1:3021/readiness
@@ -267,6 +352,8 @@ jobs:
           worker_paused=false
           activated=false
           trap - EXIT HUP INT TERM
+          # Retention failure must not roll back an already healthy deployment.
+          node "$release_dir/infra/deploy/retain-releases.cjs" "$deploy_root" "$previous_release"
           REMOTE
 
       - name: Remove temporary credentials and SSH key

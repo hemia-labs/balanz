@@ -198,12 +198,85 @@ describe('S3ObjectStorageAdapter configuration/command contract (unit only)', ()
 
     await expect(adapter.health()).resolves.toMatchObject({ status: 'up' });
     expect(commandNames).toEqual([
-      'HeadBucketCommand',
       'PutObjectCommand',
       'HeadObjectCommand',
       'GetObjectCommand',
       'DeleteObjectCommand',
     ]);
+  });
+
+  it.each([
+    'PutObject',
+    'HeadObject',
+    'GetObject',
+    'DeleteObject',
+    'ValidateMetadata',
+    'ValidateContent',
+  ])('reports safe diagnostics for %s failures', async (operation) => {
+    const send = jest.fn().mockImplementation((command: object) => {
+      if (command.constructor.name === `${operation}Command`) {
+        return Promise.reject(
+          Object.assign(new Error('SECRET_FIXTURE'), {
+            name: 'AccessDenied',
+            $metadata: { httpStatusCode: 403, requestId: 'SECRET_FIXTURE' },
+          }),
+        );
+      }
+      if (command.constructor.name === 'HeadObjectCommand')
+        return Promise.resolve({
+          ContentLength: 6,
+          ServerSideEncryption:
+            operation === 'ValidateMetadata' ? 'aws:kms' : 'AES256',
+        });
+      if (command.constructor.name === 'GetObjectCommand')
+        return Promise.resolve({
+          Body: {
+            transformToByteArray: () =>
+              Promise.resolve(
+                Buffer.from(
+                  operation === 'ValidateContent' ? 'wrong' : 'health',
+                ),
+              ),
+          },
+        });
+      return Promise.resolve({});
+    });
+    const adapter = new S3ObjectStorageAdapter(
+      {
+        driver: 's3',
+        region: 'us-east-2',
+        bucket: 'private-health',
+        maxBytes: 1024,
+        requestTimeoutMs: 1000,
+        serverSideEncryption: 'AES256',
+      },
+      undefined,
+      { send, destroy: jest.fn() } as unknown as S3Client,
+    );
+    const health = await adapter.health();
+    expect(health).toMatchObject({
+      status: 'down',
+      diagnostics: [
+        {
+          operation,
+          ...(operation.startsWith('Validate')
+            ? {
+                code:
+                  operation === 'ValidateMetadata'
+                    ? 'MetadataMismatch'
+                    : 'ContentMismatch',
+              }
+            : { code: 'AccessDenied', httpStatusCode: 403 }),
+        },
+      ],
+    });
+    expect(JSON.stringify(health)).not.toContain('SECRET_FIXTURE');
+    expect(
+      send.mock.calls.some(
+        ([command]: [object]) =>
+          command.constructor.name === 'DeleteObjectCommand',
+      ),
+    ).toBe(true);
   });
 
   it('uses an independent signal and awaits cleanup after the caller aborts', async () => {
@@ -218,7 +291,7 @@ describe('S3ObjectStorageAdapter configuration/command contract (unit only)', ()
       .fn()
       .mockImplementation(
         (command: object, options?: { abortSignal?: AbortSignal }) => {
-          if (command.constructor.name === 'HeadBucketCommand') {
+          if (command.constructor.name === 'PutObjectCommand') {
             caller.abort();
             return Promise.reject(new Error('caller aborted'));
           }
@@ -274,7 +347,7 @@ describe('S3ObjectStorageAdapter configuration/command contract (unit only)', ()
       .fn()
       .mockImplementation(
         (command: object, options?: { abortSignal?: AbortSignal }) => {
-          if (command.constructor.name === 'HeadBucketCommand') {
+          if (command.constructor.name === 'PutObjectCommand') {
             return Promise.reject(new Error('provider unavailable'));
           }
           if (command.constructor.name === 'DeleteObjectCommand') {
