@@ -210,6 +210,13 @@ jobs:
                       if (["up", "down", "degraded", "disabled", "bypassed"].includes(value?.status)) out.status = value.status;
                       if (typeof value?.required === "boolean") out.required = value.required;
                       if (typeof value?.errorCode === "string" && /^[A-Z][A-Z0-9_]{0,99}$/.test(value.errorCode)) out.errorCode = value.errorCode;
+                      if (Array.isArray(value?.diagnostics)) out.diagnostics = value.diagnostics.slice(0, 2).map(d => {
+                        const detail = {};
+                        if (["HeadBucket", "PutObject", "HeadObject", "GetObject", "DeleteObject", "ValidateMetadata", "ValidateContent"].includes(d?.operation)) detail.operation = d.operation;
+                        if (typeof d?.code === "string" && /^[A-Za-z][A-Za-z0-9_]{0,79}$/.test(d.code)) detail.code = d.code;
+                        if (Number.isInteger(d?.httpStatusCode) && d.httpStatusCode >= 100 && d.httpStatusCode <= 599) detail.httpStatusCode = d.httpStatusCode;
+                        return detail;
+                      });
                       return out;
                     };
                     const result = safe(body);

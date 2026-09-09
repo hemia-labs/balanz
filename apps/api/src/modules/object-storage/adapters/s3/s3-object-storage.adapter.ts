@@ -19,6 +19,7 @@ import {
 } from '../../object-storage.errors';
 import type {
   ObjectStorageHealth,
+  ObjectStorageHealthDiagnostic,
   ObjectStorageObjectMetadata,
   ObjectStoragePort,
   ObjectStorageWriteInput,
@@ -34,6 +35,69 @@ import {
 const MAX_SIGNED_URL_TTL_SECONDS = 300;
 const MIN_MULTIPART_PART_SIZE_BYTES = 5 * 1024 * 1024;
 const MAX_HEALTH_CLEANUP_TIMEOUT_MS = 1_000;
+
+function healthDiagnostic(
+  operation: string,
+  error: unknown,
+): ObjectStorageHealthDiagnostic {
+  const details =
+    error && typeof error === 'object'
+      ? (error as Record<string, unknown>)
+      : {};
+  // Never expose provider messages, URLs, keys, request IDs or arbitrary names.
+  const knownCodes = [
+    'AccessDenied',
+    'Forbidden',
+    'InvalidAccessKeyId',
+    'SignatureDoesNotMatch',
+    'ExpiredToken',
+    'InvalidToken',
+    'NoSuchBucket',
+    'NotFound',
+    'PermanentRedirect',
+    'AuthorizationHeaderMalformed',
+    'IllegalLocationConstraintException',
+    'InvalidRequest',
+    'InvalidArgument',
+    'NotImplemented',
+    'SlowDown',
+    'ServiceUnavailable',
+    'InternalError',
+    'CredentialsProviderError',
+    'TimeoutError',
+    'AbortError',
+    'NetworkingError',
+    'ENOTFOUND',
+    'ECONNREFUSED',
+    'ECONNRESET',
+    'ETIMEDOUT',
+  ];
+  const code = [details.name, details.Code, details.code].find(
+    (value) => typeof value === 'string' && knownCodes.includes(value),
+  );
+  const metadata = details.$metadata;
+  const status =
+    metadata && typeof metadata === 'object'
+      ? (metadata as Record<string, unknown>).httpStatusCode
+      : undefined;
+  return {
+    operation,
+    code:
+      typeof code === 'string'
+        ? code
+        : operation === 'ValidateMetadata'
+          ? 'MetadataMismatch'
+          : operation === 'ValidateContent'
+            ? 'ContentMismatch'
+            : 'UnknownError',
+    ...(typeof status === 'number' &&
+    Number.isInteger(status) &&
+    status >= 100 &&
+    status <= 599
+      ? { httpStatusCode: status }
+      : {}),
+  };
+}
 
 export interface S3ObjectStorageCredentials {
   accessKeyId: string;
@@ -263,12 +327,14 @@ export class S3ObjectStorageAdapter
     const startedAt = Date.now();
     const objectKey = this.keyFactory.create();
     const payload = Buffer.from('health', 'ascii');
-    let available = true;
+    const diagnostics: ObjectStorageHealthDiagnostic[] = [];
+    let operation = 'HeadBucket';
     try {
       await this.client.send(
         new HeadBucketCommand({ Bucket: this.options.bucket }),
         { abortSignal: signal },
       );
+      operation = 'PutObject';
       await this.client.send(
         new PutObjectCommand(
           buildS3PutObjectInput(
@@ -283,6 +349,7 @@ export class S3ObjectStorageAdapter
         ),
         { abortSignal: signal },
       );
+      operation = 'HeadObject';
       const head = await this.client.send(
         new HeadObjectCommand({
           Bucket: this.options.bucket,
@@ -290,6 +357,7 @@ export class S3ObjectStorageAdapter
         }),
         { abortSignal: signal },
       );
+      operation = 'ValidateMetadata';
       if (
         head.ContentLength !== payload.length ||
         (this.options.serverSideEncryption !== 'none' &&
@@ -298,6 +366,7 @@ export class S3ObjectStorageAdapter
       ) {
         throw new Error('S3 health object metadata is incomplete');
       }
+      operation = 'GetObject';
       const fetched = await this.client.send(
         new GetObjectCommand({
           Bucket: this.options.bucket,
@@ -306,19 +375,21 @@ export class S3ObjectStorageAdapter
         { abortSignal: signal },
       );
       const bytes = await fetched.Body?.transformToByteArray();
+      operation = 'ValidateContent';
       if (!bytes || !Buffer.from(bytes).equals(payload)) {
         throw new Error('S3 health object could not be read back');
       }
-    } catch {
-      available = false;
+    } catch (error) {
+      diagnostics.push(healthDiagnostic(operation, error));
     }
 
     // Cleanup uses an independent deadline because the caller's signal may
     // already be aborted after an ambiguous PUT. The operation is still
     // awaited, but can never extend the probe indefinitely.
-    if (!(await this.cleanupHealthObject(objectKey))) available = false;
+    const cleanupFailure = await this.cleanupHealthObject(objectKey);
+    if (cleanupFailure) diagnostics.push(cleanupFailure);
 
-    return available
+    return diagnostics.length === 0
       ? {
           status: 'up',
           provider: 's3',
@@ -329,6 +400,7 @@ export class S3ObjectStorageAdapter
           provider: 's3',
           durationMs: Date.now() - startedAt,
           errorCode: 'OBJECT_STORAGE_UNAVAILABLE',
+          diagnostics,
         };
   }
 
@@ -336,7 +408,9 @@ export class S3ObjectStorageAdapter
     this.client.destroy();
   }
 
-  private async cleanupHealthObject(objectKey: string): Promise<boolean> {
+  private async cleanupHealthObject(
+    objectKey: string,
+  ): Promise<ObjectStorageHealthDiagnostic | null> {
     const controller = new AbortController();
     const timeoutMs = Math.min(
       this.options.requestTimeoutMs,
@@ -352,13 +426,13 @@ export class S3ObjectStorageAdapter
         { abortSignal: controller.signal },
       )
       .then(
-        () => true,
-        () => false,
+        () => null,
+        (error: unknown) => healthDiagnostic('DeleteObject', error),
       );
-    const expired = new Promise<boolean>((resolve) => {
+    const expired = new Promise<ObjectStorageHealthDiagnostic>((resolve) => {
       timeout = setTimeout(() => {
         controller.abort();
-        resolve(false);
+        resolve({ operation: 'DeleteObject', code: 'TimeoutError' });
       }, timeoutMs);
       timeout.unref();
     });

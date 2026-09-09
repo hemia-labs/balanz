@@ -605,7 +605,12 @@ La secuencia normal es:
    rutas antiguas. La recreación en modo fork implica una breve interrupción.
    Si liveness/readiness agota los reintentos, antes del rollback se consulta una
    nueva instantánea acotada y se imprimen únicamente estado, proceso, dependencia,
-   obligatoriedad y código de error. No se imprime el cuerpo completo ni logs de
+   obligatoriedad y código de error. Para S3, `diagnostics` identifica la operación
+   fallida, el código del proveedor permitido y el estado HTTP cuando está disponible.
+   Incluye la limpieza `DeleteObject`; un fallo adicional no reemplaza el original.
+   `ValidateMetadata/MetadataMismatch` indica tamaño o cifrado inesperado y
+   `ValidateContent/ContentMismatch` indica contenido distinto al escrito.
+   No se imprime el cuerpo completo ni logs de
    aplicación. El diagnóstico conserva el código de fallo original de curl aunque
    la respuesta adicional sea inválida o el proceso ya no responda.
 7. Persistir el estado de PM2. Ante un fallo, restaurar `current` y recrear el

@@ -35,6 +35,12 @@ export interface SignedObjectReadUrl {
   expiresAt: Date;
 }
 
+export interface ObjectStorageHealthDiagnostic {
+  operation: string;
+  code: string;
+  httpStatusCode?: number;
+}
+
 export type ObjectStorageHealth =
   | { status: 'up'; provider: ObjectStorageProvider; durationMs: number }
   | {
@@ -42,6 +48,7 @@ export type ObjectStorageHealth =
       provider: ObjectStorageProvider;
       durationMs: number;
       errorCode: string;
+      diagnostics?: ObjectStorageHealthDiagnostic[];
     };
 
 /**
