@@ -247,7 +247,7 @@ describe('S3ObjectStorageAdapter configuration/command contract (unit only)', ()
       {
         driver: 's3',
         region: 'us-east-2',
-          bucket: 'private-health',
+        bucket: 'private-health',
         maxBytes: 1024,
         requestTimeoutMs: 1000,
         serverSideEncryption: 'AES256',
