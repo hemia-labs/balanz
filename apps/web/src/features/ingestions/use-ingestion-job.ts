@@ -9,10 +9,12 @@ export function useIngestionJob({
   organizationId,
   jobId,
   enabled = true,
+  page = 1,
 }: {
   organizationId: string;
   jobId: string | null;
   enabled?: boolean;
+  page?: number;
 }) {
   const [revision, setRevision] = useState(0);
   const requestIdentity = useRef(0);
@@ -27,11 +29,11 @@ export function useIngestionJob({
 
   useEffect(() => {
     if (!enabled || !jobId) return;
-    const identity = `${organizationId}:${jobId}`;
+    const identity = `${organizationId}:${jobId}:${page}`;
     const requestId = ++requestIdentity.current;
     const stop = startIngestionJobPolling({
       getJob: (options) => getIngestionJob(jobId, options),
-      getItems: (signal) => getIngestionItems(jobId, signal),
+      getItems: (signal) => getIngestionItems(jobId, signal, page),
       onChange: (next) => {
         if (requestId === requestIdentity.current)
           setState({ identity, ...next });
@@ -41,9 +43,9 @@ export function useIngestionJob({
       requestIdentity.current += 1;
       stop();
     };
-  }, [enabled, jobId, organizationId, revision]);
+  }, [enabled, jobId, organizationId, revision, page]);
 
-  const identity = jobId ? `${organizationId}:${jobId}` : "";
+  const identity = jobId ? `${organizationId}:${jobId}:${page}` : "";
   const current = enabled && Boolean(jobId) && state.identity === identity;
   return {
     job: current ? state.job : null,

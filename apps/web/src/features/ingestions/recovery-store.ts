@@ -99,5 +99,6 @@ export function readIngestionRecovery(
 export function clearIngestionRecovery(storage = browserStorage()) {
   if (!storage) return;
   storage.removeItem(RECOVERY_KEY);
+  storage.removeItem("balanz:zip-upload:v1");
   notify();
 }

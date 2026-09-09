@@ -9,6 +9,7 @@ import type { MalwareScannerPort } from '../src/modules/malware-scanner/ports/ma
 import { MalwareScannerError } from '../src/modules/malware-scanner/malware-scanner.errors';
 import type { CfdiParserPort } from '../src/modules/cfdi-parser';
 import { CfdiParserError } from '../src/modules/cfdi-parser';
+import { XmlObjectProcessor } from '../src/modules/cfdi/workers/xml-object.processor';
 import { ManualXmlJobHandler } from '../src/modules/cfdi/workers/manual-xml-job.handler';
 import type { CfdiWorkerPersistenceService } from '../src/modules/cfdi/workers/cfdi-worker-persistence.service';
 
@@ -112,7 +113,10 @@ function setup(overrides?: {
     scanner,
     parser,
     persistence,
-    handler: new ManualXmlJobHandler(storage, scanner, parser, persistence),
+    handler: new ManualXmlJobHandler(
+      persistence,
+      new XmlObjectProcessor(storage, scanner, parser, persistence),
+    ),
   };
 }
 

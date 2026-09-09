@@ -11,6 +11,8 @@ import { IngestionWorkerRunner } from './ingestion-worker.runner';
 import { CfdiProcessingModule } from '../../cfdi/cfdi-processing.module';
 import { ManualXmlJobHandler } from '../../cfdi/workers/manual-xml-job.handler';
 
+import { ManualZipJobHandler } from '../../cfdi/workers/manual-zip-job.handler';
+
 @Module({
   imports: [
     CorrelationModule,
@@ -22,9 +24,11 @@ import { ManualXmlJobHandler } from '../../cfdi/workers/manual-xml-job.handler';
   providers: [
     {
       provide: INGESTION_JOB_HANDLERS,
-      inject: [ManualXmlJobHandler],
-      useFactory: (manualXml: ManualXmlJobHandler) =>
-        Object.freeze([manualXml]),
+      inject: [ManualXmlJobHandler, ManualZipJobHandler],
+      useFactory: (
+        manualXml: ManualXmlJobHandler,
+        manualZip: ManualZipJobHandler,
+      ) => Object.freeze([manualXml, manualZip]),
     },
     IngestionJobRegistry,
     IngestionWorkerRunner,

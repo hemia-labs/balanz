@@ -70,10 +70,14 @@ export function startIngestionJobPolling({
         etag = response.etag ?? etag;
         publish({ job: response.job, items: [], loading: false, error: null });
       }
-      if (state.job && isTerminalIngestionStatus(state.job.status)) {
+      if (
+        state.job &&
+        (state.job.counters.total > 0 ||
+          isTerminalIngestionStatus(state.job.status))
+      ) {
         const items = await getItems(controller.signal);
         publish({ ...state, items, loading: false, error: null });
-        return;
+        if (isTerminalIngestionStatus(state.job!.status)) return;
       }
       // A 304 after reconnection is also a successful poll: clear its old error.
       failures = 0;

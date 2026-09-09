@@ -16,6 +16,43 @@ interface HistogramValue {
 }
 
 const DEFINITIONS = {
+  zip_admitted_total: {
+    help: 'Committed ZIP upload admissions, excluding idempotent replays.',
+    kind: 'counter',
+    labels: [],
+  },
+  zip_uncompressed_bytes_total: {
+    help: 'Verified extracted ZIP bytes.',
+    kind: 'counter',
+    labels: [],
+  },
+  zip_entries_inspected_total: {
+    help: 'Regular ZIP entries inspected.',
+    kind: 'counter',
+    labels: [],
+  },
+  zip_structural_rejections_total: {
+    help: 'Structurally rejected ZIP packages.',
+    kind: 'counter',
+    labels: [],
+  },
+  zip_cleanup_failures_total: {
+    help: 'ZIP cleanup failures pending durable retry.',
+    kind: 'counter',
+    labels: [],
+  },
+  zip_expansion_ratio: {
+    help: 'Actual ZIP expansion ratio.',
+    kind: 'histogram',
+    labels: [],
+    buckets: [1, 2, 5, 10, 20, 30, 40, 50],
+  },
+  zip_extraction_duration_seconds: {
+    help: 'ZIP inspection and extraction duration.',
+    kind: 'histogram',
+    labels: [],
+    buckets: [0.1, 1, 5, 10, 30, 60, 120, 300],
+  },
   ingestion_jobs_created_total: {
     help: 'Durable ingestion jobs created by source.',
     kind: 'counter',

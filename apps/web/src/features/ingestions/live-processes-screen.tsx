@@ -43,7 +43,6 @@ export function LiveProcessesScreen() {
       page,
       limit: 20,
       status: status || undefined,
-      source: "manual_xml",
       sort: "createdAt",
       direction: "desc",
     }),
@@ -86,7 +85,7 @@ export function LiveProcessesScreen() {
         description="Seguimiento real de cargas XML durables. Los procesos continúan aunque cierres o recargues el navegador."
       />
       <FeaturePendingNotice>
-        Sólo se muestran cargas XML manuales de Fase 1. ZIP y sincronización SAT no están disponibles.
+        Cargas manuales XML y ZIP. La sincronización SAT no está disponible.
       </FeaturePendingNotice>
       <Surface>
         <SurfaceHeader
@@ -131,7 +130,10 @@ export function LiveProcessesScreen() {
           </div>
         ) : state.error || !data ? (
           <div className="p-5">
-            <ErrorNotice error={state.error} fallback="No se pudieron cargar los procesos." />
+            <ErrorNotice
+              error={state.error}
+              fallback="No se pudieron cargar los procesos."
+            />
           </div>
         ) : (
           <>
@@ -198,7 +200,11 @@ function ProcessTable({
           header: "Estado",
           render: (process) => <StatusBadge status={process.status} />,
         },
-        { id: "stage", header: "Etapa", render: (process) => process.stage ?? "—" },
+        {
+          id: "stage",
+          header: "Etapa",
+          render: (process) => process.stage ?? "—",
+        },
         {
           id: "attempts",
           header: "Intentos",
@@ -214,7 +220,12 @@ function ProcessTable({
           id: "action",
           header: "Acción",
           render: (process) => (
-            <Button type="button" size="sm" variant="outline" onClick={() => onSelect(process.id)}>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={() => onSelect(process.id)}
+            >
               Ver detalle
             </Button>
           ),

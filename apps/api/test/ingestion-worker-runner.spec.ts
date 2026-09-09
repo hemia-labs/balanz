@@ -52,6 +52,34 @@ const emptyReconciliation: FoundationReconciliationResult = {
 describe('IngestionWorkerRunner durable semantics', () => {
   afterEach(() => jest.restoreAllMocks());
 
+  it('converges ZIP cancellation without consuming automatic retry budget', async () => {
+    const zipClaim = {
+      ...claim,
+      sourceType: IngestionJobSourceType.MANUAL_ZIP,
+    };
+    const { runner, jobs } = createRunner({
+      source: 'manual_zip',
+      handle: jest
+        .fn()
+        .mockRejectedValue(
+          new DurableWorkerError('ZIP_CANCELLED', { retryable: false }),
+        ),
+    });
+    jobs.claimNext
+      .mockReset()
+      .mockResolvedValueOnce(zipClaim)
+      .mockResolvedValue(null);
+    try {
+      runner.onApplicationBootstrap();
+      await eventually(() => jobs.complete.mock.calls.length === 1);
+      expect(jobs.complete).toHaveBeenCalledWith(zipClaim, 'cancelled');
+      expect(jobs.scheduleRetry).not.toHaveBeenCalled();
+      expect(jobs.failFinal).not.toHaveBeenCalled();
+    } finally {
+      await runner.onApplicationShutdown();
+    }
+  });
+
   function createRunner(
     handler?: IngestionJobHandler,
     heartbeat = 'renewed',

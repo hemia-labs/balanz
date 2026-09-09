@@ -327,8 +327,13 @@ export class IngestionJobRepository {
       );
       const failed = rows[0];
       if (!failed) return false;
-      if (failed.source_type === IngestionJobSourceType.MANUAL_XML) {
-        failed.version = await this.terminalizeManualXmlItems(
+      if (
+        [
+          IngestionJobSourceType.MANUAL_XML,
+          IngestionJobSourceType.MANUAL_ZIP,
+        ].includes(failed.source_type as 'manual_xml' | 'manual_zip')
+      ) {
+        failed.version = await this.terminalizeManualItems(
           manager,
           failed,
           errorCode,
@@ -493,9 +498,12 @@ export class IngestionJobRepository {
       const row = rows[0];
       if (
         row?.status === IngestionJobStatus.FAILED_FINAL &&
-        row.source_type === IngestionJobSourceType.MANUAL_XML
+        [
+          IngestionJobSourceType.MANUAL_XML,
+          IngestionJobSourceType.MANUAL_ZIP,
+        ].includes(row.source_type as 'manual_xml' | 'manual_zip')
       ) {
-        row.version = await this.terminalizeManualXmlItems(
+        row.version = await this.terminalizeManualItems(
           manager,
           row,
           errorCode,
@@ -664,7 +672,7 @@ export class IngestionJobRepository {
     );
   }
 
-  private async terminalizeManualXmlItems(
+  private async terminalizeManualItems(
     manager: EntityManager,
     job: TerminalJobRow,
     errorCode: string,
@@ -715,7 +723,7 @@ export class IngestionJobRepository {
            FROM aggregate
           WHERE job.id = $2
             AND job.organization_id = $1
-            AND job.source_type = 'manual_xml'
+            AND job.source_type IN ('manual_xml','manual_zip')
             AND job.status = 'failed_final'
         RETURNING job.version
        )
@@ -723,7 +731,9 @@ export class IngestionJobRepository {
       [job.organization_id, job.id],
     );
     if (rows.length !== 1) {
-      throw new Error('Manual XML terminal counter reconciliation failed');
+      throw new Error(
+        'Manual ingestion terminal counter reconciliation failed',
+      );
     }
     return Number(rows[0].version);
   }

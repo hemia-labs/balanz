@@ -1,11 +1,11 @@
 # Contrato técnico de la plataforma de ingesta CFDI
 
-- Versión contractual: `p1.0`
+- Versión contractual: `p2.0`
 - Fecha: 2026-09-03
 - Fase 0 desarrollo: `ACCEPTED`
 - Fase 0 release: `BLOCKED`
 - Fase 1 XML: `PARTIALLY_COMPLETE`
-- Fase 2 ZIP: `NOT_AUTHORIZED`
+- Fase 2 ZIP: `IMPLEMENTED_NOT_MERGED` (validación en `../qa/CFDI_PHASE_2_VALIDATION_REPORT.md`)
 - Fases 3–8: `NOT_STARTED`
 
 ## 1. Propósito y límite público
@@ -13,8 +13,9 @@
 Este contrato conserva las interfaces internas y garantías durables entregadas
 por Fase 0 y añade el contrato público de XML individual autorizado en Fase 1.
 Las afirmaciones históricas de ausencia de rutas/parser en el alcance de Fase 0
-no restringen esta extensión. Continúan fuera del runtime: ZIP, e.firma,
-descarga/sincronización SAT, mesa mensual completa, exportaciones y Fases 2–8.
+no restringen esta extensión. Fase 2 añade ZIP manual conforme a la sección 13.
+Continúan fuera del runtime e.firma, descarga/sincronización SAT, mesa mensual
+completa, exportaciones y Fases 3–8.
 
 ### 1.1 Superficie HTTP de Fase 1
 
@@ -427,7 +428,7 @@ se agrega en el target de scrape, no a partir de datos de la ingesta.
 | Fase | Capacidad                                                | Estado        |
 | ---- | -------------------------------------------------------- | ------------- |
 | 1    | upload XML 5 MiB, parser, dominio/lista/detalle/descarga | `PARTIALLY_COMPLETE` |
-| 2    | init/signed URL/confirm ZIP y resultados parciales       | `NOT_AUTHORIZED` |
+| 2    | init/signed URL/confirm ZIP y resultados parciales       | `IMPLEMENTED_NOT_MERGED` |
 | 3    | reauth purpose-bound y custodia e.firma                  | `NOT_STARTED` |
 | 4    | solicitud/poll/paquetes SAT on-demand                    | `NOT_STARTED` |
 | 5    | mesa mensual, decisiones y cierre                        | `NOT_STARTED` |
@@ -435,7 +436,122 @@ se agrega en el target de scrape, no a partir de datos de la ingesta.
 | 7    | operación global/soporte JIT                             | `NOT_STARTED` |
 | 8    | hardening/piloto                                         | `NOT_STARTED` |
 
-Las filas de Fases 2–8 son reservas contractuales: no autorizan generar
+Las filas de Fases 3–8 son reservas contractuales: no autorizan generar
 OpenAPI, controllers, rutas, UI ni reportes de esas capacidades. Fase 1 fue
-autorizada expresamente y es el único consumidor funcional de este contrato en
-la ejecución actual.
+autorizada expresamente; Fase 2 también está autorizada y extiende este contrato.
+
+## 13. ZIP manual: contrato implementado en Fase 2
+
+Prefijo predeterminado `/api/v1`. Todas las rutas API aplican sesión, organización
+y membresía activas, permiso, CSRF en mutaciones, asignación/scope y RLS. No se
+aceptan keys, URLs ni un tenant libre en el body. La carga no exige MFA.
+
+| Paso | Método y ruta sin prefijo | Respuesta |
+| --- | --- | --- |
+| init | `POST /legal-entities/:legalEntityId/ingestions/zip/init` | `201`, upload/object IDs, estado, mecanismo temporal, enlace confirm y correlation ID; sin job |
+| upload S3/MinIO | `PUT` a la URL temporal devuelta por init | Objeto privado e inmutable, sin cookie de aplicación |
+| upload local | `PUT /ingestion-uploads/:uploadId/zip/content` | `200`; stream autenticado sujeto a plazo y objeto reservado |
+| confirm | `POST /ingestion-uploads/:uploadId/zip/confirm` | `202`, upload/object/job IDs, estado, links ingestion/items y correlation ID |
+
+Init y confirm exigen `Idempotency-Key` ASCII visible de 1–128 caracteres. Init
+recibe exclusivamente `filename` (nombre seguro `.zip`, máximo 240 caracteres),
+`mimeType` (`application/zip`, `application/x-zip-compressed` o
+`application/octet-stream`), `sizeBytes` (22–52,428,800) y `sha256` (64 hex minúsculas).
+El servidor persiste `paquete.zip`; nunca necesita conservar el nombre original.
+La respuesta `upload` contiene `method`, `url`, `headers` y `expiresAt`, o `null`
+cuando el upload ya fue confirmado o está siendo verificado. Una repetición de init renueva solamente el
+mecanismo temporal, conservando identidad y fingerprint.
+
+La firma PUT vence en `min(300, OBJECT_STORAGE_SIGNED_URL_TTL_SECONDS)` segundos,
+liga Content-Length, Content-Type, checksum SHA-256, `If-None-Match: *` y cabeceras
+de cifrado. No se persiste. El navegador establece las cabeceras devueltas; su
+agente HTTP deriva Content-Length del archivo. Local usa `write_expires_at`,
+sesión actual y streaming con backpressure y límite real durante la recepción.
+Después del PUT local los bytes existen, pero el estado durable de admisión
+permanece `pending` hasta confirm; `uploaded` en la respuesta PUT describe la
+transferencia terminada. No implica que exista un job.
+
+Confirm reclama primero el upload mediante una transacción corta y scoped:
+`pending/uploaded → receiving`, `updated_at` y `version` como fence. Reutiliza
+el lease/heartbeat de recepción existente (`WORKER_LEASE_SECONDS` y
+`WORKER_HEARTBEAT_SECONDS`); no requiere columnas ni migración adicional.
+Sólo el propietario lee el objeto reservado, verifica existencia, tamaño real y SHA-256
+de todos sus bytes; metadata/ETag no sustituyen esta lectura. Luego confirma el
+upload y reserva el job `manual_zip`. Son transacciones recuperables consecutivas:
+una caída entre ambas deja un upload confirmado recuperable al repetir confirm.
+El wakeup ocurre después del commit del job. Un índice único por upload ZIP
+inicial y la reserva canónica `zip-confirm:<uploadId>` impiden dos jobs iniciales.
+Repetir la misma clave devuelve la misma identidad; cambiar payload o clave de
+confirmación produce conflicto. Los fingerprints versionados son
+`manual_zip_upload_init_v1`, `manual_zip_upload_confirm_v1`, `manual_zip_retry_v1`.
+Se conserva la ventana de idempotencia de 24 horas; después se consulta por ID.
+
+Una confirmación concurrente recibe `409 UPLOAD_CONFIRM_IN_PROGRESS` sin HEAD
+ni lectura del objeto. El navegador repite confirm con la misma key cada segundo,
+durante un máximo de dos minutos de espera, con cancelación y recuperación por
+uploadId. La lectura individual mantiene su timeout de 120 segundos. Tras una
+caída, un lease vencido permite reclamar y verificar nuevamente los mismos bytes;
+una versión anterior no puede confirmar ni liberar el claim vigente. Errores de
+lectura/objeto ausente liberan únicamente el claim propio; si PostgreSQL no está
+disponible, su vencimiento garantiza recuperación. No se elimina el ZIP.
+No hay transacción ni conexión de PostgreSQL retenida durante I/O de storage.
+
+### 13.1 Procesamiento y éxito parcial
+
+ZIP32, métodos STORE y DEFLATE. Límites inalterables por request: 50 MiB
+comprimidos, 250 MiB expandidos acumulados, 2,000 archivos regulares, ratio 50:1
+por entrada y paquete, dos carpetas internas, ruta normalizada de 240 caracteres,
+XML de 5 MiB. Adicionalmente se inspeccionan como máximo 6,000 headers contando
+directorios, para limitar el trabajo de inspección. ZIP64, multipart, autoextraíbles,
+campos extra de enlaces/rutas alternativas y métodos no soportados se rechazan.
+
+Se rechaza el paquete por malware raíz, cifrado, traversal, rutas absolutas/
+drive/UNC, nombres ambiguos o duplicados, enlaces/dispositivos/entradas especiales,
+ZIP anidado (extensión o firma), estructura/CRC/tamaño contradictorios y límites.
+Un ZIP vacío o compuesto sólo de directorios se rechaza con `ZIP_EMPTY`:
+no crea items ni termina como éxito con cero archivos.
+No se invoca el parser hasta que **todas** las entradas hayan pasado extracción
+real, CRC, fin de DEFLATE y límites acumulados. Ninguna ruta del ZIP se usa para
+escribir en filesystem. Lecturas del storage por rangos y streams evitan
+materializar el paquete en memoria en API/worker.
+
+Cada archivo regular inspeccionado de un paquete estructuralmente admisible
+reserva un `ingestion_item` por ordinal; las carpetas no crean items. No XML
+produce `unsupported/ZIP_ENTRY_UNSUPPORTED`; XML mayor a 5 MiB produce
+`invalid/INGESTION_FILE_TOO_LARGE`. Sólo XML procesable genera `extracted_xml`.
+El procesador XML compartido conserva resultados canónicos `incorporated`,
+`duplicate`, `foreign`, `invalid`, `unsupported`, `internal_error`, incidencias,
+dedupe UUID/hash y procedencia. Escanea cada objeto antes del parser. Un XML
+malformado, foreign, no soportado, duplicado, conflictivo o infectado no revierte
+ni detiene los demás resultados seguros. No hay jobs hijos `manual_xml`.
+
+Etapas: `scanning → extracting → parsing/persisting`; terminales `completed`,
+`completed_with_issues`, `failed_final`, `cancelled`. Duplicados por sí solos no
+convierten un job en parcial. Errores de infraestructura conservan retry durable;
+errores estructurales son terminales. Un paquete rechazado durante inspección
+puede tener cero items; los pendientes ya reservados convergen a `internal_error`
+al finalizar por error/cancelación, conservando los resultados previos.
+
+### 13.2 Consultas, retry y recuperación
+
+Estado, items, processes, retry y cancel aceptan ambas fuentes. Processes permite
+`source=manual_xml|manual_zip`. Items: `page>=1`, `limit<=100` (UI: 25), filtro
+canónico `result`; ZIP siempre ordena por `ordinal,id` en la dirección solicitada,
+UI ascendente. `meta.total/totalPages` corresponden al filtro. Los counters del
+job describen todos sus items y se reconcilian desde SQL, también durante extracción
+y en la transición terminal. `cfdiId` enlaza al detalle existente con `cfdi.view`.
+
+Retry ZIP permite `failed_final`, `completed_with_issues` o `cancelled` si el
+objeto raíz durable sigue elegible, sin infección ni cleanup reclamado. Cada
+clave nueva crea otro job con `retry_of_job_id`; el job anterior queda inmutable.
+Reprocesa el paquete completo; no existe retry sólo de fallidos. La idempotencia
+fiscal evita duplicados y sustitución del XML publicado. El retry automático
+conserva ordinal único, reutiliza/verifica objetos existentes y respeta el
+presupuesto y fencing originales del worker.
+
+Cancel se verifica antes de extraer, entre entradas y antes del resultado terminal;
+la transición exige lease vigente. Reload/reinicio recuperan por IDs durables
+desde localStorage y polling, incluso confirmación pendiente sin retransmitir.
+Si faltan bytes debe seleccionarse otra vez el mismo archivo. Cambiar tenant
+aborta requests y limpia recuperación. No se persisten URLs, keys, ZIP, XML ni
+secretos. La descarga posterior conserva los permisos y MFA de Fase 1.

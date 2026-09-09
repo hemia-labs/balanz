@@ -176,3 +176,34 @@ Agregar o cambiar un código requiere actualizar este catálogo, contrato,
 tests y, si cambia semántica duradera, un ADR/migración. Un código reservado no
 autoriza implementar la capacidad de su fase. No se elimina un código consumido;
 se depreca y se mantiene durante la ventana de compatibilidad.
+
+## 6. Códigos implementados de Fase 2 ZIP
+
+| Código | Alcance y resultado | Retry automático |
+| --- | --- | --- |
+| `ZIP_CORRUPT` | Paquete: headers, rangos, CRC, tamaño, truncación o fin de DEFLATE inconsistentes | No |
+| `ZIP_EMPTY` | Paquete sin archivos regulares (vacío o sólo carpetas): rechazo antes de crear items/parser | No; crear otro ZIP con XML |
+| `UPLOAD_CONFIRM_IN_PROGRESS` | API 409: otro propietario verifica el upload; no se repite la lectura de storage | Repetir confirm con la misma key; espera acotada y cancelable |
+| `ZIP_LIMIT_EXCEEDED` | Paquete: bytes, entradas, profundidad o ratio | No |
+| `ZIP_UNSAFE_ENTRY` | Paquete: rutas, alias, enlaces, especiales, extras/métodos no permitidos | No |
+| `ZIP_ENCRYPTED` | Paquete cifrado | No |
+| `ZIP_NESTED` | Entrada con extensión/firma ZIP | No |
+| `ZIP_ENTRY_UNSUPPORTED` | Sólo item: archivo regular benigno no XML, resultado `unsupported` | No |
+| `ZIP_CANCELLED` | Señal interna de cancelación; pendientes finalizados como `internal_error` al converger | No |
+| `ZIP_CLEANUP_FAILED` | Código reservado de operación; el reconciliador conserva claim durable y emite `zip_cleanup_failures_total` | Barrido tras 5 minutos |
+
+Se reutilizan `UPLOAD_NOT_CONFIRMABLE` (409, bytes ausentes/plazo de transferencia),
+`UPLOAD_PAYLOAD_MISMATCH` (422, tamaño/hash/MIME diferente), `UPLOAD_EXPIRED` (410),
+`IDEMPOTENCY_KEY_REQUIRED` (400), `IDEMPOTENCY_CONFLICT` (409),
+`IDEMPOTENCY_KEY_EXPIRED` (410), `INGESTION_ACTIVE_JOB_LIMIT` (429),
+`JOB_NOT_RETRYABLE` (409), `JOB_ROOT_OBJECT_UNAVAILABLE`, `OBJECT_HASH_MISMATCH`,
+`MALWARE_DETECTED`, errores XML y errores transitorios de storage/scanner.
+Un malware localizado en XML genera el resultado de item canónico de Fase 1;
+malware en ZIP raíz impide extraer. `JOB_LEASE_LOST` impide publicación y no se
+convierte en corrupción. Ninguna excepción de SQL o dependencia se muestra cruda.
+
+El frontend traduce los errores ZIP a mensajes en español con una acción de
+recuperación; conserva el código como detalle secundario. `ZIP_HASH_FAILED` es
+un error local de preparación: no llegó a init y permite volver a seleccionar
+el archivo. El hash nativo se calcula en un Web Worker desechable y cancelable;
+su buffer está limitado a 50 MiB y no reside en el hilo principal.

@@ -32,7 +32,10 @@ import {
 import { useDebouncedValue } from "@/features/clients/live-query-hooks";
 import { useClientDetail } from "@/features/clients/use-client-detail";
 import { LatestIngestionPanel } from "@/features/ingestions/ingestion-status-panel";
-import { XmlUploadDialog } from "@/features/ingestions/xml-upload-dialog";
+import {
+  XmlUploadDialog,
+  ZipUploadDialog,
+} from "@/features/ingestions/xml-upload-dialog";
 import { ApiError } from "@/lib/api-client";
 import { createCfdiAccessUrl, type CfdiListQuery } from "./api";
 import { formatExactDecimal, formatExactMoney } from "./exact-decimal";
@@ -285,6 +288,15 @@ function CfdiListScreen({
               }}
               disabled={entity.status !== "active"}
             />
+            <ZipUploadDialog
+              key={`zip:${organization.id}:${clientId}:${legalEntityId}`}
+              scope={{
+                organizationId: organization.id,
+                clientAccountId: clientId,
+                legalEntityId,
+              }}
+              disabled={entity.status !== "active"}
+            />
           </PermissionGate>
         }
       />
@@ -295,8 +307,8 @@ function CfdiListScreen({
         </WarningNotice>
       ) : null}
       <FeaturePendingNotice>
-        Esta fase admite un XML por carga. ZIP y sincronización SAT permanecen
-        no disponibles.
+        Puedes cargar un XML individual o un ZIP. La sincronización SAT
+        permanece no disponible.
       </FeaturePendingNotice>
       <LatestIngestionPanel
         scope={{

@@ -13,6 +13,9 @@ import { CfdiQueryService } from './services/cfdi-query.service';
 import { IngestionQueryService } from './services/ingestion-query.service';
 import { XmlUploadService } from './services/xml-upload.service';
 
+import { ZipIngestionController } from './controllers/zip-ingestion.controller';
+import { ZipUploadService } from './services/zip-upload.service';
+
 @Module({
   imports: [
     TypeOrmModule.forFeature([LegalEntity]),
@@ -24,9 +27,15 @@ import { XmlUploadService } from './services/xml-upload.service';
   ],
   controllers: [
     XmlIngestionController,
+    ZipIngestionController,
     IngestionQueryController,
     CfdiController,
   ],
-  providers: [XmlUploadService, IngestionQueryService, CfdiQueryService],
+  providers: [
+    ZipUploadService,
+    XmlUploadService,
+    IngestionQueryService,
+    CfdiQueryService,
+  ],
 })
 export class CfdiApiModule {}

@@ -7,6 +7,12 @@ import { IngestionModule } from '../ingestion/ingestion.module';
 import { CfdiWorkerPersistenceService } from './workers/cfdi-worker-persistence.service';
 import { ManualXmlJobHandler } from './workers/manual-xml-job.handler';
 
+import { XmlObjectProcessor } from './workers/xml-object.processor';
+
+import { ManualZipJobHandler } from './workers/manual-zip-job.handler';
+import { ZipWorkerPersistenceService } from './workers/zip-worker-persistence.service';
+import { ZipCleanupService } from './workers/zip-cleanup.service';
+
 const configuredParser = CfdiParserModule.registerAsync({
   imports: [ConfigModule],
   inject: [ConfigService],
@@ -32,7 +38,14 @@ const configuredParser = CfdiParserModule.registerAsync({
     FiscalInfrastructureModule,
     configuredParser,
   ],
-  providers: [CfdiWorkerPersistenceService, ManualXmlJobHandler],
-  exports: [ManualXmlJobHandler],
+  providers: [
+    ManualZipJobHandler,
+    ZipWorkerPersistenceService,
+    ZipCleanupService,
+    CfdiWorkerPersistenceService,
+    XmlObjectProcessor,
+    ManualXmlJobHandler,
+  ],
+  exports: [ManualXmlJobHandler, ManualZipJobHandler, ZipCleanupService],
 })
 export class CfdiProcessingModule {}

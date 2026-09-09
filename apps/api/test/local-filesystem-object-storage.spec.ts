@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { mkdir, mkdtemp, readdir, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, parse } from 'node:path';
@@ -80,6 +80,24 @@ describe('LocalFilesystemObjectStorageAdapter integration', () => {
     expect(
       await collect(await adapter.openReadStream(first.objectKey)),
     ).toEqual(Buffer.from('first'));
+  });
+
+  it('ZIP cleanup removes only abandoned partial writes of the claimed opaque key', async () => {
+    const object = await adapter.putStream({
+      body: Readable.from([Buffer.from('root')]),
+    });
+    const path = join(storageRoot, ...object.objectKey.split('/'));
+    const partial = `${path}.partial-${randomUUID()}`;
+    const unrelated = `${path}.partial-unrecognized`;
+    await writeFile(partial, 'interrupted');
+    await writeFile(unrelated, 'preserve');
+    await adapter.cleanupAbandonedWrite(object.objectKey);
+    await adapter.cleanupAbandonedWrite(object.objectKey);
+    await expect(stat(partial)).rejects.toMatchObject({ code: 'ENOENT' });
+    expect((await stat(unrelated)).isFile()).toBe(true);
+    expect(
+      await collect(await adapter.openReadRange(object.objectKey, 1, 3)),
+    ).toEqual(Buffer.from('oo'));
   });
 
   it('rejects traversal before touching a path outside the root', async () => {

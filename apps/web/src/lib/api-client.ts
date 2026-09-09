@@ -124,6 +124,26 @@ export function apiResourceUrl(path: string) {
 }
 
 const FRIENDLY_ERROR_MESSAGES: Record<string, string> = {
+  ZIP_EMPTY:
+    "El ZIP no contiene archivos. Crea un paquete con XML CFDI e intenta de nuevo.",
+  ZIP_CORRUPT:
+    "El ZIP está dañado o incompleto. Crea el paquete de nuevo y vuelve a cargarlo.",
+  ZIP_LIMIT_EXCEEDED:
+    "El ZIP supera los límites de tamaño, archivos o carpetas. Divide el contenido en paquetes más pequeños.",
+  ZIP_UNSAFE_ENTRY:
+    "El ZIP contiene rutas o archivos que no se pueden extraer de forma segura. Crea otro paquete sólo con archivos XML CFDI.",
+  ZIP_ENCRYPTED:
+    "El ZIP está protegido con contraseña. Crea una copia sin contraseña para cargarla.",
+  ZIP_NESTED:
+    "El paquete contiene otro ZIP. Extrae sus XML y crea un paquete sin ZIP internos.",
+  ZIP_ENTRY_UNSUPPORTED:
+    "Este archivo no es XML y no se incorporó. Los demás archivos continúan su proceso.",
+  ZIP_CANCELLED:
+    "El proceso fue cancelado. Puedes reintentar el paquete completo cuando lo necesites.",
+  ZIP_HASH_FAILED:
+    "No se pudo preparar el ZIP. Vuelve a seleccionarlo e intenta de nuevo.",
+  UPLOAD_CONFIRM_IN_PROGRESS:
+    "La carga se está verificando. Espera unos segundos o recupera el proceso más tarde.",
   ACCOUNT_ASSIGNMENT_CONFLICT:
     "Este integrante ya tiene una asignación activa en la cuenta.",
   ACCOUNT_ASSIGNMENT_NOT_FOUND: "La asignación ya no está disponible.",
@@ -290,12 +310,13 @@ export interface ApiResponse<T> {
 export async function apiClientResponse<T>(
   path: string,
   init: RequestInit = {},
+  timeoutMs = DEFAULT_TIMEOUT_MS,
 ): Promise<ApiResponse<T>> {
   const controller = new AbortController();
   activeApiRequests.add(controller);
   const timeout = globalThis.setTimeout(
     () => controller.abort(),
-    DEFAULT_TIMEOUT_MS,
+    Math.min(120_000, Math.max(1_000, timeoutMs)),
   );
   const externalSignal = init.signal;
   const abort = () => controller.abort();
@@ -321,7 +342,11 @@ export async function apiClientResponse<T>(
       reportApiUnauthorized(requestError, path, init.method ?? "GET");
       throw requestError;
     }
-    return { data: body as T, status: response.status, headers: response.headers };
+    return {
+      data: body as T,
+      status: response.status,
+      headers: response.headers,
+    };
   } catch (error) {
     if (error instanceof ApiError) throw error;
     if (controller.signal.aborted) {

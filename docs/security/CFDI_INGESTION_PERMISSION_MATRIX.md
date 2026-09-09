@@ -1,11 +1,24 @@
 # Matriz de permisos de la plataforma CFDI
 
+> Extensión Fase 2: `ingestion.create` protege init, PUT local y confirm ZIP;
+> `ingestion.view` estado/items; `processes.view` lista XML/ZIP;
+> `ingestion.retry` y `ingestion.cancel` conservan scope y ownership existentes.
+> No se crea `ingestion.zip.create`. Titular real según `owner_user_id` conserva
+> acceso tenant-wide; los demás perfiles necesitan asignación activa. Un ID de
+> upload nunca concede acceso ni admite una object key del cliente. El PUT S3 es
+> una capacidad temporal ligada al objeto exacto, expedida después de autorizar
+> init; confirm vuelve a autorizar la sesión actual. No hay MFA/reauth de carga.
+> `cfdi.view` controla el detalle y `cfdi.download` + MFA la descarga original.
+> Columnas ZIP heredan FORCE RLS y FKs compuestas; el mantenimiento privilegiado
+> sólo devuelve IDs técnicos acotados y el borrado usa transacciones worker RLS.
+
 - Versión: 1.1
 - Fecha: 2026-09-03
 - Fase 0 desarrollo: `ACCEPTED`
 - Fase 0 release: `BLOCKED`
 - Fase 1 XML: `IN_PROGRESS`
-- Fases 2–8: `NOT_STARTED`
+- Fase 2 ZIP: implementada en rama, pendiente de merge/release
+- Fases 3–8: `NOT_STARTED`
 
 ## 1. Principios
 
@@ -34,8 +47,8 @@ UI ni capacidad de producto.
 
 | Permiso            | Intención                                 | Capacidad que lo consume | Estado funcional actual                        |
 | ------------------ | ----------------------------------------- | ------------------------ | ---------------------------------------------- |
-| `ingestion.view`   | ver una ingesta y sus resultados técnicos | XML/ZIP/SAT              | F1 XML: consulta de job/items                  |
-| `ingestion.create` | iniciar una ingesta autorizada            | XML/ZIP/SAT              | F1 XML: multipart individual                   |
+| `ingestion.view`   | ver una ingesta y sus resultados técnicos | XML/ZIP/SAT              | F1/F2: consulta de job/items XML/ZIP                  |
+| `ingestion.create` | iniciar una ingesta autorizada            | XML/ZIP/SAT              | XML individual; ZIP init/upload/confirm                   |
 | `ingestion.retry`  | solicitar retry durable                   | procesos de ingesta      | F1 XML: retry manual elegible                  |
 | `ingestion.cancel` | solicitar cancelación durable             | procesos de ingesta      | F1 XML: cancelación durable                    |
 | `processes.view`   | ver jobs/procesos fiscales                | centro de procesos       | F1 XML: lista de procesos `manual_xml`         |

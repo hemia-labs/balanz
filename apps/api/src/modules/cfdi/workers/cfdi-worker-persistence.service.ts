@@ -65,7 +65,7 @@ export class CfdiWorkerPersistenceService {
     this.malwareRetentionDays = retention.malwareQuarantineDays;
   }
 
-  loadAndBegin(job: ClaimResult): Promise<WorkerInput> {
+  loadAndBegin(job: ClaimResult, itemId?: string): Promise<WorkerInput> {
     return this.run(job, async (manager) => {
       const rows = await manager.query<
         Array<{
@@ -99,12 +99,12 @@ export class CfdiWorkerPersistenceService {
             AND item.client_account_id = job.client_account_id
             AND item.legal_entity_id = job.legal_entity_id
             AND item.ingestion_job_id = job.id
-            AND item.ordinal = 1
+            AND (($4::uuid IS NULL AND item.ordinal = 1) OR item.id = $4::uuid)
            INNER JOIN stored_objects object
              ON object.organization_id = job.organization_id
             AND object.client_account_id = job.client_account_id
             AND object.legal_entity_id = job.legal_entity_id
-            AND object.id = job.root_object_id
+            AND ((job.source_type = 'manual_xml' AND object.id = job.root_object_id) OR (job.source_type = 'manual_zip' AND object.kind = 'extracted_xml'))
             AND object.id = item.object_id
            INNER JOIN legal_entities entity
              ON entity.organization_id = job.organization_id
@@ -115,9 +115,9 @@ export class CfdiWorkerPersistenceService {
             AND job.locked_by = $3
             AND job.status = 'processing'
             AND job.lease_expires_at > clock_timestamp()
-            AND job.source_type = 'manual_xml'
+            AND job.source_type IN ('manual_xml','manual_zip')
             AND entity.status = 'active'`,
-        [job.organizationId, job.jobId, job.leaseToken],
+        [job.organizationId, job.jobId, job.leaseToken, itemId ?? null],
       );
       const row = rows[0];
       if (!row || !row.sha256 || row.size_bytes === null) {

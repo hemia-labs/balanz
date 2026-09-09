@@ -2,7 +2,7 @@
 
 - Versión: 1.2
 - Fecha: 2026-09-03
-- Carácter: contrato normativo de plataforma y Fase 1 XML
+- Carácter: contrato normativo de plataforma, Fase 1 XML y Fase 2 ZIP
 
 ## 1. Reglas generales
 
@@ -15,8 +15,9 @@ secreta.
 Los defaults de esta matriz son de desarrollo. Producción no hereda un default
 inseguro: storage local, scanner bypass, HTTP a S3/MinIO, cifrado distinto de
 SSE-KMS o credenciales incompletas deben impedir el arranque. XML individual
-está activo en Fase 1; ZIP y fases posteriores siguen `NOT_STARTED`. Sus
-límites se validan desde Fase 0 para evitar cambios inseguros al activarlos.
+está activo en Fase 1; ZIP manual está implementado en Fase 2, pendiente de merge
+y release. Fases 3–8 siguen `NOT_STARTED`. La autorización de desarrollo de ZIP
+no cierra los gates de release de Fases 0/1.
 
 ### 1.1 Perfiles de proceso y credenciales
 
@@ -168,7 +169,7 @@ declarar Fase 0 terminada.
 | ------------------------------------------ | ------------ | --------------------: | ----------------------------------- | ------------------------ |
 | `INGESTION_XML_MAX_BYTES`                  | entero fijo  |     `5242880` (5 MiB) | XML individual                      | F1 activo         |
 | `INGESTION_DIRECT_XML_MAX_COUNT`           | entero fijo  |                   `1` | multipart XML                    | F1 activo         |
-| `INGESTION_ZIP_MAX_BYTES`                  | entero fijo  |   `52428800` (50 MiB) | adapters local/S3 y validación de capacidad ClamAV | F0 activo; extractor F2 pendiente |
+| `INGESTION_ZIP_MAX_BYTES`                  | entero fijo  |   `52428800` (50 MiB) | adapters, ClamAV, admisión y extractor ZIP | F2 implementado |
 | `INGESTION_XML_MAX_DEPTH`                  | entero fijo  |                  `64` | parser seguro                       | F1 activo         |
 | `INGESTION_XML_MAX_NODES`                  | entero fijo  |              `200000` | parser seguro                       | F1 activo         |
 | `INGESTION_XML_MAX_ATTRIBUTES`             | entero fijo  |              `100000` | parser seguro                       | F1 activo         |
@@ -181,16 +182,40 @@ declarar Fase 0 terminada.
 
 Las políticas pueden permanecer como constantes validadas si no se exponen
 como variables. No se permite elevar límites por request, tenant o header. Fase
-1 consume los límites XML; registrar límites ZIP no activa Fase 2.
+1 consume los límites XML y Fase 2 los reutiliza por objeto extraído.
 
-Las ocho opciones del extractor ZIP sin consumidor se retiraron de la
-configuración runtime de Fase 0. El contrato previsto para Fase 2 conserva:
-250 MiB descomprimidos, 2.000 entradas, ratio máximo 50, profundidad 2,
-rutas de hasta 240 caracteres y prohibición de archivos anidados, cifrados
-o enlaces. Fase 2 deberá implementar y probar esas restricciones junto con
-el extractor antes de exponer configuración operativa. El límite comprimido
-de 50 MiB permanece porque ya protege los adapters de storage y la capacidad
-del scanner. Esta retirada no habilita procesamiento ZIP/SAT.
+Fase 2 aplica constantes tipadas de seguridad en el export `ZIP_LIMITS` de
+`zip-extractor.ts`: 250 MiB descomprimidos, 2,000 archivos regulares,
+ratio 50:1 por entrada/paquete, profundidad de carpetas 2, ruta 240 caracteres,
+sin ZIP anidados/cifrado/enlaces. No se reintroducen ocho variables runtime sin
+necesidad. La inspección admite hasta 6,000 headers incluyendo directorios y
+sólo ZIP32 STORE/DEFLATE. Los límites se verifican en headers y bytes reales.
+El cap XML se conserva en 5 MiB. Los límites no se amplían por tenant/request.
+
+### 7.1 Upload, storage y retención ZIP
+
+El PUT firmado usa el TTL de lectura existente, acotado adicionalmente a 300
+segundos; local usa el mismo plazo en `ingestion_uploads.write_expires_at`.
+El upload incompleto conserva el plazo durable existente (24 h por defecto).
+La API verifica nuevamente tamaño y SHA-256 al confirmar. Storage requiere
+lecturas por rango y escritura privada; los adapters local/S3 las implementan.
+SSE/KMS, bucket privado y perfiles runtime conservan los requisitos existentes.
+
+Para navegador→S3 configure CORS en el bucket para el origen web autorizado,
+`PUT`/`HEAD`, y las cabeceras devueltas de content-type, if-none-match, checksum
+y cifrado. No habilite acceso público. El navegador calcula SHA-256 del archivo
+local (máximo 50 MiB) con WebCrypto; API y worker procesan streams, sin un buffer
+del ZIP completo. Configure proxy de upload para 50 MiB y un timeout compatible
+con el cliente (120 s). ClamAV INSTREAM debe admitir 50 MiB; si su inspección
+interna detecta malware/límites, el paquete no se procesa.
+
+Raíz ZIP: 30 días tras escaneo, renovados al reprocesar. Extraído: retención de
+Fase 1 según resultado (duplicado, rechazado, incidente); fuente CFDI publicada
+se preserva. Pendientes de jobs cancelados/fallidos: 1 día. Raíces sin confirmar
+y huérfanos pendientes/rechazados: elegibles a partir de 31 días de antigüedad,
+sujeto a holds, referencias y jobs activos. Malware nunca se purga
+automáticamente; raíz infectada recibe hold infinito. El runbook detalla el
+claim durable, reintento de cleanup y tratamientos de incidente.
 
 ## 8. RLS
 

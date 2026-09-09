@@ -22,6 +22,7 @@ import { PhaseZeroRuntimeCompatibility1787690630000 } from '../src/database/migr
 import { PhaseOneCfdiDomain1787690700000 } from '../src/database/migrations/1787690700000-PhaseOneCfdiDomain';
 import { seedDatabase } from '../src/database/seeds/seed-database';
 import { ROLE_DEFINITIONS } from '../src/modules/permissions/entities/role.entity';
+import { counterReconciliationIndexes } from './counter-reconciliation-plan';
 
 dotenv.config({ path: '.env' });
 dotenv.config({ path: '.env.local' });
@@ -746,19 +747,10 @@ async function validateCounterReconciliationPlan(
        AND item.ingestion_job_id = selected.id
       GROUP BY selected.id
     `);
-    const serialized = JSON.stringify(plan);
-    if (
-      !serialized.includes('ix_ingestion_jobs_counter_reconcile') ||
-      !serialized.includes('ix_ingestion_items_job_updated')
-    ) {
-      throw new Error(
-        'Bounded counter reconciliation plan did not use both foundation indexes',
-      );
-    }
+    const indexes = counterReconciliationIndexes(plan[0]['QUERY PLAN'][0].Plan);
     report.counterReconciliationExplain = {
       boundedJobs: 100,
-      jobIndex: 'ix_ingestion_jobs_counter_reconcile',
-      itemIndex: 'ix_ingestion_items_job_updated',
+      ...indexes,
       status: 'PASSED',
     };
   } finally {

@@ -24,6 +24,8 @@ import type {
   ObjectStorageWriteInput,
   ObjectStorageWriteResult,
   SignedObjectReadUrl,
+  SignedObjectWriteInput,
+  SignedObjectWriteUrl,
 } from '../../ports/object-storage.port';
 import { OpaqueObjectKeyFactory } from '../../services/opaque-object-key.factory';
 import {
@@ -220,6 +222,7 @@ export class S3ObjectStorageAdapter
   async openReadStream(
     objectKey: string,
     signal?: AbortSignal,
+    range?: string,
   ): Promise<Readable> {
     const validKey = this.keyFactory.assertValid(objectKey);
     try {
@@ -227,6 +230,7 @@ export class S3ObjectStorageAdapter
         new GetObjectCommand({
           Bucket: this.options.bucket,
           Key: validKey,
+          ...(range ? { Range: range } : {}),
         }),
         signal ? { abortSignal: signal } : undefined,
       );
@@ -244,6 +248,30 @@ export class S3ObjectStorageAdapter
       if (isS3NotFound(error)) throw this.notFound(error);
       throw asObjectStorageError(error);
     }
+  }
+
+  openReadRange(
+    objectKey: string,
+    start: number,
+    endExclusive: number,
+    signal?: AbortSignal,
+  ): Promise<Readable> {
+    if (
+      !Number.isSafeInteger(start) ||
+      !Number.isSafeInteger(endExclusive) ||
+      start < 0 ||
+      endExclusive <= start
+    ) {
+      throw new ObjectStorageError(
+        'OBJECT_STORAGE_INVALID_KEY',
+        'Invalid object range',
+      );
+    }
+    return this.openReadStream(
+      objectKey,
+      signal,
+      `bytes=${start}-${endExclusive - 1}`,
+    );
   }
 
   async head(objectKey: string): Promise<ObjectStorageObjectMetadata | null> {
@@ -316,6 +344,79 @@ export class S3ObjectStorageAdapter
       return {
         url,
         expiresAt: new Date(Date.now() + ttlSeconds * 1_000),
+      };
+    } catch (error) {
+      throw asObjectStorageError(error);
+    }
+  }
+
+  async createSignedWriteUrl(
+    input: SignedObjectWriteInput,
+  ): Promise<SignedObjectWriteUrl> {
+    const key = this.keyFactory.assertValid(input.objectKey);
+    assertExpectedObjectSize(input.sizeBytes, this.options.maxBytes);
+    assertSafeContentType(input.contentType);
+    if (
+      !/^[0-9a-f]{64}$/.test(input.sha256) ||
+      !Number.isInteger(input.ttlSeconds) ||
+      input.ttlSeconds < 1 ||
+      input.ttlSeconds > this.options.signedUrlTtlSeconds ||
+      input.ttlSeconds > 300
+    ) {
+      throw new ObjectStorageError(
+        'OBJECT_STORAGE_INVALID_CONFIGURATION',
+        'Invalid temporary upload constraints',
+      );
+    }
+    const headers: Record<string, string> = {
+      'content-type': input.contentType,
+      'if-none-match': '*',
+      'x-amz-checksum-sha256': Buffer.from(input.sha256, 'hex').toString(
+        'base64',
+      ),
+    };
+    if (this.options.serverSideEncryption !== 'none') {
+      headers['x-amz-server-side-encryption'] =
+        this.options.serverSideEncryption;
+    }
+    if (this.options.kmsKeyId)
+      headers['x-amz-server-side-encryption-aws-kms-key-id'] =
+        this.options.kmsKeyId;
+    try {
+      const url = await getSignedUrl(
+        this.client,
+        new PutObjectCommand({
+          Bucket: this.options.bucket,
+          Key: key,
+          ContentType: input.contentType,
+          ContentLength: input.sizeBytes,
+          ChecksumSHA256: headers['x-amz-checksum-sha256'],
+          IfNoneMatch: '*',
+          ...(this.options.serverSideEncryption !== 'none'
+            ? {
+                ServerSideEncryption: this.options.serverSideEncryption,
+              }
+            : {}),
+          ...(this.options.kmsKeyId
+            ? { SSEKMSKeyId: this.options.kmsKeyId }
+            : {}),
+        }),
+        {
+          expiresIn: input.ttlSeconds,
+          signableHeaders: new Set([
+            'content-type',
+            'content-length',
+            'if-none-match',
+          ]),
+          unhoistableHeaders: new Set(
+            Object.keys(headers).filter((name) => name.startsWith('x-amz-')),
+          ),
+        },
+      );
+      return {
+        url,
+        headers,
+        expiresAt: new Date(Date.now() + input.ttlSeconds * 1000),
       };
     } catch (error) {
       throw asObjectStorageError(error);
