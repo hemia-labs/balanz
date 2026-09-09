@@ -1,5 +1,9 @@
 # PHASE_2_ZIP — implementación y validación focalizada
 
+**Actualización de revisión de PR #22, 2026-09-09:** la evidencia vigente de las
+correcciones está en la sección 11. Las secciones 1–10 conservan el reporte
+original del 8 de septiembre y su SHA, sin atribuirles verificaciones posteriores.
+
 Fecha local: 2026-09-08. Entorno: Windows, Node 24.19.0, Bun, PostgreSQL 16,
 MinIO y ClamAV locales reales. La evidencia de este reporte corresponde al código
 del commit indicado; el commit posterior únicamente actualiza documentación.
@@ -275,3 +279,103 @@ completas de MinIO/ClamAV/Vault. En el código validado el recorrido final pasó
 Siguiente acción: revisión de la PR en borrador, especialmente migración, fencing,
 cleanup y contrato de upload. Resolver los gates de release heredados en su
 trabajo correspondiente antes de desplegar. No continuar con Fase 3 ni fusionar.
+
+## 11. Correcciones de revisión de PR #22 — 2026-09-09
+
+```text
+REVIEWED_PR: https://github.com/hemia-labs/balanz/pull/22
+CURRENT_DEVELOP_INCLUDED: a38ea2695929ac2ceb10f5db510f95b7af0177c5
+DEVELOP_INTO_WORK_BRANCH_MERGE: 8f14a9b
+VALIDATED_REVIEW_CODE_SHA: 16dc8016a698deed121d387ce28e3f9e11dbf529
+WORK_BRANCH: codex/cfdi-phase2-zip
+LOCAL_TARGETED_VALIDATION: PASS
+MIGRATIONS_ADDED_OR_MODIFIED: NONE
+DEPENDENCIES_ADDED: NONE
+CI_WORKFLOWS_MODIFIED: NONE
+PR_MERGED: NO
+```
+
+Se incorporó develop a la rama de trabajo para resolver su conflicto de storage,
+conservando las capacidades de upload firmado y los diagnósticos actuales de
+despliegue/S3. El checkout original permanece intacto. El commit posterior a
+`16dc801` sólo documenta estas verificaciones.
+
+Correcciones y justificación:
+
+1. **Plan de reconciliación:** el índice nuevo de Fase 2 y el índice foundation
+   comparten el prefijo `(organization_id, ingestion_job_id)`. Para la unión y
+   el agregado, PostgreSQL puede elegir `ix_ingestion_items_job_result_ordinal`
+   en lugar de `ix_ingestion_items_job_updated`; exigir exclusivamente el nombre
+   anterior generaba un falso negativo. El validador ahora inspecciona nodos de
+   acceso por índice del EXPLAIN y admite esas dos alternativas concretas.
+   Sigue exigiendo `ix_ingestion_jobs_counter_reconcile`; la consulta conserva
+   scope, `SKIP LOCKED` y `LIMIT 100`. La validación de existencia del índice
+   foundation también permanece. No se editaron la migración compartida
+   `1787690900000`, el SQL productivo de reconciliación ni los workflows.
+2. **Confirmación durable:** reutiliza `receiving`, `updated_at`, `version` y
+   heartbeat/lease existentes antes de HEAD/hash, con transacciones cortas y
+   scope completo. Un concurrente recibe `UPLOAD_CONFIRM_IN_PROGRESS` y espera
+   mediante confirm idempotente. Se comprueban expiración y versión al confirmar;
+   un propietario anterior no puede renovar, confirmar ni liberar otro claim.
+   El fallo de lectura libera sólo la versión propia; una caída se recupera al
+   vencer el lease sin borrar el objeto. XML individual conserva su contrato.
+3. **ZIP vacío:** `ZIP_EMPTY` rechaza paquetes sin archivos regulares, incluidos
+   los que sólo contienen carpetas. Se escanea la raíz, se registra rechazo y
+   no se crean items ni se invoca el parser.
+4. **Preparación en navegador:** el File se envía a un Web Worker desechable;
+   lectura y SHA-256 nativo ocurren fuera del hilo principal. Cancelación termina
+   el worker e impide init. El digest nativo sigue necesitando un buffer limitado
+   a 50 MiB dentro del worker; no se afirma hashing incremental. El progreso de
+   transferencia continúa basado en eventos reales de XHR.
+5. **Errores legibles:** traducciones ZIP centralizadas con acción de recuperación
+   y código secundario en resultados de job/item, incluido el error local de hash.
+
+### Verificación focalizada de las correcciones
+
+| Comprobación | Evidencia final |
+| --- | --- |
+| API: extractor, servicio ZIP, handler ZIP, servicio XML, admisión, plan y observabilidad | **7 suites / 149 tests PASS**, 0 fallos/omitidos; 14 casos nuevos |
+| Frontend: script existente con preparación, concurrencia y traducciones ZIP | **125 tests PASS**, 0 fallos/omitidos; 14 casos nuevos |
+| Integración real representativa | **1 test PASS / 44 comprobaciones contadas**, más dos aserciones de rechazo (fence obsoleto y cancelación) |
+| Gate `qa:migrations` vigente | PASS, invocado por la integración en su base efímera con todas las migraciones, incluida `1787690900000` |
+| Lint API / web | PASS, sin warnings |
+| Typecheck API (incluye tests) / web | PASS |
+| Build API / frontend | PASS / PASS |
+| `git diff --check` | PASS |
+
+El test real conserva sesión/CSRF, API, PostgreSQL con LOGINs restringidos,
+PUT firmado MinIO, ClamAV, worker, parser, resultados parciales, paginación,
+retry, XML individual, detalle CFDI, scope y cleanup. Agrega un claim abandonado,
+takeover con versión nueva, rechazo del propietario obsoleto y dos confirmaciones
+concurrentes con una sola lectura/hash. El gate de migraciones usa exclusivamente
+esa base sintética, con `SECRETS_ENABLED=false`, sin consultar Vault ni tocar una
+base compartida; la base, LOGINs y objetos del ensayo se eliminan al finalizar.
+
+Los tests frontend ejecutan el código del worker de hash en un hilo Node real y
+comprueban SHA-256 exacto sin lectura de bytes en el hilo llamador, terminación al
+cancelar, fallos seguros y espera/recovery de confirmación. No se atribuye a esto
+una prueba visual de navegador.
+
+Comandos finales (Node 24.19.0):
+
+```powershell
+# Desde apps/api
+bun run test --runInBand --testPathPatterns='zip-upload.service|zip-extractor|manual-zip-job.handler|xml-upload.service|counter-reconciliation-plan|ingestion-admission|fiscal-observability'
+$env:RUN_ZIP_INTEGRATION='true'
+bun run test --runInBand --testRegex='test/external/manual-zip.external.ts$' --detectOpenHandles
+bun run lint
+node node_modules/typescript/bin/tsc --noEmit --incremental false
+bun run build
+# Desde apps/web
+bun run test
+bun run lint
+bun run typecheck
+bun run build
+```
+
+La ejecución remota de CI sobre el HEAD publicado se consulta en GitHub; sus
+enlaces y resultado se dejan en la conversación de la PR, sin confundirlos con
+la evidencia local anterior. Siguen fuera de esta revisión el despliegue, Vault
+compartido, SSE-KMS productivo, matrices históricas y certificaciones Full/0/1.
+Los gates de release heredados y la configuración del bucket destino permanecen
+separados de estas correcciones. No se implementó Fase 3 ni se fusionó la PR.

@@ -747,3 +747,22 @@ Rollout: aplicar la nueva migración con el rol migrador autorizado antes de
 activar API/worker/frontend. Para rollback restaurar el release de aplicación,
 conservando datos y migración; jobs ZIP quedan pendientes hasta recuperar un
 worker compatible. No revertir esquema para un rollback de aplicación.
+
+### 11.3 Recuperación de confirmaciones ZIP
+
+Antes de leer/hash del ZIP, la API reclama el upload en `receiving` usando
+`version` y `updated_at`, sin mantener una transacción durante I/O. Reutiliza
+`WORKER_LEASE_SECONDS` y `WORKER_HEARTBEAT_SECONDS` para este claim; todavía no
+es un job del worker. `409 UPLOAD_CONFIRM_IN_PROGRESS` indica esperar/repetir
+confirm con la misma key, sin retransmitir el paquete. El navegador conserva
+uploadId e intención y ofrece recuperación si se agota la espera.
+
+Tras caída de la API, el lease vencido permite reclamar nuevamente y verificar
+los mismos bytes. Una versión obsoleta no puede confirmar, renovar ni liberar
+el claim vigente. Un objeto ausente/error de lectura libera únicamente el claim
+propio; si SQL está caído, se recupera por expiración. No borrar el objeto ni
+modificar su estado manualmente para resolver una confirmación ocupada.
+Uploads que nunca se confirman mantienen el cleanup durable de 24 horas.
+
+`ZIP_EMPTY` es rechazo terminal de un paquete sin archivos regulares, incluso
+si contiene carpetas; no crea items ni CFDI. Crear un ZIP con XML para continuar.
