@@ -110,6 +110,22 @@ export type IngestionItemResult =
 @Index('ix_ingestion_items_object', { synchronize: false })
 @Index('ix_ingestion_items_cfdi', { synchronize: false })
 @Index('ix_ingestion_items_observed_uuid', { synchronize: false })
+@Index('ix_ingestion_items_job_result_ordinal', [
+  'organizationId',
+  'ingestionJobId',
+  'productResult',
+  'ordinal',
+  'id',
+])
+@Check(
+  'ck_ingestion_items_archive',
+  `(archive_path_sha256 IS NULL AND compressed_size_bytes IS NULL AND uncompressed_size_bytes IS NULL AND compression_method IS NULL AND directory_depth IS NULL)
+  OR (archive_path_sha256 IS NOT NULL AND archive_path_sha256 ~ '^[0-9a-f]{64}$'
+    AND compressed_size_bytes IS NOT NULL AND compressed_size_bytes BETWEEN 0 AND 52428800
+    AND uncompressed_size_bytes IS NOT NULL AND uncompressed_size_bytes BETWEEN 0 AND 262144000
+    AND compression_method IS NOT NULL AND compression_method IN (0,8)
+    AND directory_depth IS NOT NULL AND directory_depth BETWEEN 0 AND 2)`,
+)
 @Entity('ingestion_items')
 export class IngestionItem {
   @PrimaryColumn('uuid')
@@ -140,6 +156,22 @@ export class IngestionItem {
     nullable: true,
   })
   safeFilename?: string | null;
+
+  @Column({
+    name: 'archive_path_sha256',
+    type: 'char',
+    length: 64,
+    nullable: true,
+  })
+  archivePathSha256?: string | null;
+  @Column({ name: 'compressed_size_bytes', type: 'bigint', nullable: true })
+  compressedSizeBytes?: string | null;
+  @Column({ name: 'uncompressed_size_bytes', type: 'bigint', nullable: true })
+  uncompressedSizeBytes?: string | null;
+  @Column({ name: 'compression_method', type: 'smallint', nullable: true })
+  compressionMethod?: number | null;
+  @Column({ name: 'directory_depth', type: 'smallint', nullable: true })
+  directoryDepth?: number | null;
 
   @Column({
     name: 'technical_status',

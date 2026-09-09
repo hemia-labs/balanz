@@ -8,6 +8,8 @@ import type {
   ObjectStorageWriteInput,
   ObjectStorageWriteResult,
   SignedObjectReadUrl,
+  SignedObjectWriteInput,
+  SignedObjectWriteUrl,
 } from '../ports/object-storage.port';
 
 type StorageStage =
@@ -23,7 +25,32 @@ export class InstrumentedObjectStorageAdapter implements ObjectStoragePort {
     private readonly delegate: ObjectStoragePort,
     private readonly provider: ObjectStorageProvider,
     private readonly metrics: FiscalMetricsService,
-  ) {}
+  ) {
+    if (delegate.cleanupAbandonedWrite)
+      this.cleanupAbandonedWrite = (key) =>
+        this.measure('delete', () => delegate.cleanupAbandonedWrite!(key));
+    if (delegate.openReadRange) {
+      this.openReadRange = (key, start, end, signal) =>
+        this.measure('read', () =>
+          delegate.openReadRange!(key, start, end, signal),
+        );
+    }
+    if (delegate.createSignedWriteUrl) {
+      this.createSignedWriteUrl = (input) =>
+        this.measure('signed_url', () => delegate.createSignedWriteUrl!(input));
+    }
+  }
+
+  readonly cleanupAbandonedWrite?: (key: string) => Promise<void>;
+  readonly createSignedWriteUrl?: (
+    input: SignedObjectWriteInput,
+  ) => Promise<SignedObjectWriteUrl>;
+  readonly openReadRange?: (
+    key: string,
+    start: number,
+    end: number,
+    signal?: AbortSignal,
+  ) => Promise<Readable>;
 
   putStream(input: ObjectStorageWriteInput): Promise<ObjectStorageWriteResult> {
     return this.measure('put', () => this.delegate.putStream(input));

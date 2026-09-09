@@ -178,6 +178,10 @@ export type IngestionStage =
   'status',
   'createdAt',
 ])
+@Index('uq_manual_zip_initial_upload', ['organizationId', 'uploadId'], {
+  unique: true,
+  where: "source_type='manual_zip' AND retry_of_job_id IS NULL",
+})
 @Entity('ingestion_jobs')
 export class IngestionJob {
   @PrimaryColumn('uuid')

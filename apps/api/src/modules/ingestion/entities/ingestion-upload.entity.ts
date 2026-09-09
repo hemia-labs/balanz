@@ -128,6 +128,9 @@ export type IngestionUploadState =
 ])
 @Entity('ingestion_uploads')
 export class IngestionUpload {
+  @Column({ name: 'write_expires_at', type: 'timestamptz', nullable: true })
+  writeExpiresAt?: Date | null;
+
   @PrimaryColumn('uuid')
   id: string;
 

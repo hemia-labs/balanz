@@ -69,7 +69,7 @@ export class IngestionQueryService {
     tenant: SessionAuthorizationContext,
   ) {
     return this.run(tenant, async (manager) => {
-      await this.requireJob(manager, jobId, tenant);
+      const job = await this.requireJob(manager, jobId, tenant);
       const where = ['organization_id = $1', 'ingestion_job_id = $2'];
       const values: unknown[] = [tenant.organizationId, jobId];
       if (query.result) {
@@ -80,7 +80,10 @@ export class IngestionQueryService {
         `SELECT count(*)::text AS total FROM ingestion_items WHERE ${where.join(' AND ')}`,
         values,
       );
-      const sort = query.sort === 'updatedAt' ? 'updated_at' : 'ordinal';
+      const sort =
+        job.source_type !== 'manual_zip' && query.sort === 'updatedAt'
+          ? 'updated_at'
+          : 'ordinal';
       const direction = query.direction === 'asc' ? 'ASC' : 'DESC';
       values.push(query.limit, (query.page - 1) * query.limit);
       const rows = await manager.query<
@@ -166,7 +169,7 @@ export class IngestionQueryService {
         values.push(query.source);
         where.push(`job.source_type = $${values.length}`);
       } else {
-        where.push(`job.source_type = 'manual_xml'`);
+        where.push(`job.source_type IN ('manual_xml','manual_zip')`);
       }
       if (query.legalEntityId) {
         values.push(query.legalEntityId);
@@ -241,7 +244,11 @@ export class IngestionQueryService {
       const job = await this.requireJob(manager, jobId, tenant);
       this.assertCollaboratorOwns(job, tenant);
       if (
-        job.status !== 'failed_final' ||
+        !(job.source_type === 'manual_zip'
+          ? ['failed_final', 'completed_with_issues', 'cancelled'].includes(
+              job.status,
+            )
+          : job.status === 'failed_final') ||
         !job.upload_id ||
         !job.root_object_id
       ) {
@@ -254,10 +261,15 @@ export class IngestionQueryService {
       const items = await manager.query<
         Array<{ safe_filename: string | null; sha256: string }>
       >(
-        `SELECT safe_filename, sha256
+        job.source_type === 'manual_zip'
+          ? `SELECT 'paquete.zip' AS safe_filename, sha256 FROM stored_objects WHERE organization_id=$1 AND id=$2 AND kind='manual_zip' AND lifecycle_state IN ('uploaded','quarantined','available') AND malware_scan_status<>'infected' AND cleanup_requested_at IS NULL`
+          : `SELECT safe_filename, sha256
            FROM ingestion_items
           WHERE organization_id = $1 AND ingestion_job_id = $2 AND ordinal = 1`,
-        [tenant.organizationId, jobId],
+        [
+          tenant.organizationId,
+          job.source_type === 'manual_zip' ? job.root_object_id : jobId,
+        ],
       );
       if (!items[0]?.sha256) {
         throw cfdiHttpError(
@@ -276,7 +288,9 @@ export class IngestionQueryService {
     const fingerprint = createHash('sha256')
       .update(
         [
-          'manual_xml_retry_v1',
+          original.job.source_type === 'manual_zip'
+            ? 'manual_zip_retry_v1'
+            : 'manual_xml_retry_v1',
           tenant.organizationId,
           original.job.client_account_id,
           original.job.legal_entity_id,
@@ -294,7 +308,7 @@ export class IngestionQueryService {
           legalEntityId: original.job.legal_entity_id,
           membershipId: tenant.membershipId!,
         },
-        sourceType: 'manual_xml',
+        sourceType: original.job.source_type as 'manual_xml' | 'manual_zip',
         idempotencyKey,
         requestFingerprint: fingerprint,
         idempotencyExpiresAt: new Date(Date.now() + 24 * 60 * 60 * 1_000),
@@ -304,11 +318,14 @@ export class IngestionQueryService {
         rootObjectId: original.rootObjectId,
         requestedByMembershipId: tenant.membershipId!,
         retryOfJobId: original.job.id,
-        initialItem: {
-          objectId: original.rootObjectId,
-          safeFilename: original.item.safe_filename,
-          sha256: original.item.sha256,
-        },
+        initialItem:
+          original.job.source_type === 'manual_zip'
+            ? undefined
+            : {
+                objectId: original.rootObjectId,
+                safeFilename: original.item.safe_filename,
+                sha256: original.item.sha256,
+              },
       })
       .catch((error: unknown) => {
         if (error instanceof IngestionAdmissionLimitError) {
@@ -359,7 +376,7 @@ export class IngestionQueryService {
               next_attempt_at, last_error_code, created_at, updated_at,
               completed_at, version
          FROM ingestion_jobs
-        WHERE organization_id = $1 AND id = $2 AND source_type = 'manual_xml'`,
+        WHERE organization_id = $1 AND id = $2 AND source_type IN ('manual_xml','manual_zip')`,
       [tenant.organizationId, jobId],
     );
     const job = rows[0];

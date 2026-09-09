@@ -290,12 +290,13 @@ export interface ApiResponse<T> {
 export async function apiClientResponse<T>(
   path: string,
   init: RequestInit = {},
+  timeoutMs = DEFAULT_TIMEOUT_MS,
 ): Promise<ApiResponse<T>> {
   const controller = new AbortController();
   activeApiRequests.add(controller);
   const timeout = globalThis.setTimeout(
     () => controller.abort(),
-    DEFAULT_TIMEOUT_MS,
+    Math.min(120_000, Math.max(1_000, timeoutMs)),
   );
   const externalSignal = init.signal;
   const abort = () => controller.abort();
@@ -321,7 +322,11 @@ export async function apiClientResponse<T>(
       reportApiUnauthorized(requestError, path, init.method ?? "GET");
       throw requestError;
     }
-    return { data: body as T, status: response.status, headers: response.headers };
+    return {
+      data: body as T,
+      status: response.status,
+      headers: response.headers,
+    };
   } catch (error) {
     if (error instanceof ApiError) throw error;
     if (controller.signal.aborted) {

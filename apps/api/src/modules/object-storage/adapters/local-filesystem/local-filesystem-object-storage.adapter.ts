@@ -168,6 +168,7 @@ export class LocalFilesystemObjectStorageAdapter implements ObjectStoragePort {
   async openReadStream(
     objectKey: string,
     signal?: AbortSignal,
+    range?: { start: number; end: number },
   ): Promise<Readable> {
     const { targetPath } = await this.resolveObjectPath(objectKey, false);
     const noFollow = constants.O_NOFOLLOW ?? 0;
@@ -183,11 +184,34 @@ export class LocalFilesystemObjectStorageAdapter implements ObjectStoragePort {
         );
       }
       this.assertPrivateMode(stats, FILE_MODE);
-      return file.createReadStream({ autoClose: true, signal });
+      return file.createReadStream({ autoClose: true, signal, ...range });
     } catch (error) {
       if (systemErrorCode(error) === 'ENOENT') throw this.notFound(error);
       throw asObjectStorageError(error);
     }
+  }
+
+  openReadRange(
+    objectKey: string,
+    start: number,
+    endExclusive: number,
+    signal?: AbortSignal,
+  ): Promise<Readable> {
+    if (
+      !Number.isSafeInteger(start) ||
+      !Number.isSafeInteger(endExclusive) ||
+      start < 0 ||
+      endExclusive <= start
+    ) {
+      throw new ObjectStorageError(
+        'OBJECT_STORAGE_INVALID_KEY',
+        'Invalid object range',
+      );
+    }
+    return this.openReadStream(objectKey, signal, {
+      start,
+      end: endExclusive - 1,
+    });
   }
 
   async head(objectKey: string): Promise<ObjectStorageObjectMetadata | null> {
@@ -214,6 +238,44 @@ export class LocalFilesystemObjectStorageAdapter implements ObjectStoragePort {
       sizeBytes: stats.size,
       lastModifiedAt: stats.mtime,
     };
+  }
+
+  async cleanupAbandonedWrite(objectKey: string): Promise<void> {
+    try {
+      const { root, targetPath } = await this.resolveObjectPath(
+        objectKey,
+        false,
+      );
+      const parent = dirname(targetPath);
+      const prefix = `${basename(targetPath)}.partial-`;
+      for (const name of await readdir(parent)) {
+        if (
+          !name.startsWith(prefix) ||
+          !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+            name.slice(prefix.length),
+          )
+        )
+          continue;
+        const partial = resolve(parent, name);
+        this.assertContained(root, partial);
+        const stats = await lstat(partial).catch((error: unknown) => {
+          if (systemErrorCode(error) === 'ENOENT') return null;
+          throw error;
+        });
+        if (!stats) continue;
+        if (!stats.isFile() || stats.isSymbolicLink())
+          throw new ObjectStorageError(
+            'OBJECT_STORAGE_INVALID_CONFIGURATION',
+            'Unsafe abandoned write',
+          );
+        await unlink(partial).catch((error: unknown) => {
+          if (systemErrorCode(error) !== 'ENOENT') throw error;
+        });
+      }
+    } catch (error) {
+      if (systemErrorCode(error) === 'ENOENT') return;
+      throw asObjectStorageError(error);
+    }
   }
 
   async delete(objectKey: string): Promise<void> {

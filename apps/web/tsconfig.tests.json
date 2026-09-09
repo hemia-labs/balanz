@@ -59,6 +59,7 @@
     "src/features/cfdi/cfdi-list-query.ts",
     "src/features/cfdi/cfdi-list-query.test.ts",
     "src/features/cfdi/types.ts",
-    "src/features/cfdi/types.test.ts"
+    "src/features/cfdi/types.test.ts",
+    "src/features/ingestions/zip-upload.test.ts"
   ]
 }

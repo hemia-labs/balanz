@@ -53,6 +53,7 @@ export const EXPECTED_MIGRATION_IDENTITIES = [
     name: 'InvitationRuntimeAcl1787690830000',
     timestamp: 1787690830000,
   },
+  { name: 'PhaseTwoZipIngestion1787690900000', timestamp: 1787690900000 },
 ] as const;
 
 export const EXPECTED_MIGRATION_NAMES: readonly string[] =

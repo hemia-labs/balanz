@@ -23,7 +23,7 @@ export interface ProcessListQuery {
   page?: number;
   limit?: number;
   status?: string;
-  source?: "manual_xml";
+  source?: "manual_xml" | "manual_zip";
   sort?: "createdAt" | "updatedAt" | "status";
   direction?: "asc" | "desc";
 }
@@ -58,9 +58,10 @@ export async function getIngestionJob(
 export async function getIngestionItems(
   ingestionJobId: string,
   signal?: AbortSignal,
+  page = 1,
 ): Promise<IngestionItem[]> {
   const value = await apiClient<unknown>(
-    `/ingestions/${encodeURIComponent(ingestionJobId)}/items?limit=100`,
+    `/ingestions/${encodeURIComponent(ingestionJobId)}/items?limit=25&direction=asc&sort=ordinal&page=${Math.max(1, page)}`,
     { signal },
   );
   return normalizeIngestionItems(value);

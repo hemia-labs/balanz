@@ -150,8 +150,15 @@ export type ObjectEncryptionClass =
   'id',
 ])
 @Index('ix_stored_objects_retention', { synchronize: false })
+@Index('ix_zip_cleanup_due', ['retentionUntil', 'id'], {
+  where:
+    "kind IN ('manual_zip','extracted_xml') AND lifecycle_state<>'deleted'",
+})
 @Entity('stored_objects')
 export class StoredObject {
+  @Column({ name: 'cleanup_requested_at', type: 'timestamptz', nullable: true })
+  cleanupRequestedAt?: Date | null;
+
   @PrimaryColumn('uuid')
   id: string;
 

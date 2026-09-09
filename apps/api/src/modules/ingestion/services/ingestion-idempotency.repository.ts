@@ -304,7 +304,7 @@ export class IngestionIdempotencyRepository {
     }
   }
 
-  createUploadIntent(
+  async createUploadIntent(
     input: CreateUploadIntentInput,
   ): Promise<IdempotentResult<UploadIntentRecord>> {
     this.assertScope(input.scope);
@@ -318,7 +318,9 @@ export class IngestionIdempotencyRepository {
     const uploadId = input.uploadId ?? randomUUID();
     const objectId = input.object.id ?? randomUUID();
 
-    return this.tenantTransactions.run(input.scope, async (manager) => {
+    const result = await this.tenantTransactions.run<
+      IdempotentResult<UploadIntentRecord>
+    >(input.scope, async (manager) => {
       await this.lockOperation(
         manager,
         input.scope,
@@ -350,7 +352,10 @@ export class IngestionIdempotencyRepository {
         input.idempotencyExpiresAt,
       );
 
-      if (input.workflow === 'direct' && input.uploadType === 'manual_xml') {
+      if (
+        input.uploadType === 'manual_zip' ||
+        (input.workflow === 'direct' && input.uploadType === 'manual_xml')
+      ) {
         await this.assertManualIngestionCapacity(
           manager,
           input.scope,
@@ -441,6 +446,9 @@ export class IngestionIdempotencyRepository {
         ),
       };
     });
+    if (input.uploadType === 'manual_zip' && result.outcome === 'created')
+      this.metrics.increment('zip_admitted_total', {});
+    return result;
   }
 
   /**
@@ -1106,6 +1114,7 @@ export class IngestionIdempotencyRepository {
             AND object.kind = $6
             AND upload.state = 'confirmed'
             AND object.lifecycle_state IN ('uploaded','quarantined','available')
+            AND (upload.upload_type <> 'manual_zip' OR (object.malware_scan_status <> 'infected' AND object.cleanup_requested_at IS NULL))
           FOR UPDATE OF upload, object`,
         [
           input.scope.organizationId,
@@ -1194,7 +1203,7 @@ export class IngestionIdempotencyRepository {
          SELECT upload.created_by_membership_id
            FROM ingestion_uploads upload
           WHERE upload.organization_id = $1
-            AND upload.upload_type = 'manual_xml'
+            AND upload.upload_type IN ('manual_xml','manual_zip')
             AND upload.state IN ('pending','receiving','uploaded','confirmed')
             AND ($3::uuid IS NULL OR upload.id <> $3::uuid)
             AND NOT EXISTS (

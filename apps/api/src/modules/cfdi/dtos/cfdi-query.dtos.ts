@@ -68,8 +68,8 @@ export class ProcessesQueryDto extends PageQueryDto {
 
   @Transform(trim)
   @IsOptional()
-  @IsIn(['manual_xml'])
-  source?: 'manual_xml';
+  @IsIn(['manual_xml', 'manual_zip'])
+  source?: 'manual_xml' | 'manual_zip';
 
   @Transform(trim)
   @IsOptional()

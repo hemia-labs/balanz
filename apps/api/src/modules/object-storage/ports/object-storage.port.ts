@@ -35,6 +35,18 @@ export interface SignedObjectReadUrl {
   expiresAt: Date;
 }
 
+export interface SignedObjectWriteInput {
+  objectKey: string;
+  sizeBytes: number;
+  sha256: string;
+  contentType: string;
+  ttlSeconds: number;
+}
+
+export interface SignedObjectWriteUrl extends SignedObjectReadUrl {
+  headers: Record<string, string>;
+}
+
 export type ObjectStorageHealth =
   | { status: 'up'; provider: ObjectStorageProvider; durationMs: number }
   | {
@@ -49,10 +61,23 @@ export type ObjectStorageHealth =
  * above this port; adapters only accept opaque, server-generated object keys.
  */
 export interface ObjectStoragePort {
+  /** Bounded random reads for archive inspection; endExclusive is not inclusive. */
+  openReadRange?(
+    objectKey: string,
+    start: number,
+    endExclusive: number,
+    signal?: AbortSignal,
+  ): Promise<Readable>;
+  /** Optional provider capability. Keys and integrity expectations are server-owned. */
+  createSignedWriteUrl?(
+    input: SignedObjectWriteInput,
+  ): Promise<SignedObjectWriteUrl>;
   putStream(input: ObjectStorageWriteInput): Promise<ObjectStorageWriteResult>;
   openReadStream(objectKey: string, signal?: AbortSignal): Promise<Readable>;
   head(objectKey: string): Promise<ObjectStorageObjectMetadata | null>;
   delete(objectKey: string): Promise<void>;
+  /** Caller must first fence out active uploads/jobs with a durable cleanup claim. */
+  cleanupAbandonedWrite?(objectKey: string): Promise<void>;
   createSignedReadUrl(
     objectKey: string,
     ttlSeconds?: number,

@@ -8,6 +8,7 @@ import { LegalEntity } from '../src/modules/client-accounts/entities/legal-entit
 import { CfdiApiModule } from '../src/modules/cfdi/cfdi-api.module';
 import { CfdiQueryService } from '../src/modules/cfdi/services/cfdi-query.service';
 import { IngestionQueryService } from '../src/modules/cfdi/services/ingestion-query.service';
+import { ZipUploadService } from '../src/modules/cfdi/services/zip-upload.service';
 import { XmlUploadService } from '../src/modules/cfdi/services/xml-upload.service';
 import { FiscalInfrastructureModule } from '../src/modules/fiscal-platform/fiscal-infrastructure.module';
 import { IngestionModule } from '../src/modules/ingestion/ingestion.module';
@@ -70,6 +71,8 @@ describe('CfdiApiModule bootstrap', () => {
       .overrideModule(SessionsModule)
       .useModule(StubSessionsModule)
       .overrideProvider(getRepositoryToken(LegalEntity))
+      .useValue({})
+      .overrideProvider(ZipUploadService)
       .useValue({})
       .overrideProvider(XmlUploadService)
       .useValue({})
