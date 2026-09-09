@@ -598,11 +598,18 @@ La secuencia normal es:
    migraciones; nunca imprimir su contenido.
 5. Pausar el worker, ejecutar `bun run release:prepare` y eliminar inmediatamente
    la configuración de migración.
-6. Cambiar atómicamente el enlace `current`, recargar el ecosystem de PM2 y
-   validar web, liveness y readiness de API/worker.
-7. Persistir el estado de PM2. Ante un fallo, restaurar `current` y recargar el
+6. Cambiar atómicamente el enlace `current`, eliminar únicamente los procesos
+   Balanz de PM2 e iniciarlos desde el ecosystem del release concreto. Verificar
+   `pm_cwd`, `pm_exec_path` y `node_args` contra esa definición antes de validar
+   web, liveness y readiness de API/worker. No usar `startOrReload`: puede conservar
+   rutas antiguas. La recreación en modo fork implica una breve interrupción.
+7. Persistir el estado de PM2. Ante un fallo, restaurar `current` y recrear el
    release anterior con su configuración original; comprobar web y liveness/readiness
-   de API y worker.
+   de API y worker. Los releases legacy sin worker se restauran sin éste y se
+   comprueba `/api/v1` en lugar de endpoints fiscales que todavía no existían.
+   La ausencia de argumentos Node en el ecosystem anterior también se verifica,
+   evitando heredar el `--env-file` del release fallido. El ecosystem y el entorno
+   propio del release anterior deben contener toda la configuración que requiere.
 
 El rollback restaura la versión de la aplicación y su configuración: no revierte
 migraciones. Toda migración desplegable debe seguir expand/contract y conservar
@@ -616,9 +623,18 @@ en éxito como en fallo, junto con los archivos temporales de carga.
 
 Conservar la configuración de todo release disponible para rollback. Durante la
 transición, conservar también `shared/{api,worker}.env`: los releases antiguos
-todavía los utilizan y el workflow nuevo no los modifica. La limpieza futura debe
-retirar un release y su configuración juntos, nunca la configuración del actual
-ni la del release reservado para rollback.
+todavía los utilizan y el workflow nuevo no los modifica.
+
+Después de los health checks y `pm2 save`, el workflow registra `.deploy-success`
+mediante `infra/deploy/retain-releases.cjs` (sus pruebas y las del despliegue
+residen en `infra/deploy/`)
+y conserva el release actual y dos anteriores exitosos (priorizando el destino
+de rollback). Elimina juntos código y configuración de los demás, incluidos los
+intentos fallidos. Durante la transición se protege adicionalmente el destino de
+rollback legacy sin marcador; no se lo considera exitoso sin evidencia. En el
+siguiente deploy exitoso deja de necesitar esa protección. Un fallo de limpieza
+se reporta como error, sin revertir el despliegue ya saludable. No se limpia tras
+un despliegue fallido ni se eliminan los archivos compartidos legacy.
 
 ## 10. Evidencia y cierre del incidente
 
