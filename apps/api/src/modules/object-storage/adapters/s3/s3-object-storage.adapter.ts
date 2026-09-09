@@ -2,7 +2,6 @@ import { Readable } from 'node:stream';
 import {
   DeleteObjectCommand,
   GetObjectCommand,
-  HeadBucketCommand,
   HeadObjectCommand,
   PutObjectCommand,
   S3Client,
@@ -328,13 +327,8 @@ export class S3ObjectStorageAdapter
     const objectKey = this.keyFactory.create();
     const payload = Buffer.from('health', 'ascii');
     const diagnostics: ObjectStorageHealthDiagnostic[] = [];
-    let operation = 'HeadBucket';
+    let operation = 'PutObject';
     try {
-      await this.client.send(
-        new HeadBucketCommand({ Bucket: this.options.bucket }),
-        { abortSignal: signal },
-      );
-      operation = 'PutObject';
       await this.client.send(
         new PutObjectCommand(
           buildS3PutObjectInput(

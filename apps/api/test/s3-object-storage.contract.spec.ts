@@ -198,7 +198,6 @@ describe('S3ObjectStorageAdapter configuration/command contract (unit only)', ()
 
     await expect(adapter.health()).resolves.toMatchObject({ status: 'up' });
     expect(commandNames).toEqual([
-      'HeadBucketCommand',
       'PutObjectCommand',
       'HeadObjectCommand',
       'GetObjectCommand',
@@ -207,7 +206,6 @@ describe('S3ObjectStorageAdapter configuration/command contract (unit only)', ()
   });
 
   it.each([
-    'HeadBucket',
     'PutObject',
     'HeadObject',
     'GetObject',
@@ -293,7 +291,7 @@ describe('S3ObjectStorageAdapter configuration/command contract (unit only)', ()
       .fn()
       .mockImplementation(
         (command: object, options?: { abortSignal?: AbortSignal }) => {
-          if (command.constructor.name === 'HeadBucketCommand') {
+          if (command.constructor.name === 'PutObjectCommand') {
             caller.abort();
             return Promise.reject(new Error('caller aborted'));
           }
@@ -349,7 +347,7 @@ describe('S3ObjectStorageAdapter configuration/command contract (unit only)', ()
       .fn()
       .mockImplementation(
         (command: object, options?: { abortSignal?: AbortSignal }) => {
-          if (command.constructor.name === 'HeadBucketCommand') {
+          if (command.constructor.name === 'PutObjectCommand') {
             return Promise.reject(new Error('provider unavailable'));
           }
           if (command.constructor.name === 'DeleteObjectCommand') {

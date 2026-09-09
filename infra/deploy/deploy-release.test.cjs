@@ -73,7 +73,7 @@ if (cmd === 'curl' && args.includes('--max-filesize')) {
   if (process.env.QA_DIAGNOSTIC === 'unreachable') process.exit(7);
   if (process.env.QA_DIAGNOSTIC === 'invalid') console.log('not-json SECRET_FIXTURE');
   else console.log(JSON.stringify({status: 'down', process: 'api', secret: 'SECRET_FIXTURE', dependencies: {
-    storage: {status: 'down', errorCode: 'OBJECT_STORAGE_UNAVAILABLE', message: 'SECRET_FIXTURE', diagnostics: [{operation: 'HeadBucket', code: 'AccessDenied', httpStatusCode: 403, message: 'SECRET_FIXTURE'}]},
+    storage: {status: 'down', errorCode: 'OBJECT_STORAGE_UNAVAILABLE', message: 'SECRET_FIXTURE', diagnostics: [{operation: 'PutObject', code: 'AccessDenied', httpStatusCode: 403, message: 'SECRET_FIXTURE'}]},
     scanner: {status: 'bypassed', required: false},
     private: {password: 'SECRET_FIXTURE'}
   }}));
@@ -109,7 +109,7 @@ for (const diagnostic of ["valid", "invalid", "unreachable"]) {
     );
     if (diagnostic === "valid") {
       assert(result.stderr.includes("OBJECT_STORAGE_UNAVAILABLE"));
-      assert(result.stderr.includes('"operation":"HeadBucket"'));
+      assert(result.stderr.includes('"operation":"PutObject"'));
       assert(result.stderr.includes('"code":"AccessDenied"'));
       assert(result.stderr.includes('"httpStatusCode":403'));
     }
