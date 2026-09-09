@@ -210,9 +210,16 @@ export function IngestionStatusPanel({
             {job.lastErrorCode ? (
               <p role="alert" className="text-body-sm text-destructive">
                 {apiErrorMessage(
-                  new ApiError(422, job.lastErrorCode, job.lastErrorCode),
-                  `El proceso terminó con ${job.lastErrorCode}.`,
+                  new ApiError(
+                    422,
+                    "No se pudo completar el proceso. Revisa los resultados o intenta de nuevo.",
+                    job.lastErrorCode,
+                  ),
+                  "No se pudo completar el proceso. Revisa los resultados o intenta de nuevo.",
                 )}
+                <span className="block text-caption text-muted-foreground">
+                  Código: {job.lastErrorCode}
+                </span>
               </p>
             ) : null}
             <div
@@ -252,9 +259,23 @@ export function IngestionStatusPanel({
                           : "Resultado pendiente"}
                       </p>
                       <p className="text-caption text-muted-foreground">
-                        {item.errorDetail ??
-                          item.errorCode ??
-                          `Parser ${item.parserVersion ?? "—"}`}
+                        {item.errorCode
+                          ? apiErrorMessage(
+                              new ApiError(
+                                422,
+                                item.errorDetail ??
+                                  "No se pudo incorporar esta entrada. Revisa el archivo antes de reintentar.",
+                                item.errorCode,
+                              ),
+                              "No se pudo incorporar esta entrada. Revisa el archivo antes de reintentar.",
+                            )
+                          : (item.errorDetail ??
+                            `Parser ${item.parserVersion ?? "—"}`)}
+                        {item.errorCode ? (
+                          <span className="block">
+                            Código: {item.errorCode}
+                          </span>
+                        ) : null}
                       </p>
                     </div>
                     {item.cfdiId && cfdiHref ? (

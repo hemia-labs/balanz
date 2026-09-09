@@ -77,6 +77,12 @@ function setup() {
       },
     }),
     confirmUpload: jest.fn().mockResolvedValue({ outcome: 'created' }),
+    claimUploadReceiver: jest.fn().mockResolvedValue({
+      outcome: 'claimed',
+      value: { state: 'receiving', receiverVersion: 2 },
+    }),
+    renewUploadReceiver: jest.fn().mockResolvedValue(3),
+    releaseZipConfirmation: jest.fn().mockResolvedValue(undefined),
     createJob: jest
       .fn()
       .mockResolvedValue({ value: { jobId, status: 'queued' } }),
@@ -114,6 +120,7 @@ function setup() {
       },
     }) as Request;
   return {
+    config,
     row,
     query,
     transactions,
@@ -139,6 +146,108 @@ async function expectCode(
   }
 }
 describe('ZIP upload service trust boundaries', () => {
+  it.each(['failed', 'cancelled', 'expired'])(
+    'does not wait or read storage for an upload in %s state',
+    async (state) => {
+      const s = setup();
+      s.idempotency.claimUploadReceiver.mockResolvedValue({
+        outcome: 'busy',
+        value: { state, receiverVersion: null },
+      } as never);
+      await expectCode(
+        s.service().confirm(uploadId, 'key', tenant, context),
+        409,
+        'UPLOAD_NOT_CONFIRMABLE',
+      );
+      expect(s.storage.head).not.toHaveBeenCalled();
+      expect(s.idempotency.createJob).not.toHaveBeenCalled();
+    },
+  );
+  it('only the durable owner touches storage while concurrent confirmation recovers later', async () => {
+    const s = setup();
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let entered!: () => void;
+    const started = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    s.storage.head.mockImplementationOnce(async () => {
+      entered();
+      await gate;
+      return { sizeBytes: bytes.length } as never;
+    });
+    s.idempotency.claimUploadReceiver
+      .mockResolvedValueOnce({
+        outcome: 'claimed',
+        value: { state: 'receiving', receiverVersion: 2 },
+      } as never)
+      .mockResolvedValueOnce({
+        outcome: 'busy',
+        value: { state: 'receiving', receiverVersion: null },
+      } as never);
+    const first = s.service().confirm(uploadId, 'key', tenant, context);
+    await started;
+    try {
+      await expectCode(
+        s.service().confirm(uploadId, 'key', tenant, context),
+        409,
+        'UPLOAD_CONFIRM_IN_PROGRESS',
+      );
+      expect(s.storage.head).toHaveBeenCalledTimes(1);
+      expect(s.storage.openReadStream).not.toHaveBeenCalled();
+    } finally {
+      release();
+    }
+    await first;
+    s.row.state = 'confirmed';
+    expect(
+      (await s.service().confirm(uploadId, 'key', tenant, context)).jobId,
+    ).toBe(jobId);
+    expect(s.storage.openReadStream).toHaveBeenCalledTimes(1);
+  });
+  it('a confirmation completed between scope read and claim replays without reading bytes', async () => {
+    const s = setup();
+    s.idempotency.claimUploadReceiver.mockResolvedValue({
+      outcome: 'busy',
+      value: { state: 'confirmed', receiverVersion: null },
+    } as never);
+    expect(
+      (await s.service().confirm(uploadId, 'key', tenant, context)).jobId,
+    ).toBe(jobId);
+    expect(s.storage.head).not.toHaveBeenCalled();
+  });
+  it('heartbeat loss fences confirmation and never releases another owner', async () => {
+    jest.useFakeTimers();
+    try {
+      const s = setup();
+      s.config.worker.heartbeatSeconds = 1;
+      s.idempotency.renewUploadReceiver.mockResolvedValue(null);
+      let entered!: () => void, release!: () => void;
+      const started = new Promise<void>((resolve) => {
+        entered = resolve;
+      });
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      s.storage.head.mockImplementationOnce(async () => {
+        entered();
+        await gate;
+        return { sizeBytes: bytes.length } as never;
+      });
+      const confirming = s.service().confirm(uploadId, 'key', tenant, context);
+      await started;
+      await jest.advanceTimersByTimeAsync(1000);
+      release();
+      await expectCode(confirming, 409, 'UPLOAD_CONFIRM_IN_PROGRESS');
+      expect(s.idempotency.confirmUpload).not.toHaveBeenCalled();
+      expect(s.idempotency.releaseZipConfirmation).not.toHaveBeenCalled();
+      expect(s.storage.openReadStream).not.toHaveBeenCalled();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
   it('init reserves durable upload without a processing job and returns temporary local mechanism', async () => {
     const s = setup();
     const result = await s
@@ -188,7 +297,13 @@ describe('ZIP upload service trust boundaries', () => {
       .service()
       .confirm(uploadId, 'confirm-key', tenant, context);
     expect(result.jobId).toBe(jobId);
-    expect(s.storage.openReadStream).toHaveBeenCalledWith('opaque-root');
+    expect(s.storage.openReadStream).toHaveBeenCalledWith(
+      'opaque-root',
+      expect.any(AbortSignal),
+    );
+    expect(s.idempotency.confirmUpload).toHaveBeenCalledWith(
+      expect.objectContaining({ receiverVersion: 2 }),
+    );
     expect(s.idempotency.createJob).toHaveBeenCalledWith(
       expect.objectContaining({
         sourceType: 'manual_zip',
@@ -206,6 +321,11 @@ describe('ZIP upload service trust boundaries', () => {
       'UPLOAD_NOT_CONFIRMABLE',
     );
     expect(s.idempotency.createJob).not.toHaveBeenCalled();
+    expect(s.idempotency.releaseZipConfirmation).toHaveBeenCalledWith(
+      expect.objectContaining({ organizationId: tenant.organizationId }),
+      uploadId,
+      2,
+    );
   });
   it('rejects different bytes even at the expected size', async () => {
     const s = setup();

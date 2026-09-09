@@ -226,6 +226,7 @@ export class ZipExtractor {
         if (cursor !== next) throw zipError();
       }
       if (cursor !== centralOffset) throw zipError();
+      if (entries.length === 0) throw zipError('ZIP_EMPTY');
       return { zip, entries, compressedSize: size };
     } catch (error) {
       zip?.close();

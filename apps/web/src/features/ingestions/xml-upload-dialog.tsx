@@ -105,6 +105,8 @@ export function XmlUploadDialog({
         ? uploadZip({
             scope,
             file: file!,
+            createHashWorker: () =>
+              new Worker(new URL("./zip-hash.worker.ts", import.meta.url)),
             onProgress: ({ percent }) => setProgress(percent),
           })
         : uploadXml({

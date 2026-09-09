@@ -1,4 +1,5 @@
 export const XML_MAX_BYTES = 5 * 1024 * 1024;
+export const ZIP_MAX_BYTES = 50 * 1024 * 1024;
 
 export function transferProgress(
   loaded: number,

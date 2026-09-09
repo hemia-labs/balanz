@@ -459,7 +459,7 @@ recibe exclusivamente `filename` (nombre seguro `.zip`, máximo 240 caracteres),
 `application/octet-stream`), `sizeBytes` (22–52,428,800) y `sha256` (64 hex minúsculas).
 El servidor persiste `paquete.zip`; nunca necesita conservar el nombre original.
 La respuesta `upload` contiene `method`, `url`, `headers` y `expiresAt`, o `null`
-cuando el upload ya fue confirmado. Una repetición de init renueva solamente el
+cuando el upload ya fue confirmado o está siendo verificado. Una repetición de init renueva solamente el
 mecanismo temporal, conservando identidad y fingerprint.
 
 La firma PUT vence en `min(300, OBJECT_STORAGE_SIGNED_URL_TTL_SECONDS)` segundos,
@@ -471,7 +471,11 @@ Después del PUT local los bytes existen, pero el estado durable de admisión
 permanece `pending` hasta confirm; `uploaded` en la respuesta PUT describe la
 transferencia terminada. No implica que exista un job.
 
-Confirm lee el objeto reservado, verifica existencia, tamaño real y SHA-256
+Confirm reclama primero el upload mediante una transacción corta y scoped:
+`pending/uploaded → receiving`, `updated_at` y `version` como fence. Reutiliza
+el lease/heartbeat de recepción existente (`WORKER_LEASE_SECONDS` y
+`WORKER_HEARTBEAT_SECONDS`); no requiere columnas ni migración adicional.
+Sólo el propietario lee el objeto reservado, verifica existencia, tamaño real y SHA-256
 de todos sus bytes; metadata/ETag no sustituyen esta lectura. Luego confirma el
 upload y reserva el job `manual_zip`. Son transacciones recuperables consecutivas:
 una caída entre ambas deja un upload confirmado recuperable al repetir confirm.
@@ -481,6 +485,16 @@ Repetir la misma clave devuelve la misma identidad; cambiar payload o clave de
 confirmación produce conflicto. Los fingerprints versionados son
 `manual_zip_upload_init_v1`, `manual_zip_upload_confirm_v1`, `manual_zip_retry_v1`.
 Se conserva la ventana de idempotencia de 24 horas; después se consulta por ID.
+
+Una confirmación concurrente recibe `409 UPLOAD_CONFIRM_IN_PROGRESS` sin HEAD
+ni lectura del objeto. El navegador repite confirm con la misma key cada segundo,
+durante un máximo de dos minutos de espera, con cancelación y recuperación por
+uploadId. La lectura individual mantiene su timeout de 120 segundos. Tras una
+caída, un lease vencido permite reclamar y verificar nuevamente los mismos bytes;
+una versión anterior no puede confirmar ni liberar el claim vigente. Errores de
+lectura/objeto ausente liberan únicamente el claim propio; si PostgreSQL no está
+disponible, su vencimiento garantiza recuperación. No se elimina el ZIP.
+No hay transacción ni conexión de PostgreSQL retenida durante I/O de storage.
 
 ### 13.1 Procesamiento y éxito parcial
 
@@ -494,6 +508,8 @@ campos extra de enlaces/rutas alternativas y métodos no soportados se rechazan.
 Se rechaza el paquete por malware raíz, cifrado, traversal, rutas absolutas/
 drive/UNC, nombres ambiguos o duplicados, enlaces/dispositivos/entradas especiales,
 ZIP anidado (extensión o firma), estructura/CRC/tamaño contradictorios y límites.
+Un ZIP vacío o compuesto sólo de directorios se rechaza con `ZIP_EMPTY`:
+no crea items ni termina como éxito con cero archivos.
 No se invoca el parser hasta que **todas** las entradas hayan pasado extracción
 real, CRC, fin de DEFLATE y límites acumulados. Ninguna ruta del ZIP se usa para
 escribir en filesystem. Lecturas del storage por rangos y streams evitan

@@ -66,6 +66,7 @@ export class IngestionStateConflictError extends Error {
     readonly code:
       | 'UPLOAD_ALREADY_CONFIRMED'
       | 'UPLOAD_NOT_CONFIRMABLE'
+      | 'UPLOAD_CONFIRM_IN_PROGRESS'
       | 'UPLOAD_PAYLOAD_MISMATCH',
   ) {
     super(
@@ -73,7 +74,9 @@ export class IngestionStateConflictError extends Error {
         ? 'The upload was already confirmed by another operation'
         : code === 'UPLOAD_NOT_CONFIRMABLE'
           ? 'The upload is not in a confirmable durable state'
-          : 'The confirmed payload does not match the upload intent',
+          : code === 'UPLOAD_CONFIRM_IN_PROGRESS'
+            ? 'The ZIP verification fence is held by another request or has expired'
+            : 'The confirmed payload does not match the upload intent',
     );
     this.name = 'IngestionStateConflictError';
   }
@@ -235,6 +238,7 @@ interface ConfirmableUploadRow {
   actual_sha256: string | null;
   upload_expires_at: Date;
   upload_not_expired: boolean;
+  receiver_lease_valid: boolean;
   confirm_idempotency_key: string | null;
   object_lifecycle_state: string;
   object_key: string;
@@ -452,13 +456,14 @@ export class IngestionIdempotencyRepository {
   }
 
   /**
-   * Reclaims a stalled direct XML receiver without retaining a database
+   * Claims a direct XML receiver or ZIP integrity verification without retaining a database
    * connection while request bytes are in flight. `version` is the fence:
    * an older receiver cannot confirm or delete bytes after a takeover.
    */
   claimUploadReceiver(
     scope: FiscalIngestionScope,
     uploadId: string,
+    uploadType: 'manual_xml' | 'manual_zip' = 'manual_xml',
   ): Promise<UploadReceiverClaim> {
     this.assertScope(scope);
     this.assertUuid(uploadId, 'upload ID');
@@ -473,11 +478,12 @@ export class IngestionIdempotencyRepository {
               AND organization_id = $2
               AND client_account_id = $3
               AND legal_entity_id = $4
-              AND workflow = 'direct'
-              AND upload_type = 'manual_xml'
+              AND upload_type = $6
+              AND (upload_type = 'manual_zip' OR workflow = 'direct')
               AND upload_expires_at > clock_timestamp()
               AND (
                 state = 'pending'
+                OR (upload_type = 'manual_zip' AND state = 'uploaded')
                 OR (
                   state = 'receiving'
                   AND updated_at <= clock_timestamp()
@@ -509,6 +515,7 @@ export class IngestionIdempotencyRepository {
           scope.clientAccountId,
           scope.legalEntityId,
           this.receiverLeaseSeconds,
+          uploadType,
         ],
       );
       if (rows[0]) {
@@ -530,6 +537,7 @@ export class IngestionIdempotencyRepository {
     scope: FiscalIngestionScope,
     uploadId: string,
     receiverVersion: number,
+    uploadType: 'manual_xml' | 'manual_zip' = 'manual_xml',
   ): Promise<number | null> {
     this.assertScope(scope);
     this.assertUuid(uploadId, 'upload ID');
@@ -544,11 +552,12 @@ export class IngestionIdempotencyRepository {
               AND organization_id = $2
               AND client_account_id = $3
               AND legal_entity_id = $4
-              AND workflow = 'direct'
-              AND upload_type = 'manual_xml'
+              AND upload_type = $6
+              AND (upload_type = 'manual_zip' OR workflow = 'direct')
               AND state = 'receiving'
               AND version = $5
               AND upload_expires_at > clock_timestamp()
+              AND (upload_type = 'manual_xml' OR updated_at > clock_timestamp() - make_interval(secs => $7))
           RETURNING version
          )
          SELECT version FROM renewed`,
@@ -558,9 +567,36 @@ export class IngestionIdempotencyRepository {
           scope.clientAccountId,
           scope.legalEntityId,
           receiverVersion,
+          uploadType,
+          this.receiverLeaseSeconds,
         ],
       );
       return rows[0] ? Number(rows[0].version) : null;
+    });
+  }
+
+  /** Releases only the caller's ZIP verification fence; bytes remain immutable. */
+  async releaseZipConfirmation(
+    scope: FiscalIngestionScope,
+    uploadId: string,
+    receiverVersion: number,
+  ): Promise<void> {
+    this.assertScope(scope);
+    this.assertUuid(uploadId, 'upload ID');
+    this.assertPositiveVersion(receiverVersion);
+    await this.tenantTransactions.run(scope, async (manager) => {
+      await manager.query(
+        `UPDATE ingestion_uploads SET state = 'pending', updated_at = clock_timestamp(), version = version + 1
+         WHERE id = $1 AND organization_id = $2 AND client_account_id = $3 AND legal_entity_id = $4
+           AND upload_type = 'manual_zip' AND state = 'receiving' AND version = $5`,
+        [
+          uploadId,
+          scope.organizationId,
+          scope.clientAccountId,
+          scope.legalEntityId,
+          receiverVersion,
+        ],
+      );
     });
   }
 
@@ -646,6 +682,7 @@ export class IngestionIdempotencyRepository {
            upload.actual_size_bytes, upload.actual_sha256,
            upload.upload_expires_at, upload.confirm_idempotency_key,
            upload.upload_expires_at > clock_timestamp() AS upload_not_expired,
+           upload.updated_at > clock_timestamp() - make_interval(secs => $5) AS receiver_lease_valid,
            object.lifecycle_state AS object_lifecycle_state,
            object.object_key, object.original_filename,
            object.declared_mime_type,
@@ -667,6 +704,7 @@ export class IngestionIdempotencyRepository {
           input.scope.organizationId,
           input.scope.clientAccountId,
           input.scope.legalEntityId,
+          this.receiverLeaseSeconds,
         ],
       );
       const upload = uploads[0];
@@ -682,11 +720,21 @@ export class IngestionIdempotencyRepository {
         throw new IngestionStateConflictError('UPLOAD_NOT_CONFIRMABLE');
       }
       if (
+        upload.upload_type === 'manual_zip' &&
+        (input.receiverVersion === undefined || !upload.receiver_lease_valid)
+      ) {
+        throw new IngestionStateConflictError('UPLOAD_CONFIRM_IN_PROGRESS');
+      }
+      if (
         input.receiverVersion !== undefined &&
         (upload.state !== 'receiving' ||
           Number(upload.version) !== input.receiverVersion)
       ) {
-        throw new IngestionStateConflictError('UPLOAD_NOT_CONFIRMABLE');
+        throw new IngestionStateConflictError(
+          upload.upload_type === 'manual_zip'
+            ? 'UPLOAD_CONFIRM_IN_PROGRESS'
+            : 'UPLOAD_NOT_CONFIRMABLE',
+        );
       }
       await this.assertFutureExpiration(
         manager,

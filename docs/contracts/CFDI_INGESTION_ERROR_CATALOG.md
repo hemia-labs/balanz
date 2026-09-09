@@ -182,6 +182,8 @@ se depreca y se mantiene durante la ventana de compatibilidad.
 | Código | Alcance y resultado | Retry automático |
 | --- | --- | --- |
 | `ZIP_CORRUPT` | Paquete: headers, rangos, CRC, tamaño, truncación o fin de DEFLATE inconsistentes | No |
+| `ZIP_EMPTY` | Paquete sin archivos regulares (vacío o sólo carpetas): rechazo antes de crear items/parser | No; crear otro ZIP con XML |
+| `UPLOAD_CONFIRM_IN_PROGRESS` | API 409: otro propietario verifica el upload; no se repite la lectura de storage | Repetir confirm con la misma key; espera acotada y cancelable |
 | `ZIP_LIMIT_EXCEEDED` | Paquete: bytes, entradas, profundidad o ratio | No |
 | `ZIP_UNSAFE_ENTRY` | Paquete: rutas, alias, enlaces, especiales, extras/métodos no permitidos | No |
 | `ZIP_ENCRYPTED` | Paquete cifrado | No |
@@ -199,3 +201,9 @@ Se reutilizan `UPLOAD_NOT_CONFIRMABLE` (409, bytes ausentes/plazo de transferenc
 Un malware localizado en XML genera el resultado de item canónico de Fase 1;
 malware en ZIP raíz impide extraer. `JOB_LEASE_LOST` impide publicación y no se
 convierte en corrupción. Ninguna excepción de SQL o dependencia se muestra cruda.
+
+El frontend traduce los errores ZIP a mensajes en español con una acción de
+recuperación; conserva el código como detalle secundario. `ZIP_HASH_FAILED` es
+un error local de preparación: no llegó a init y permite volver a seleccionar
+el archivo. El hash nativo se calcula en un Web Worker desechable y cancelable;
+su buffer está limitado a 50 MiB y no reside en el hilo principal.

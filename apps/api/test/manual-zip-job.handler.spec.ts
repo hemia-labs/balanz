@@ -185,6 +185,21 @@ function setup(bytes: Buffer) {
   };
 }
 describe('manual_zip handler with real streaming extractor and shared XML processor', () => {
+  it.each([{ entries: [] }, { entries: [{ name: 'a/' }, { name: 'a/b/' }] }])(
+    'rejects an empty package durably without items or parser access: %j',
+    async ({ entries }) => {
+      const s = setup(makeZip(entries));
+      await expect(s.handler.handle(claim, signal())).rejects.toMatchObject({
+        code: 'ZIP_EMPTY',
+        retryable: false,
+      });
+      expect(s.scanner.scan).toHaveBeenCalledTimes(1);
+      expect(s.persistence.reject).toHaveBeenCalledWith(claim, 'ZIP_EMPTY');
+      expect(s.persistence.reserve).not.toHaveBeenCalled();
+      expect(s.persistence.completion).not.toHaveBeenCalled();
+      expect(s.parser.parse).not.toHaveBeenCalled();
+    },
+  );
   it('processes multiple XML after root and individual scans', async () => {
     const s = setup(
       makeZip([

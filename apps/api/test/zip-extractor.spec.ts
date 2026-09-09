@@ -47,6 +47,15 @@ async function extract(bytes: Buffer) {
   return { total, results, ranges };
 }
 describe('ZIP streaming security boundary', () => {
+  it.each([{ entries: [] }, { entries: [{ name: 'a/' }, { name: 'a/b/' }] }])(
+    'rejects archives without regular files: %j',
+    async ({ entries }) => {
+      await expect(extract(makeZip(entries))).rejects.toMatchObject({
+        code: 'ZIP_EMPTY',
+        retryable: false,
+      });
+    },
+  );
   it('keeps incremental CRC compatible with Node 20 and the IEEE reference vector', () => {
     const first = Buffer.from('1234'),
       second = Buffer.from('56789');

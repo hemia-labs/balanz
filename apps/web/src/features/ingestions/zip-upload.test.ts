@@ -1,7 +1,12 @@
 import assert from "node:assert/strict";
 import { afterEach, test } from "node:test";
+import { Worker as NodeWorker } from "node:worker_threads";
+import { resolve } from "node:path";
+import type {} from "./zip-hash.worker";
+import { hashZipFile } from "./zip-file-hash";
+import { ApiError, apiErrorMessage } from "../../lib/api-client";
 import {
-  uploadZip,
+  uploadZip as transportUploadZip,
   validateZipSelection,
   readZipIntent,
   ZIP_RECOVERY_KEY,
@@ -11,6 +16,137 @@ import {
 import { clearIngestionRecovery } from "./recovery-store";
 import { normalizeIngestionJob, normalizeIngestionItems } from "./types";
 import { startIngestionJobPolling } from "./ingestion-job-poller";
+
+function createHashWorker(): Worker {
+  // Run the production worker in an actual separate Node thread, bridging only
+  // the browser message API. The payload crosses structured clone as a Blob.
+  const native = new NodeWorker(
+    `
+    const { parentPort, workerData } = require('node:worker_threads');
+    globalThis.self = globalThis;
+    globalThis.postMessage = (value) => parentPort.postMessage(value);
+    require(workerData);
+    parentPort.on('message', (data) => self.onmessage({ data }));
+  `,
+    { eval: true, workerData: resolve(__dirname, "zip-hash.worker.js") },
+  );
+  const worker = {
+    onmessage: null,
+    onerror: null,
+    onmessageerror: null,
+    postMessage: (value: unknown) => native.postMessage(value),
+    terminate: () => {
+      void native.terminate();
+    },
+  } as unknown as Worker;
+  native.on("message", (data: unknown) =>
+    worker.onmessage?.call(worker, { data } as MessageEvent),
+  );
+  native.on("error", () =>
+    worker.onerror?.call(worker, { preventDefault() {} } as ErrorEvent),
+  );
+  return worker;
+}
+function uploadZip(
+  options: Omit<Parameters<typeof transportUploadZip>[0], "createHashWorker">,
+) {
+  return transportUploadZip({ ...options, createHashWorker });
+}
+
+test("ZIP checksum runs in a separate worker, returns the exact SHA and never reads bytes on the caller thread", async () => {
+  const file = new File(["abc"], "a.zip");
+  file.arrayBuffer = () => {
+    throw new Error("caller must not read bytes");
+  };
+  assert.equal(
+    await hashZipFile(file, new AbortController().signal, createHashWorker),
+    "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+  );
+});
+test("ZIP preparation cancellation terminates the worker before init", async () => {
+  browser();
+  let terminated = 0,
+    requests = 0;
+  globalThis.fetch = async () => {
+    requests++;
+    throw new Error("unexpected request");
+  };
+  const worker = {
+    postMessage() {},
+    terminate() {
+      terminated++;
+    },
+  } as unknown as Worker;
+  const transfer = transportUploadZip({
+    scope,
+    file: new File([new Uint8Array(30)], "a.zip"),
+    createHashWorker: () => worker,
+  });
+  transfer.abort();
+  await assert.rejects(transfer.promise, { code: "ABORTED" });
+  assert.equal(terminated, 1);
+  assert.equal(requests, 0);
+});
+test("ZIP hash worker errors are safe and terminate preparation", async () => {
+  let terminated = 0;
+  const worker = {
+    postMessage() {
+      queueMicrotask(() =>
+        worker.onmessage?.call(worker, {
+          data: { error: "sensitive internal data" },
+        } as MessageEvent),
+      );
+    },
+    terminate() {
+      terminated++;
+    },
+  } as unknown as Worker;
+  await assert.rejects(
+    hashZipFile(
+      new File(["abc"], "a.zip"),
+      new AbortController().signal,
+      () => worker,
+    ),
+    { code: "ZIP_HASH_FAILED" },
+  );
+  assert.equal(terminated, 1);
+});
+test("ZIP confirmation waits for the durable owner and recovers the same job", async () => {
+  let calls = 0;
+  globalThis.fetch = async () =>
+    ++calls === 1
+      ? response({ code: "UPLOAD_CONFIRM_IN_PROGRESS" }, 409)
+      : response(accepted, 202);
+  assert.equal((await confirmZipUpload(uploadId)).jobId, accepted.jobId);
+  assert.equal(calls, 2);
+});
+test("ZIP confirmation wait is cancellable", async () => {
+  const controller = new AbortController();
+  globalThis.fetch = async () => {
+    setTimeout(() => controller.abort(), 20);
+    return response({ code: "UPLOAD_CONFIRM_IN_PROGRESS" }, 409);
+  };
+  await assert.rejects(confirmZipUpload(uploadId, controller.signal), {
+    code: "ABORTED",
+  });
+});
+for (const code of [
+  "ZIP_EMPTY",
+  "ZIP_CORRUPT",
+  "ZIP_LIMIT_EXCEEDED",
+  "ZIP_UNSAFE_ENTRY",
+  "ZIP_ENCRYPTED",
+  "ZIP_NESTED",
+  "ZIP_ENTRY_UNSUPPORTED",
+  "ZIP_CANCELLED",
+  "UPLOAD_CONFIRM_IN_PROGRESS",
+])
+  test(`ZIP presents actionable Spanish instead of the raw ${code} code`, () => {
+    const message = apiErrorMessage(new ApiError(422, code, code), "fallback");
+    assert.notEqual(message, "fallback");
+    assert.ok(!message.includes(code));
+    assert.ok(message.length > 35);
+  });
 
 const scope = {
   organizationId: "11111111-1111-4111-8111-111111111111",

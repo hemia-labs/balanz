@@ -144,6 +144,40 @@ describe('Phase 2 representative integration: real PostgreSQL, session, MinIO, C
       await db.initialize();
       await db.query(`CREATE EXTENSION IF NOT EXISTS "uuid-ossp"`);
       await db.runMigrations({ transaction: 'all' });
+      // Exercise the exact CI gate on this disposable, fully migrated database.
+      // Its transaction rolls back; no shared environment or Vault is used.
+      const lifecycleOutput = execFileSync(
+        process.execPath,
+        [
+          '-r',
+          'ts-node/register/transpile-only',
+          'test/validate-migration-lifecycle.ts',
+        ],
+        {
+          cwd: resolve(__dirname, '../..'),
+          windowsHide: true,
+          encoding: 'utf8',
+          timeout: 60000,
+          env: {
+            ...process.env,
+            NODE_ENV: 'test',
+            SECRETS_ENABLED: 'false',
+            DB_HOST: '127.0.0.1',
+            DB_PORT: '55432',
+            DB_USERNAME: postgres.POSTGRES_USER,
+            DB_PASSWORD: postgres.POSTGRES_PASSWORD,
+            DB_DATABASE: database,
+            DB_LOGGING: 'false',
+            CFDI_PHASE0_USE_TEST_DATABASE: 'true',
+            CFDI_PHASE0_TEST_DATABASE: database,
+          },
+        },
+      );
+      check(
+        lifecycleOutput.includes('counterReconciliationExplain') &&
+          lifecycleOutput.includes('PASSED'),
+        'current CI migration lifecycle gate',
+      );
       await seedDatabase(db);
       const runtime: DataSource[] = [];
       for (const [index, role] of ['balanz_api', 'balanz_worker'].entries()) {
@@ -393,7 +427,118 @@ describe('Phase 2 representative integration: real PostgreSQL, session, MinIO, C
         body: new Uint8Array(bytes),
       });
       check(overwrite.status === 412, 'signed PUT immutable');
-      const confirm = await post(confirmPath, {}, confirmKey);
+      // Simulate an API crash, then prove atomic takeover and stale-owner fencing
+      // using the restricted API login and actual PostgreSQL state/version.
+      const abandoned = await idempotency.claimUploadReceiver(
+        scope,
+        init.body.uploadId as string,
+        'manual_zip',
+      );
+      check(abandoned.outcome === 'claimed', 'ZIP verification claim acquired');
+      await db.query(
+        `UPDATE ingestion_uploads SET updated_at=clock_timestamp()-interval '10 minutes' WHERE id=$1`,
+        [init.body.uploadId],
+      );
+      const recovered = await idempotency.claimUploadReceiver(
+        scope,
+        init.body.uploadId as string,
+        'manual_zip',
+      );
+      check(
+        recovered.outcome === 'claimed' &&
+          recovered.value.receiverVersion! > abandoned.value.receiverVersion!,
+        'expired verification claim recovered with a new fence',
+      );
+      check(
+        (await idempotency.renewUploadReceiver(
+          scope,
+          init.body.uploadId as string,
+          abandoned.value.receiverVersion!,
+          'manual_zip',
+        )) === null,
+        'stale owner cannot renew',
+      );
+      await idempotency.releaseZipConfirmation(
+        scope,
+        init.body.uploadId as string,
+        abandoned.value.receiverVersion!,
+      );
+      check(
+        (
+          await idempotency.claimUploadReceiver(
+            scope,
+            init.body.uploadId as string,
+            'manual_zip',
+          )
+        ).outcome === 'busy',
+        'stale owner cannot release the current claim',
+      );
+      await expect(
+        idempotency.confirmUpload({
+          scope,
+          uploadId: init.body.uploadId as string,
+          idempotencyKey: confirmKey,
+          requestFingerprint: sha(Buffer.from('stale')),
+          idempotencyExpiresAt: new Date(Date.now() + 60000),
+          actualSha256: sha(bytes),
+          actualSizeBytes: String(bytes.length),
+          correlationId: randomUUID(),
+          receiverVersion: abandoned.value.receiverVersion!,
+        }),
+      ).rejects.toMatchObject({ code: 'UPLOAD_CONFIRM_IN_PROGRESS' });
+      await idempotency.releaseZipConfirmation(
+        scope,
+        init.body.uploadId as string,
+        recovered.value.receiverVersion!,
+      );
+
+      let entered!: () => void, release!: () => void;
+      const enteredStorage = new Promise<void>((resolve) => {
+        entered = resolve;
+      });
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const realHead = storage.head.bind(
+        storage,
+      ) as S3ObjectStorageAdapter['head'];
+      const headSpy = jest
+        .spyOn(storage, 'head')
+        .mockImplementationOnce(async (key) => {
+          entered();
+          await gate;
+          return realHead(key);
+        });
+      const readSpy = jest.spyOn(storage, 'openReadStream');
+      const firstConfirm = post(confirmPath, {}, confirmKey).then(
+        (response) => response,
+      );
+      let confirm: Awaited<typeof firstConfirm>;
+      try {
+        await enteredStorage;
+        const concurrent = await post(confirmPath, {}, confirmKey);
+        check(
+          concurrent.status === 409 &&
+            concurrent.body.code === 'UPLOAD_CONFIRM_IN_PROGRESS',
+          'concurrent confirm recovers instead of hashing twice',
+        );
+        check(
+          headSpy.mock.calls.length === 1 && readSpy.mock.calls.length === 0,
+          'storage belongs to one durable verifier',
+        );
+      } finally {
+        release();
+      }
+      try {
+        confirm = await firstConfirm;
+        check(
+          readSpy.mock.calls.length === 1,
+          'one streamed checksum verification',
+        );
+      } finally {
+        headSpy.mockRestore();
+        readSpy.mockRestore();
+      }
       check(
         confirm.status === 202,
         `confirm HTTP ${confirm.status}: ${String(confirm.body.code)}`,

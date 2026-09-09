@@ -7,11 +7,16 @@ import {
   apiErrorFromPayload,
 } from "../../lib/api-client";
 import { normalizeXmlUploadAccepted, type XmlUploadAccepted } from "./types";
-import { transferProgress, type UploadFileLike } from "./upload-validation";
+import {
+  transferProgress,
+  ZIP_MAX_BYTES,
+  type UploadFileLike,
+} from "./upload-validation";
 import type { IngestionRecoveryScope } from "./recovery-store";
+import { hashZipFile } from "./zip-file-hash";
 
 export const ZIP_RECOVERY_KEY = "balanz:zip-upload:v1";
-export const ZIP_MAX_BYTES = 50 * 1024 * 1024;
+export { ZIP_MAX_BYTES } from "./upload-validation";
 interface ZipIntent extends IngestionRecoveryScope {
   intentId: string;
   uploadId: string | null;
@@ -92,39 +97,66 @@ export async function confirmZipUpload(
   uploadId: string,
   signal?: AbortSignal,
 ): Promise<XmlUploadAccepted> {
-  const response = await apiClientResponse<unknown>(
-    `/ingestion-uploads/${encodeURIComponent(uploadId)}/zip/confirm`,
-    {
-      method: "POST",
-      headers: { "Idempotency-Key": `zip-confirm:${uploadId}` },
-      body: "{}",
-      signal,
-    },
-    120_000,
-  );
-  const accepted = normalizeXmlUploadAccepted(response.data);
-  if (
-    response.status !== 202 ||
-    !accepted.jobId ||
-    !accepted.uploadId ||
-    !accepted.objectId ||
-    !accepted.correlationId
-  )
-    throw new ApiError(
-      502,
-      "La API no confirmó el proceso ZIP.",
-      "INVALID_API_RESPONSE",
-    );
-  return accepted;
+  const deadline = Date.now() + 120_000;
+  while (true) {
+    try {
+      const response = await apiClientResponse<unknown>(
+        `/ingestion-uploads/${encodeURIComponent(uploadId)}/zip/confirm`,
+        {
+          method: "POST",
+          headers: { "Idempotency-Key": `zip-confirm:${uploadId}` },
+          body: "{}",
+          signal,
+        },
+        120_000,
+      );
+      const accepted = normalizeXmlUploadAccepted(response.data);
+      if (
+        response.status !== 202 ||
+        !accepted.jobId ||
+        !accepted.uploadId ||
+        !accepted.objectId ||
+        !accepted.correlationId
+      )
+        throw new ApiError(
+          502,
+          "La API no confirmó el proceso ZIP.",
+          "INVALID_API_RESPONSE",
+        );
+      return accepted;
+    } catch (error) {
+      if (
+        !(error instanceof ApiError) ||
+        error.code !== "UPLOAD_CONFIRM_IN_PROGRESS" ||
+        Date.now() >= deadline
+      )
+        throw error;
+      await new Promise<void>((resolve, reject) => {
+        const abort = () => {
+          clearTimeout(timer);
+          signal?.removeEventListener("abort", abort);
+          reject(new ApiError(0, "Confirmación cancelada.", "ABORTED"));
+        };
+        const timer = setTimeout(() => {
+          signal?.removeEventListener("abort", abort);
+          resolve();
+        }, 1000);
+        if (signal?.aborted) abort();
+        else signal?.addEventListener("abort", abort, { once: true });
+      });
+    }
+  }
 }
 
 export function uploadZip({
   scope,
   file,
+  createHashWorker,
   onProgress,
 }: {
   scope: IngestionRecoveryScope;
   file: File;
+  createHashWorker: () => Worker;
   onProgress?: (progress: {
     loaded: number;
     total: number;
@@ -147,14 +179,8 @@ export function uploadZip({
       uploadId: null,
     };
     saveZipIntent(intent);
-    const digest = await crypto.subtle.digest(
-      "SHA-256",
-      await file.arrayBuffer(),
-    );
+    const sha256 = await hashZipFile(file, controller.signal, createHashWorker);
     controller.signal.throwIfAborted();
-    const sha256 = Array.from(new Uint8Array(digest), (byte) =>
-      byte.toString(16).padStart(2, "0"),
-    ).join("");
     const response = await apiClientResponse<unknown>(
       `/legal-entities/${encodeURIComponent(scope.legalEntityId)}/ingestions/zip/init`,
       {

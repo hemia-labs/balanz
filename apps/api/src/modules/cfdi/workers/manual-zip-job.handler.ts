@@ -177,6 +177,7 @@ export class ManualZipJobHandler implements IngestionJobHandler {
         if (
           [
             'ZIP_CORRUPT',
+            'ZIP_EMPTY',
             'ZIP_LIMIT_EXCEEDED',
             'ZIP_UNSAFE_ENTRY',
             'ZIP_ENCRYPTED',

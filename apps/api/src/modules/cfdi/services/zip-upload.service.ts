@@ -16,6 +16,10 @@ import { OpaqueObjectKeyFactory } from '../../object-storage/services/opaque-obj
 import type { SessionAuthorizationContext } from '../../sessions/session.types';
 import { cfdiHttpError } from '../cfdi-http.errors';
 import { ZIP_MAX_BYTES, type ZipUploadInitDto } from '../dtos/zip-upload.dtos';
+import {
+  UploadReceiverHeartbeat,
+  UploadReceiverLeaseLostError,
+} from './upload-receiver-heartbeat';
 
 interface ZipUploadRow {
   id: string;
@@ -258,11 +262,49 @@ export class ZipUploadService {
       row.expected_size_bytes,
       row.expected_sha256,
     );
+    let receiverVersion: number | undefined;
+    let lease: UploadReceiverHeartbeat | undefined;
     try {
       if (row.state !== 'confirmed') {
         if (!row.upload_valid)
           throw cfdiHttpError(410, 'UPLOAD_EXPIRED', 'La carga expiró.');
+        // Commit the scoped claim before external I/O; no SQL lock/connection
+        // is held during HEAD or the streamed integrity verification.
+        const claim = await this.idempotency.claimUploadReceiver(
+          scope,
+          uploadId,
+          'manual_zip',
+        );
+        if (
+          claim.outcome === 'claimed' &&
+          claim.value.receiverVersion !== null
+        ) {
+          receiverVersion = claim.value.receiverVersion;
+          lease = new UploadReceiverHeartbeat(
+            receiverVersion,
+            Math.max(1000, this.config.worker.heartbeatSeconds * 1000),
+            (version) =>
+              this.idempotency.renewUploadReceiver(
+                scope,
+                uploadId,
+                version,
+                'manual_zip',
+              ),
+          );
+          lease.start();
+        } else if (claim.value.state !== 'confirmed') {
+          throw cfdiHttpError(
+            409,
+            claim.value.state === 'receiving'
+              ? 'UPLOAD_CONFIRM_IN_PROGRESS'
+              : 'UPLOAD_NOT_CONFIRMABLE',
+            'La carga cambió. Recupera su estado antes de continuar.',
+          );
+        }
+      }
+      if (lease) {
         const head = await this.storage.head(row.object_key);
+        lease.signal.throwIfAborted();
         if (!head)
           throw cfdiHttpError(
             409,
@@ -274,7 +316,10 @@ export class ZipUploadService {
           head.sizeBytes !== Number(row.expected_size_bytes)
         )
           throw mismatch();
-        const stream = await this.storage.openReadStream(row.object_key);
+        const stream = await this.storage.openReadStream(
+          row.object_key,
+          lease.signal,
+        );
         const hash = createHash('sha256');
         let size = 0;
         for await (const chunk of stream) {
@@ -293,6 +338,7 @@ export class ZipUploadService {
           hash.digest('hex') !== row.expected_sha256
         )
           throw mismatch();
+        receiverVersion = await lease.stop();
       }
       await this.idempotency.confirmUpload({
         scope,
@@ -304,6 +350,7 @@ export class ZipUploadService {
         actualSizeBytes: row.expected_size_bytes,
         actualSha256: row.expected_sha256,
         detectedMimeType: 'application/zip',
+        receiverVersion,
       });
       // Canonical upload-derived reservation key, plus a unique partial index,
       // prevent two confirm keys from ever creating different initial jobs.
@@ -331,7 +378,23 @@ export class ZipUploadService {
         correlationId: request.correlationId,
       };
     } catch (error) {
+      if (error instanceof UploadReceiverLeaseLostError)
+        throw cfdiHttpError(
+          409,
+          'UPLOAD_CONFIRM_IN_PROGRESS',
+          'La carga se está verificando. Recupera su estado en unos segundos.',
+        );
       throw translateZipUploadError(error);
+    } finally {
+      if (lease) {
+        // A lost fence cannot release a new owner's claim. If PostgreSQL is
+        // unavailable, expiry still permits recovery without deleting bytes.
+        const version = await lease.stop().catch(() => undefined);
+        if (version !== undefined)
+          await this.idempotency
+            .releaseZipConfirmation(scope, uploadId, version)
+            .catch(() => undefined);
+      }
     }
   }
 
@@ -415,6 +478,7 @@ export function translateZipUploadError(error: unknown) {
       'IDEMPOTENCY_CONFLICT',
       'UPLOAD_ALREADY_CONFIRMED',
       'UPLOAD_NOT_CONFIRMABLE',
+      'UPLOAD_CONFIRM_IN_PROGRESS',
       'JOB_STATE_CONFLICT',
     ].includes(String(code))
   )
