@@ -31,9 +31,12 @@ test("aborta transports XHR registrados antes de cambiar de tenant", () => {
 });
 
 test("resuelve descargas temporales únicamente en el origen de la API", () => {
+  const apiOrigin = new URL(
+    process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3021/api/v1",
+  ).origin;
   assert.equal(
     apiResourceUrl("/api/v1/cfdis/cfdi/content?token=one-time"),
-    "http://localhost:3021/api/v1/cfdis/cfdi/content?token=one-time",
+    `${apiOrigin}/api/v1/cfdis/cfdi/content?token=one-time`,
   );
   assert.throws(
     () => apiResourceUrl("https://example.invalid/steal-token"),
