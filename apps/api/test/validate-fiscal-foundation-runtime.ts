@@ -1230,7 +1230,8 @@ async function validateFiscalFoundationRuntime(): Promise<void> {
       '7',
     );
     let shutdownRunnerLease:
-      Parameters<IngestionJobHandler['handle']>[0] | null = null;
+      | Parameters<IngestionJobHandler['handle']>[0]
+      | null = null;
     const blockingHandler: IngestionJobHandler = {
       source: IngestionJobSourceType.MANUAL_XML,
       handle: (handlerClaim, signal) => {

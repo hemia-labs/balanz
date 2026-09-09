@@ -75,6 +75,9 @@ describe('Invitations and memberships (e2e)', () => {
     app.useGlobalFilters(new AllExceptionsFilter());
     await app.init();
     const runtimeDataSource = app.get(DataSource);
+    if (runtimeDataSource.options.type !== 'postgres') {
+      throw new Error('Invitation e2e fixtures require PostgreSQL');
+    }
     const fixtureUsername = process.env.E2E_DB_USERNAME?.trim();
     const fixturePassword = process.env.E2E_DB_PASSWORD;
     if (!fixtureUsername || !fixturePassword) {

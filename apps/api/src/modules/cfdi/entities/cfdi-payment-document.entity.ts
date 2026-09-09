@@ -68,9 +68,11 @@ export class CfdiPaymentDocument {
   @Column({ type: 'integer' }) ordinal: number;
   @Column({ name: 'related_uuid', type: 'uuid' }) relatedUuid: string;
   @Column({ type: 'varchar', length: 25, nullable: true }) series?:
-    string | null;
+    | string
+    | null;
   @Column({ type: 'varchar', length: 40, nullable: true }) folio?:
-    string | null;
+    | string
+    | null;
   @Column({ type: 'varchar', length: 3 }) currency: string;
   @Column({ type: 'numeric', precision: 24, scale: 10, nullable: true })
   equivalence?: string | null;

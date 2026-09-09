@@ -1,29 +1,32 @@
+const path = require("node:path");
+const runtimeConfig = path.resolve(
+  __dirname,
+  "../../runtime-config",
+  path.basename(__dirname),
+);
+
 module.exports = {
   apps: [
     {
       name: "balanz-web-dev",
-      cwd: __dirname,
-      script: "scripts/deploy/run-isolated-runtime.sh",
-      args: "web",
-      interpreter: "/bin/bash",
+      cwd: `${__dirname}/apps/web`,
+      script: "node_modules/next/dist/bin/next",
+      args: "start --hostname 127.0.0.1 --port 5181",
       env: { NODE_ENV: "production" },
     },
     {
       name: "balanz-api-dev",
-      cwd: __dirname,
-      script: "scripts/deploy/run-isolated-runtime.sh",
-      args: "api",
-      interpreter: "/bin/bash",
-      env: { NODE_ENV: "production" },
+      cwd: `${__dirname}/apps/api`,
+      script: "dist/main.js",
+      node_args: `--env-file=${runtimeConfig}/api/runtime.env`,
+      env: { NODE_ENV: "development" },
     },
     {
       name: "balanz-worker-dev",
-      cwd: __dirname,
-      script: "scripts/deploy/run-isolated-runtime.sh",
-      args: "worker",
-      interpreter: "/bin/bash",
-      env: { NODE_ENV: "production" },
-      // Exceeds the validated WORKER_SHUTDOWN_GRACE_MS maximum (120 seconds).
+      cwd: `${__dirname}/apps/api`,
+      script: "dist/worker.js",
+      node_args: `--env-file=${runtimeConfig}/worker/runtime.env`,
+      env: { NODE_ENV: "development" },
       kill_timeout: 125000,
     },
   ],

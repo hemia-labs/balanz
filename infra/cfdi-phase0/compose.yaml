@@ -192,28 +192,6 @@ services:
     logging:
       driver: none
 
-  deploy-control-smoke:
-    profiles: ["phase0-validation"]
-    image: ${CFDI_DEPLOY_SMOKE_IMAGE:-balanz/deploy-smoke:phase0}
-    build:
-      context: deploy-smoke
-      dockerfile: Dockerfile
-      labels:
-        com.balanz.validation.run: ${CFDI_VALIDATION_RUN_ID:-manual-development}
-        com.balanz.validation.service: deploy-control-smoke
-    restart: "no"
-    user: "0:0"
-    working_dir: /workspace
-    network_mode: none
-    environment:
-      BALANZ_DISPOSABLE_CONTAINER: phase0-runtime-isolation-v1
-    volumes:
-      - type: bind
-        source: ${CFDI_WORKSPACE_ROOT:-../..}
-        target: /workspace
-        read_only: true
-    command: ["bash", "scripts/deploy/smoke-runtime-isolation.sh"]
-
   runtime-storage-init:
     profiles: ["phase0-validation"]
     image: node:22.22.0-bookworm-slim@sha256:dd9d21971ec4395903fa6143c2b9267d048ae01ca6d3ea96f16cb30df6187d94

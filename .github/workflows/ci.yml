@@ -1,0 +1,75 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+
+    env:
+      SECRETS_ENABLED: 'false'
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: baseline-ci-only
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@735343b667d3e6f658f44d0eca948eb6282f2b76 # v2.0.2
+        with:
+          bun-version: 1.3.2
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile --ignore-scripts
+
+      - name: Validate backend
+        run: |
+          node --test infra/cfdi-phase0/deploy-release.test.cjs
+          bun run --cwd apps/api lint
+          bun run --cwd apps/api test --runInBand
+          bun run --cwd apps/api build
+
+      - name: Validate incremental database migrations
+        env:
+          NODE_ENV: test
+          DB_HOST: 127.0.0.1
+          DB_PORT: '5432'
+          DB_USERNAME: postgres
+          DB_PASSWORD: baseline-ci-only
+          DB_DATABASE: postgres
+          PGPASSWORD: baseline-ci-only
+        run: |
+          psql -h 127.0.0.1 -U postgres -d postgres -v ON_ERROR_STOP=1 -c 'CREATE EXTENSION IF NOT EXISTS "uuid-ossp"'
+          bun run --cwd apps/api qa:migrations
+          bun run --cwd apps/api migration:run
+          bun run --cwd apps/api qa:migrations
+
+      - name: Validate frontend
+        run: |
+          bun run --cwd apps/web lint
+          bun run --cwd apps/web typecheck
+          bun run --cwd apps/web test
+          bun run --cwd apps/web build

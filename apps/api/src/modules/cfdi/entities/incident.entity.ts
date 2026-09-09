@@ -92,7 +92,8 @@ export class Incident {
   @Column({ name: 'client_account_id', type: 'uuid' }) clientAccountId: string;
   @Column({ name: 'legal_entity_id', type: 'uuid' }) legalEntityId: string;
   @Column({ name: 'cfdi_id', type: 'uuid', nullable: true }) cfdiId?:
-    string | null;
+    | string
+    | null;
   @Column({ name: 'ingestion_item_id', type: 'uuid', nullable: true })
   ingestionItemId?: string | null;
   @Column({ name: 'stored_object_id', type: 'uuid', nullable: true })

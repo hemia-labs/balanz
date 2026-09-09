@@ -595,6 +595,8 @@ intentar “sanitizar SQL” manualmente: usar parámetros y APIs TypeORM.
 - Todo cambio de entidad que altere esquema incluye una migración revisada.
 - Las migraciones son append-only después de ser aplicadas en un ambiente
   compartido.
+- El flujo incremental y la actualización de bases existentes
+  se describen en [Migraciones de base de datos](../operations/DATABASE_MIGRATIONS.md).
 - Cada FK lógica debe tener una FK real salvo una excepción documentada.
 - Agregar índices para claves foráneas y patrones de consulta comprobados.
 - Las restricciones únicas viven en PostgreSQL; el servicio traduce el conflicto
