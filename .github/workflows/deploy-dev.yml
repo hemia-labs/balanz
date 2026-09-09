@@ -186,10 +186,47 @@ jobs:
           fi
 
           probe() {
+            local status
             echo "Checking $1"
-            curl --fail --silent --show-error \
+            if curl --fail --silent --show-error \
               --retry 10 --retry-connrefused --retry-delay 2 \
-              --connect-timeout 2 --max-time 5 "$1" >/dev/null
+              --connect-timeout 2 --max-time 5 "$1" >/dev/null; then
+              return 0
+            else
+              status=$?
+            fi
+            echo "Health check failed: $1 (curl exit $status)" >&2
+            case "$1" in
+              */readiness|*/liveness)
+                # Take a fresh bounded snapshot before restoring the old release.
+                # Do not print response bodies, credentials or application logs.
+                curl --silent --show-error --connect-timeout 2 --max-time 5 \
+                  --max-filesize 65536 "$1" | node -e '
+                  const fs = require("node:fs");
+                  try {
+                    const body = JSON.parse(fs.readFileSync(0, "utf8"));
+                    const safe = value => {
+                      const out = {};
+                      if (["up", "down", "degraded", "disabled", "bypassed"].includes(value?.status)) out.status = value.status;
+                      if (typeof value?.required === "boolean") out.required = value.required;
+                      if (typeof value?.errorCode === "string" && /^[A-Z][A-Z0-9_]{0,99}$/.test(value.errorCode)) out.errorCode = value.errorCode;
+                      return out;
+                    };
+                    const result = safe(body);
+                    if (["api", "worker"].includes(body?.process)) result.process = body.process;
+                    result.dependencies = {};
+                    for (const name of ["postgres", "storage", "scanner", "redisWakeup", "workerSupervisor"]) {
+                      const value = body?.dependencies?.[name] ?? (name === "workerSupervisor" ? body?.workerSupervisor : undefined);
+                      if (value) result.dependencies[name] = safe(value);
+                    }
+                    console.error("Health diagnostic snapshot: " + JSON.stringify(result));
+                  } catch {
+                    console.error("Health diagnostic unavailable: empty or invalid JSON response");
+                  }
+                ' || echo "Health diagnostic request failed" >&2
+                ;;
+            esac
+            return "$status"
           }
 
           remove_balanz_processes() {

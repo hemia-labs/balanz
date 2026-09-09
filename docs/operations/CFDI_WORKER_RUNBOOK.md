@@ -603,6 +603,11 @@ La secuencia normal es:
    `pm_cwd`, `pm_exec_path` y `node_args` contra esa definición antes de validar
    web, liveness y readiness de API/worker. No usar `startOrReload`: puede conservar
    rutas antiguas. La recreación en modo fork implica una breve interrupción.
+   Si liveness/readiness agota los reintentos, antes del rollback se consulta una
+   nueva instantánea acotada y se imprimen únicamente estado, proceso, dependencia,
+   obligatoriedad y código de error. No se imprime el cuerpo completo ni logs de
+   aplicación. El diagnóstico conserva el código de fallo original de curl aunque
+   la respuesta adicional sea inválida o el proceso ya no responda.
 7. Persistir el estado de PM2. Ante un fallo, restaurar `current` y recrear el
    release anterior con su configuración original; comprobar web y liveness/readiness
    de API y worker. Los releases legacy sin worker se restauran sin éste y se

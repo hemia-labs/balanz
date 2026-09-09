@@ -69,11 +69,48 @@ if (cmd === 'pm2') {
   fs.writeFileSync(file, JSON.stringify(processes));
 }
 if (cmd === 'bun' && args.includes('release:prepare') && process.env.QA_FAILURE === 'migration') process.exit(1);
+if (cmd === 'curl' && args.includes('--max-filesize')) {
+  if (process.env.QA_DIAGNOSTIC === 'unreachable') process.exit(7);
+  if (process.env.QA_DIAGNOSTIC === 'invalid') console.log('not-json SECRET_FIXTURE');
+  else console.log(JSON.stringify({status: 'down', process: 'api', secret: 'SECRET_FIXTURE', dependencies: {
+    storage: {status: 'down', errorCode: 'OBJECT_STORAGE_UNAVAILABLE', message: 'SECRET_FIXTURE'},
+    scanner: {status: 'bypassed', required: false},
+    private: {password: 'SECRET_FIXTURE'}
+  }}));
+  process.exit(0);
+}
 if (cmd === 'curl' && (process.env.QA_FAILURE === 'rollback-readiness' ||
     (['readiness', 'worker-delete', 'worker-absent', 'worker-list'].includes(process.env.QA_FAILURE) &&
     fs.readlinkSync(process.env.DEPLOY_ROOT + '/current').endsWith('/new'))) &&
-    args.at(-1).endsWith('/readiness')) process.exit(1);
+    args.at(-1).endsWith('/readiness')) process.exit(process.env.QA_DIAGNOSTIC ? 22 : 1);
 `;
+
+for (const diagnostic of ["valid", "invalid", "unreachable"]) {
+  test(`captures ${diagnostic} health diagnostics before rollback without leaking bodies`, (t) => {
+    const { dir, env } = fixture(t, "readiness");
+    env.QA_DIAGNOSTIC = diagnostic;
+    const result = spawnSync("bash", ["-s", "--", `${dir}/releases/new`, dir], {
+      input: activation,
+      env,
+      encoding: "utf8",
+    });
+    assert.equal(result.status, 22, result.stderr);
+    assert(!result.stderr.includes("SECRET_FIXTURE"));
+    const label =
+      diagnostic === "valid"
+        ? "Health diagnostic snapshot:"
+        : diagnostic === "invalid"
+          ? "Health diagnostic unavailable:"
+          : "Health diagnostic request failed";
+    assert(result.stderr.includes(label), result.stderr);
+    assert(
+      result.stderr.indexOf(label) <
+        result.stderr.indexOf("restoring the previous release"),
+    );
+    if (diagnostic === "valid")
+      assert(result.stderr.includes("OBJECT_STORAGE_UNAVAILABLE"));
+  });
+}
 
 for (const failure of ["worker-delete", "worker-absent", "worker-list"]) {
   test(`rollback handles ${failure} explicitly`, (t) => {
