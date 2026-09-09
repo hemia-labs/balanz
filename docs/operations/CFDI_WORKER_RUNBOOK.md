@@ -635,3 +635,89 @@ Registrar:
 El cierre exige autoridad durable convergente, queue age recuperándose, probes
 esperados y ausencia de fuga en logs. Un control incompleto queda como defecto,
 no como “fase futura”.
+
+## 11. Operación Fase 2: ZIP manual
+
+`ManualZipJobHandler` comparte `XmlObjectProcessor` con XML individual. No crea
+jobs hijos. Pipeline: claim y contexto RLS → scope/raíz → lectura completa con
+SHA-256 y ClamAV → cuarentena → `extracting` → inspección de central/local headers
+→ reserva durable por ordinal → extracción streaming con CRC, fin DEFLATE,
+bytes/ratio acumulados → escaneo y parser por objeto XML → resultados aislados
+→ counters SQL → transición terminal con lease. No se invoca el parser si la
+extracción real de cualquier entrada revela una amenaza estructural.
+
+Errores de contenido XML son resultados de item; la excepción de infraestructura
+interrumpe el intento y deja la autoridad durable reanudable. Reejecución verifica
+objetos existentes, conserva ordinal único y omite publicación de items terminales.
+Cancelación y lease se comprueban entre entradas y al finalizar. El runner mantiene
+heartbeat y el presupuesto existente; `ZIP_CANCELLED` converge sin consumir retry.
+El trigger terminal reconcilia también cancelación en cola y recuperación tras caída.
+
+### 11.1 Retención y limpieza
+
+| Objeto/estado | Tratamiento |
+| --- | --- |
+| ZIP limpio usado por un job | Conservar 30 días desde escaneo/retry para reprocesar el paquete completo |
+| ZIP con rechazo estructural | Rechazado, no elegible para retry; conservar ventana técnica de raíz antes de cleanup |
+| ZIP raíz infectado | Cuarentena, hold infinito; nunca extraer; revisión de incidente autorizada para cualquier purga |
+| XML incorporado / fuente del CFDI | No eliminar; descargar mediante el contrato existente con MFA |
+| XML duplicado o rechazado | Retención de Fase 1; puede limpiarse al vencer si no hay referencias/hold/incidente/job activo |
+| XML infectado o en investigación | Preservar; malware y un incidente abierto excluyen cleanup automático |
+| XML pendiente tras cancelación/fallo final | Resultado durable `internal_error`, bytes retenidos 1 día; retry crea otros objetos desde la raíz |
+| Upload nunca confirmado / objeto huérfano pendiente | Expira admisión según configuración existente; barrido ZIP admite borrado a partir de 31 días, sin actividad/hold |
+
+`claim_zip_cleanup()` es un boundary SECURITY DEFINER sin argumentos libres,
+propietario técnico existente y sin EXECUTE público; sólo worker lo ejecuta.
+Reclama hasta 100 filas con lock/SKIP LOCKED, vuelve a verificar referencias/jobs
+con un snapshot posterior al lock y persiste `cleanup_requested_at` + `rejected`.
+Admisión/retry bloquean la raíz y rechazan ese marcador. El worker obtiene la key
+en una transacción RLS normal, elimina bytes y publica `deleted` + auditoría.
+La eliminación es idempotente: si cae entre borrar storage y actualizar SQL, el
+siguiente barrido tras 5 minutos repite delete y termina la transición. Fallar
+no retira el claim ni pierde la capacidad de recuperación.
+
+En filesystem, el mismo claim limpia solamente archivos `.partial-<UUID>` del
+objeto opaco autorizado, validando contención, directorios y archivos regulares;
+así se recuperan escrituras interrumpidas por muerte del proceso. El delete común
+de XML no cambia. En S3 se conserva el lifecycle existente para multipart
+incompletos; no configure reglas que borren indiscriminadamente XML publicados o
+cuarentena. Raíces y extraídos se registran en SQL **antes** de escribir bytes,
+para que una caída no pierda su referencia de cleanup.
+
+No elimine manualmente por prefijo ni vuelva disponible un objeto infectado para
+forzar retry. Recupere primero job/upload/objeto por sus IDs y compruebe autoridad
+durable, incidentes y hold. Cualquier purga de incidente requiere la autorización
+operativa correspondiente y auditoría; esta fase no agrega una UI de purga.
+
+### 11.2 Métricas y evidencia
+
+Nuevas métricas sin labels: `zip_admitted_total`, `zip_uncompressed_bytes_total`,
+`zip_entries_inspected_total`, `zip_structural_rejections_total`,
+`zip_cleanup_failures_total`, `zip_expansion_ratio`,
+`zip_extraction_duration_seconds`. Los bytes comprimidos y terminales usan
+`ingestion_upload_bytes_total{source="manual_zip"}` y las métricas existentes
+de jobs con source/result acotados. Bytes/entradas de extracción representan
+intentos que completaron extracción, no CFDI únicos. Nunca etiquetar por ID,
+filename, key, RFC, URL o firma de antivirus.
+
+Auditoría conserva admisión, confirmación, creación/retry/cancel y resultado
+terminal existentes; añade escaneo/rechazo ZIP y eliminación por objeto. Logs
+y errores externos sólo usan códigos canónicos y referencias técnicas.
+
+Integración representativa reproducible (sólo entorno QA autorizado):
+
+```powershell
+$env:RUN_ZIP_INTEGRATION='true'
+bun run --cwd apps/api test --testRegex='test/external/manual-zip\.external\.ts$' --runInBand
+```
+
+El test obtiene credenciales locales Docker sin imprimirlas, crea una base y
+logins efímeros, aplica migraciones, usa sesión real/API/MinIO firmado/ClamAV/
+worker/parser y elimina exclusivamente sus datos. No consulta ni modifica Vault.
+Requiere Node compatible con `apps/api/package.json`. El reporte de Fase 2
+identifica SHA y conteos; no reemplaza Full ni certifica Fases 0/1.
+
+Rollout: aplicar la nueva migración con el rol migrador autorizado antes de
+activar API/worker/frontend. Para rollback restaurar el release de aplicación,
+conservando datos y migración; jobs ZIP quedan pendientes hasta recuperar un
+worker compatible. No revertir esquema para un rollback de aplicación.

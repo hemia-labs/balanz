@@ -492,7 +492,7 @@ requiere crear otra base de datos. La ejecución final de cierre no se declara
 | ID                   | `PHASE_2_ZIP`                                                                                 |
 | Objetivo             | Ingestar ZIP de hasta 2,000 entradas con éxito parcial sobre el mismo pipeline.               |
 | Valor de producto    | Carga masiva manual segura y recuperable.                                                     |
-| Dependencias         | Fases 0 y 1 `DONE`.                                                                           |
+| Dependencias         | Merges #17/#18 y dominio/parser estables; desarrollo autorizado aunque sus gates de release sigan pendientes. |
 | Alcance              | init/signed URL/confirm, extracción segura, limits, item por entrada, cancel/retry/UI.        |
 | Fuera de alcance     | SAT y e.firma.                                                                                |
 | Tablas/migraciones   | Sólo extensiones compatibles a uploads/items/lifecycle si son necesarias; no segundo dominio. |
@@ -510,8 +510,8 @@ requiere crear otra base de datos. La ejecución final de cierre no se declara
 | Criterios de salida  | Éxito parcial probado sin modificar parser/dominio.                                           |
 | Riesgos              | DoS, archivos hostiles, costo y cardinalidad.                                                 |
 | Rollback             | Deshabilitar ZIP y conservar XML individual.                                                  |
-| Estado               | `NOT_STARTED`                                                                                 |
-| Evidencia            | Ninguna.                                                                                      |
+| Estado               | `IMPLEMENTED_NOT_MERGED`; release sujeto a gates heredados.                                    |
+| Evidencia            | `docs/qa/CFDI_PHASE_2_VALIDATION_REPORT.md`: pruebas focalizadas, builds e integración ZIP mixta real. |
 
 ### Fase 3 — Reautenticación y custodia de e.firma
 
@@ -719,7 +719,7 @@ TECHNICAL_DEBT: 0
 KNOWN_FUNCTIONAL_DEFECTS: 0
 PR_18_POSTGRES_VALIDATION: PENDING - foundation FK validation fixed; verify locally
 CFDI_GITHUB_ACTIONS_WORKFLOW: REMOVED - team request to stop hosted CI consumption
-PHASE_2_ZIP: NOT_STARTED
+PHASE_2_ZIP: IMPLEMENTED_NOT_MERGED
 ```
 
 ClamAV, MinIO y el recorrido manual quedaron validados en el cierre anterior. EICAR
@@ -734,7 +734,6 @@ acredita el cierre de `TD-004` ni sustituye la validación Full pendiente.
 
 ```text
 DEFERRED_PRODUCT_CAPABILITIES:
-  - PHASE_2_ZIP
   - PHASE_3_REAUTH_AND_EFIRMA
   - PHASE_4_SAT_ON_DEMAND
   - PHASE_5_MONTHLY_WORKSPACE
@@ -748,3 +747,21 @@ Para mover Fase 1 a `DONE` sigue siendo obligatorio:
 - ejecutar la validación `Full` local de los cambios integrados, incluidas las
   regresiones PostgreSQL, y conservar el reporte junto con el SHA probado;
 - resolver antes de merge/despliegue los dos gates de release de Fase 0.
+
+## 16. Extensión autorizada PHASE_2_ZIP (2026-09-08)
+
+La autorización de Fase 2 separa preparación de desarrollo y gates de release.
+Se actualizaron referencias y se verificó que los merges de #17 (`a6ee35f`) y
+#18 (`5ff2dd0`) son ancestros de la base vigente
+`f1d37d1f38822dafd93d950cf49e26eb1e43a12b`. El trabajo se aisló en
+`codex/cfdi-phase2-zip`, sin desarrollar sobre `develop`, merge ni cambios a
+migraciones aplicadas. Las referencias de cierre de Fases 0/1 en la sección 15
+son históricas; esta extensión no vuelve a certificarlas ni declara resueltos
+Full integrado, Vault compartido o reconciliación documental de release.
+
+Implementación: tres pasos de upload, storage privado, extractor streaming,
+handler ZIP con procesador XML compartido, éxito parcial, retry nuevo job,
+cancelación/recuperación, procedencia tipada, consultas paginadas, UI y cleanup
+durable. La evidencia y el SHA del código probado se encuentran en
+`docs/qa/CFDI_PHASE_2_VALIDATION_REPORT.md`. El siguiente paso es revisión de la
+PR en borrador; no se autoriza Fase 3 ni se realiza merge en esta entrega.
