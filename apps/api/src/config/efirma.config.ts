@@ -5,6 +5,8 @@ import type { VaultCustodyConfiguration } from '../modules/efirma/vault-custody.
 
 export interface EfirmaConfig {
   enabled: boolean;
+  certificateProfile?: 'synthetic_v1' | 'sat_efirma_v1';
+  satTrustFile?: string;
   generationFile: string;
   syntheticTrustFile: string;
   sessionIdleSeconds: number;
@@ -34,7 +36,9 @@ export function efirmaConfiguration(
   if (
     env.NODE_ENV !== 'test' ||
     env.EFIRMA_QA_ISOLATED !== 'true' ||
-    env.EFIRMA_CERTIFICATE_PROFILE !== 'synthetic_v1' ||
+    !['synthetic_v1', 'sat_efirma_v1'].includes(
+      env.EFIRMA_CERTIFICATE_PROFILE ?? '',
+    ) ||
     env.SECRETS_ENABLED === 'true' ||
     env.DB_LOGGING === 'true' ||
     (env.OBJECT_STORAGE_DRIVER === 's3' && !env.S3_ENDPOINT) ||
@@ -49,7 +53,14 @@ export function efirmaConfiguration(
     throw new Error('Phase 3 currently permits isolated synthetic QA only');
   }
   const generationFile = required('EFIRMA_CUSTODY_GENERATION_FILE');
-  const syntheticTrustFile = required('EFIRMA_SYNTHETIC_TRUST_FILE');
+  const certificateProfile = env.EFIRMA_CERTIFICATE_PROFILE as
+    | 'synthetic_v1'
+    | 'sat_efirma_v1';
+  const syntheticTrustFile = required(
+    certificateProfile === 'synthetic_v1'
+      ? 'EFIRMA_SYNTHETIC_TRUST_FILE'
+      : 'EFIRMA_SAT_TRUST_FILE',
+  );
   if (!isAbsolute(generationFile) || !isAbsolute(syntheticTrustFile))
     throw new Error('Phase 3 files require absolute paths');
   const makeVault = (identity: string): VaultCustodyConfiguration => ({
@@ -70,6 +81,9 @@ export function efirmaConfiguration(
     throw new Error('Invalid Phase 3 idle limit');
   return {
     enabled: true,
+    certificateProfile,
+    satTrustFile:
+      certificateProfile === 'sat_efirma_v1' ? syntheticTrustFile : undefined,
     generationFile,
     syntheticTrustFile,
     sessionIdleSeconds,

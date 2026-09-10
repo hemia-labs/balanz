@@ -1,3 +1,4 @@
+import type { SatCustodyBinding } from './efirma.repository';
 import { Inject, Injectable } from '@nestjs/common';
 import {
   createPrivateKey,
@@ -37,6 +38,7 @@ export class EfirmaConsumerService {
       certificate: X509Certificate,
       checkAuthority: () => Promise<void>,
     ) => Promise<void>,
+    binding?: SatCustodyBinding,
   ): Promise<void> {
     const generation = await this.repository.generation();
     const claim = randomUUID();
@@ -51,6 +53,13 @@ export class EfirmaConsumerService {
       const current = rows[0];
       if (!current || current.generation !== generation)
         throw efirmaError('EFIRMA_NOT_CONSUMABLE');
+      if (
+        (current.purpose ?? 'efirma.prepare') !==
+          (binding?.purpose ?? 'efirma.prepare') ||
+        (current.sat_job_id ?? null) !== (binding?.jobId ?? null) ||
+        (current.filter_version ?? null) !== (binding?.filterVersion ?? null)
+      )
+        throw efirmaError('EFIRMA_SCOPE_DENIED', 403);
       await this.repository.authorized(manager, current);
       await manager.query(
         `UPDATE efirma_sessions SET status='claimed',claim_id=$2,lease_until=least(expires_at,clock_timestamp()+interval '30 seconds') WHERE id=$1`,
@@ -73,6 +82,10 @@ export class EfirmaConsumerService {
         );
         if (!rows[0]) throw efirmaError('EFIRMA_AUTHORIZATION_LOST');
         await this.repository.authorized(manager, rows[0]);
+        await manager.query(
+          "UPDATE efirma_sessions SET lease_until=least(expires_at,clock_timestamp()+interval '30 seconds') WHERE id=$1 AND claim_id=$2",
+          [intentionId, claim],
+        );
       });
     };
     try {

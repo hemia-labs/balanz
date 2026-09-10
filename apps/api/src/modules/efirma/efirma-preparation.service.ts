@@ -1,3 +1,4 @@
+import { SatCertificateValidator } from './sat-certificate-validator';
 import { Inject, Injectable, HttpException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { randomBytes, randomUUID } from 'node:crypto';
@@ -16,6 +17,7 @@ import {
   EfirmaRepository,
   envelopeContext,
   type CustodyRow,
+  type SatCustodyBinding,
 } from './efirma.repository';
 import type { ReceivedCredentials } from './receive-credentials';
 import { VaultCustodyAdapter } from './vault-custody.adapter';
@@ -41,6 +43,7 @@ export class EfirmaPreparationService {
     idempotencyKey: string,
     input: ReceivedCredentials,
     correlationId: string,
+    binding?: SatCustodyBinding,
   ) {
     let row: CustodyRow | undefined;
     let dek: Buffer | undefined;
@@ -49,7 +52,14 @@ export class EfirmaPreparationService {
     try {
       const fingerprint = digest(
         JSON.stringify([
-          'efirma_prepare_v1',
+          binding
+            ? [
+                'sat_custody_v2',
+                binding.purpose,
+                binding.jobId,
+                binding.filterVersion,
+              ]
+            : 'efirma_prepare_v1',
           tenant.organizationId,
           tenant.membershipId,
           tenant.userId,
@@ -68,12 +78,17 @@ export class EfirmaPreparationService {
         input.grant,
         input.replacesId,
         correlationId,
+        binding,
       );
       if (!reservation.created) return custodyDto(reservation.row);
       row = reservation.row;
-      const validated = await new CertificateValidator(
-        this.repository.config.syntheticTrustFile,
-      ).validate(
+      const validator =
+        this.repository.config.certificateProfile === 'sat_efirma_v1'
+          ? new SatCertificateValidator(
+              this.repository.config.satTrustFile ?? '',
+            )
+          : new CertificateValidator(this.repository.config.syntheticTrustFile);
+      const validated = await validator.validate(
         input.certificate,
         input.encryptedKey,
         input.password,
@@ -180,7 +195,7 @@ export class EfirmaPreparationService {
           throw efirmaError('EFIRMA_AUTHORIZATION_LOST');
         const ready: CustodyRow[] = await manager.query(
           `WITH changed AS (UPDATE efirma_sessions SET status='ready',wrapped_token_ciphertext=$3,
-          certificate_sha256=$4,certificate_not_after=$5,certificate_profile='synthetic_v1',local_validation_passed=true,claim_id=NULL,lease_until=NULL
+          certificate_sha256=$4,certificate_not_after=$5,certificate_profile=$6,local_validation_passed=true,claim_id=NULL,lease_until=NULL
           WHERE id=$1 AND claim_id=$2 AND status='preparing' AND lease_until>clock_timestamp() AND expires_at>clock_timestamp() RETURNING *) SELECT * FROM changed`,
           [
             row!.id,
@@ -188,6 +203,7 @@ export class EfirmaPreparationService {
             encryptedToken,
             digest(input.certificate),
             new Date(validated.certificate.validTo),
+            this.repository.config.certificateProfile ?? 'synthetic_v1',
           ],
         );
         if (!ready[0]) throw efirmaError('EFIRMA_AUTHORIZATION_LOST');

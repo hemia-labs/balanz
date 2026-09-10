@@ -1,4 +1,6 @@
 "use client";
+import { SatPanel } from "@/features/sat-download/sat-panel";
+import { satRecovery } from "@/features/sat-download/sat-state";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useAccountingContext } from "@/components/accounting-context";
@@ -17,7 +19,7 @@ import {
 } from "./credential-state";
 
 export function EfirmaScreen({ clientId }: { clientId: string }) {
-  const { organization, capabilities } = useAccountingContext();
+  const { organization, capabilities, locale } = useAccountingContext();
   const query = useSearchParams();
   const router = useRouter();
   const pathname = usePathname();
@@ -37,8 +39,8 @@ export function EfirmaScreen({ clientId }: { clientId: string }) {
     <div className="space-y-5">
       <h1 className="text-page-title">e.firma temporal</h1>
       <p>
-        La descarga SAT aún no está disponible. Esta capacidad admite únicamente
-        certificados sintéticos en QA aislado.
+        La custodia y descarga SAT admiten únicamente certificados sintéticos en
+        QA aislado.
       </p>
       {loading ? (
         <p role="status">Consultando entidad fiscal…</p>
@@ -84,6 +86,19 @@ export function EfirmaScreen({ clientId }: { clientId: string }) {
           Más entidades
         </Button>
       </div>
+      {entity && capabilities.includes("sat.download") ? (
+        <SatPanel
+          key={`sat:${organization.id}:${entity.id}`}
+          entityId={entity.id}
+          cfdiHref={(id) =>
+            `/${locale}/organizations/${encodeURIComponent(organization.slug)}/clients/${encodeURIComponent(clientId)}/legal-entities/${encodeURIComponent(entity.id)}/cfdi/${encodeURIComponent(id)}`
+          }
+          recoveryId={satRecovery(new URLSearchParams(query.toString()))}
+          onCreated={(id) =>
+            router.replace(`${pathname}?entityId=${entity.id}&satJob=${id}`)
+          }
+        />
+      ) : null}
       {entity ? (
         <CustodyForm
           key={`${organization.id}:${entity.id}`}
@@ -162,10 +177,24 @@ function CustodyForm({
     };
   }, [base, recoveryId]);
   const failure = (cause: unknown) => {
-    if(alive.current && cause instanceof ApiError && cause.details && typeof cause.details==='object') {
-      const details=cause.details as {efirmaSessionId?:unknown;legalEntityId?:unknown};
-      if(details.legalEntityId===entityId && typeof details.efirmaSessionId==='string'
-        && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(details.efirmaSessionId))onPrepared(details.efirmaSessionId);
+    if (
+      alive.current &&
+      cause instanceof ApiError &&
+      cause.details &&
+      typeof cause.details === "object"
+    ) {
+      const details = cause.details as {
+        efirmaSessionId?: unknown;
+        legalEntityId?: unknown;
+      };
+      if (
+        details.legalEntityId === entityId &&
+        typeof details.efirmaSessionId === "string" &&
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+          details.efirmaSessionId,
+        )
+      )
+        onPrepared(details.efirmaSessionId);
     }
     if (alive.current)
       setError(
@@ -215,8 +244,17 @@ function CustodyForm({
     setError("");
     controller.current = new AbortController();
     try {
-      const result = await submitCustody(entityId,{certificate:cert!,key:privateKey!,password:password.current?.value??'',grant:grant.current,
-        replacesId:state&&!activeCustody(state)?state.id:undefined},controller.current.signal);
+      const result = await submitCustody(
+        entityId,
+        {
+          certificate: cert!,
+          key: privateKey!,
+          password: password.current?.value ?? "",
+          grant: grant.current,
+          replacesId: state && !activeCustody(state) ? state.id : undefined,
+        },
+        controller.current.signal,
+      );
       if (alive.current) {
         setState(result);
         onPrepared(result.id);

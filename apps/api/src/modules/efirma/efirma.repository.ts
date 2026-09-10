@@ -10,7 +10,15 @@ import { readCustodyGeneration } from './custody-generation';
 import { efirmaError } from './efirma.errors';
 import type { CustodyContext } from './custody-envelope';
 
+export interface SatCustodyBinding {
+  purpose: 'sat.submit' | 'sat.recover';
+  jobId: string;
+  filterVersion: 1;
+}
 export interface CustodyRow {
+  purpose?: 'efirma.prepare' | 'sat.submit' | 'sat.recover';
+  sat_job_id?: string | null;
+  filter_version?: 1 | null;
   id: string;
   organization_id: string;
   membership_id: string;
@@ -42,7 +50,18 @@ export function envelopeContext(row: CustodyRow): CustodyContext {
     organizationId: row.organization_id,
     legalEntityId: row.legal_entity_id,
     intentionId: row.id,
-    purpose: 'efirma.prepare',
+    purpose: row.purpose ?? 'efirma.prepare',
+    ...(row.sat_job_id
+      ? {
+          sat: {
+            jobId: row.sat_job_id,
+            filterVersion: row.filter_version!,
+            userId: row.user_id,
+            sessionId: row.auth_session_id!,
+            membershipId: row.membership_id,
+          },
+        }
+      : {}),
     expiresAt: row.expires_at.toISOString(),
     generation: row.generation,
   };
@@ -109,7 +128,8 @@ export class EfirmaRepository {
       | 'membership_id'
       | 'client_account_id'
       | 'legal_entity_id'
-    >,
+    > &
+      Partial<Pick<CustodyRow, 'purpose' | 'sat_job_id' | 'filter_version'>>,
   ): Promise<void> {
     const rows: { allowed: boolean }[] = await manager.query(
       'SELECT efirma_authorized($1,$2,$3,$4,$5,$6,$7) AS allowed',
@@ -124,6 +144,23 @@ export class EfirmaRepository {
       ],
     );
     if (!rows[0]?.allowed) throw efirmaError('EFIRMA_SCOPE_DENIED', 403);
+    if (row.sat_job_id) {
+      const sat: { allowed: boolean }[] = await manager.query(
+        'SELECT sat_authorized($1,$2,$3,$4,$5,$6,$7,$8,$9) AS allowed',
+        [
+          row.user_id,
+          row.auth_session_id,
+          row.organization_id,
+          row.membership_id,
+          row.client_account_id,
+          row.legal_entity_id,
+          row.sat_job_id,
+          row.purpose,
+          this.config.sessionIdleSeconds,
+        ],
+      );
+      if (!sat[0]?.allowed) throw efirmaError('EFIRMA_SCOPE_DENIED', 403);
+    }
   }
 
   async entity(
@@ -193,16 +230,24 @@ export class EfirmaRepository {
     tenant: SessionAuthorizationContext,
     entityId: string,
     correlationId: string,
+    binding?: SatCustodyBinding,
   ) {
     const generation = await this.generation();
     const token = randomBytes(32).toString('hex');
     const id = randomUUID();
     return this.run(tenant, async (manager) => {
       const identity = await this.entity(manager, tenant, entityId);
+      if (binding)
+        await this.authorized(manager, {
+          ...identity,
+          sat_job_id: binding.jobId,
+          purpose: binding.purpose,
+          filter_version: binding.filterVersion,
+        });
       const rows: { expires_at: Date }[] = await manager.query(
         `INSERT INTO fiscal_reauth_grants
-        (id,organization_id,client_account_id,legal_entity_id,user_id,membership_id,auth_session_id,generation,token_hash,expires_at)
-        SELECT $1,$2,$3,$4,$5,$6,id,$8,$9,least(expires_at,clock_timestamp()+interval '600 seconds') FROM auth_sessions
+        (id,organization_id,client_account_id,legal_entity_id,user_id,membership_id,auth_session_id,generation,token_hash,expires_at,purpose,sat_job_id,filter_version)
+        SELECT $1,$2,$3,$4,$5,$6,id,$8,$9,least(expires_at,clock_timestamp()+interval '600 seconds'),$10,$11,$12 FROM auth_sessions
         WHERE id=$7 AND status='active' AND reauthenticated_at>clock_timestamp()-interval '10 seconds'
         RETURNING expires_at`,
         [
@@ -215,6 +260,9 @@ export class EfirmaRepository {
           tenant.sessionId,
           generation,
           digest(token),
+          binding?.purpose ?? 'efirma.prepare',
+          binding?.jobId ?? null,
+          binding?.filterVersion ?? null,
         ],
       );
       if (!rows[0]) throw efirmaError('EFIRMA_FRESH_TOTP_REQUIRED', 403);
@@ -227,7 +275,7 @@ export class EfirmaRepository {
       return {
         grant: token,
         expiresAt: rows[0].expires_at,
-        purpose: 'efirma.prepare',
+        purpose: binding?.purpose ?? 'efirma.prepare',
       };
     });
   }
@@ -240,6 +288,7 @@ export class EfirmaRepository {
     token: string,
     replacesId: string | undefined,
     correlationId: string,
+    binding?: SatCustodyBinding,
   ) {
     if (!/^[a-zA-Z0-9._:-]{8,128}$/.test(key))
       throw efirmaError('EFIRMA_IDEMPOTENCY_KEY_REQUIRED', 400);
@@ -271,7 +320,7 @@ export class EfirmaRepository {
       const grants: { id: string; expires_at: Date }[] = await manager.query(
         `WITH changed AS (UPDATE fiscal_reauth_grants SET consumed_at=clock_timestamp()
         WHERE token_hash=$1 AND organization_id=$2 AND membership_id=$3 AND user_id=$4 AND auth_session_id=$5
-          AND legal_entity_id=$6 AND purpose='efirma.prepare' AND generation=$7 AND revoked_at IS NULL
+          AND legal_entity_id=$6 AND purpose=$8 AND sat_job_id IS NOT DISTINCT FROM $9::uuid AND filter_version IS NOT DISTINCT FROM $10::integer AND generation=$7 AND revoked_at IS NULL
           AND consumed_at IS NULL AND expires_at>clock_timestamp() RETURNING id,expires_at) SELECT * FROM changed`,
         [
           digest(token),
@@ -281,13 +330,16 @@ export class EfirmaRepository {
           tenant.sessionId,
           entityId,
           generation,
+          binding?.purpose ?? 'efirma.prepare',
+          binding?.jobId ?? null,
+          binding?.filterVersion ?? null,
         ],
       );
       if (!grants[0]) throw efirmaError('EFIRMA_GRANT_INVALID', 403);
       const rows: CustodyRow[] = await manager.query(
         `INSERT INTO efirma_sessions(id,organization_id,client_account_id,legal_entity_id,
-        user_id,membership_id,auth_session_id,generation,expires_at,grant_id,replaces_id,idempotency_key,request_fingerprint,claim_id,lease_until)
-        VALUES($1,$2,$3,$4,$5,$6,$7,$8,least($9::timestamptz,clock_timestamp()+interval '600 seconds'),$10,$11,$12,$13,$14,clock_timestamp()+interval '30 seconds') RETURNING *`,
+        user_id,membership_id,auth_session_id,generation,expires_at,grant_id,replaces_id,idempotency_key,request_fingerprint,claim_id,lease_until,purpose,sat_job_id,filter_version,envelope_version)
+        VALUES($1,$2,$3,$4,$5,$6,$7,$8,least($9::timestamptz,clock_timestamp()+interval '600 seconds'),$10,$11,$12,$13,$14,clock_timestamp()+interval '30 seconds',$15,$16,$17,$18) RETURNING *`,
         [
           randomUUID(),
           identity.organization_id,
@@ -303,8 +355,13 @@ export class EfirmaRepository {
           key,
           fingerprint,
           randomUUID(),
+          binding?.purpose ?? 'efirma.prepare',
+          binding?.jobId ?? null,
+          binding?.filterVersion ?? null,
+          binding ? 2 : 1,
         ],
       );
+      await this.authorized(manager, rows[0]);
       await this.audit(
         manager,
         rows[0],

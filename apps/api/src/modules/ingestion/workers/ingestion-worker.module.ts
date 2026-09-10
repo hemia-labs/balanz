@@ -1,3 +1,4 @@
+import { SatPackageJobHandler } from '../../sat-download/sat-package.handler';
 import { Module } from '@nestjs/common';
 import { CorrelationModule } from '../../../common/correlation/correlation.module';
 import { ObservabilityModule } from '../../../common/observability/observability.module';
@@ -24,11 +25,12 @@ import { ManualZipJobHandler } from '../../cfdi/workers/manual-zip-job.handler';
   providers: [
     {
       provide: INGESTION_JOB_HANDLERS,
-      inject: [ManualXmlJobHandler, ManualZipJobHandler],
+      inject: [ManualXmlJobHandler, ManualZipJobHandler, SatPackageJobHandler],
       useFactory: (
         manualXml: ManualXmlJobHandler,
         manualZip: ManualZipJobHandler,
-      ) => Object.freeze([manualXml, manualZip]),
+        satPackage: SatPackageJobHandler,
+      ) => Object.freeze([manualXml, manualZip, satPackage]),
     },
     IngestionJobRegistry,
     IngestionWorkerRunner,
