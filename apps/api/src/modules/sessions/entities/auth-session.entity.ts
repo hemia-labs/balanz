@@ -14,6 +14,11 @@ export enum AuthSessionStatus {
   REVOKED = 'revoked',
 }
 
+@Index(
+  'uq_auth_sessions_fiscal_identity',
+  ['id', 'userId', 'organizationId', 'membershipId'],
+  { unique: true },
+)
 @Index('uq_auth_sessions_token_hash', ['sessionTokenHash'], { unique: true })
 @Index('idx_auth_sessions_user_status', ['userId', 'status', 'expiresAt'])
 @Index('idx_auth_sessions_membership_status', [

@@ -10,6 +10,7 @@ import type { ObjectStoragePort } from '../object-storage/ports/object-storage.p
 import { OBJECT_STORAGE_PORT } from '../object-storage/object-storage.tokens';
 import { EfirmaRepository, type CustodyRow } from './efirma.repository';
 import { VaultCustodyAdapter } from './vault-custody.adapter';
+import { EFIRMA_VAULT_CLEANUP } from './vault-custody.tokens';
 
 @Injectable()
 export class EfirmaCleanupService implements OnModuleInit, OnModuleDestroy {
@@ -18,6 +19,8 @@ export class EfirmaCleanupService implements OnModuleInit, OnModuleDestroy {
   constructor(
     private readonly repository: EfirmaRepository,
     @Inject(OBJECT_STORAGE_PORT) private readonly storage: ObjectStoragePort,
+    @Inject(EFIRMA_VAULT_CLEANUP)
+    private readonly vault: VaultCustodyAdapter | null,
   ) {}
 
   onModuleInit() {
@@ -52,6 +55,24 @@ export class EfirmaCleanupService implements OnModuleInit, OnModuleDestroy {
             {},
           );
         });
+      }
+      const purgable: { id: string; organization_id: string }[] =
+        await this.repository.transactions.runWorkerMaintenance((manager) =>
+          manager.query('SELECT * FROM efirma_metadata_purge_batch()'),
+        );
+      for (const candidate of purgable) {
+        await this.repository.transactions
+          .runAsWorker(
+            { organizationId: candidate.organization_id },
+            (manager) =>
+              manager.query('SELECT purge_efirma_metadata($1)', [candidate.id]),
+          )
+          .catch(() => {
+            this.repository.metrics?.increment(
+              'efirma_cleanup_failures_total',
+              {},
+            );
+          });
       }
       const orphans: { id: string; organization_id: string }[] =
         await this.repository.transactions.runWorkerMaintenance((manager) =>
@@ -121,25 +142,23 @@ export class EfirmaCleanupService implements OnModuleInit, OnModuleDestroy {
             () => true,
             () => false,
           );
-        let terminal: string | null = null;
-        if (current.expires_at.getTime() <= Date.now()) terminal = 'expired';
-        else if (current.generation !== generation || !authorized)
-          terminal = 'revoked';
-        else if (
-          ['preparing', 'unwrapping'].includes(current.status) &&
-          (!current.lease_until || current.lease_until.getTime() < Date.now())
-        )
-          terminal = 'requires_user_authorization';
-        if (terminal) {
-          await manager.query(
-            `UPDATE efirma_sessions SET status=$2,terminal_at=clock_timestamp(),cleanup_requested_at=clock_timestamp()
-            WHERE id=$1`,
-            [id, terminal],
-          );
+        const changed: CustodyRow[] = await manager.query(
+          `WITH changed AS (UPDATE efirma_sessions SET status=CASE
+            WHEN expires_at<=clock_timestamp() THEN 'expired'
+            WHEN generation IS DISTINCT FROM $2::uuid OR NOT $3::boolean THEN 'revoked'
+            ELSE 'requires_user_authorization' END,
+            terminal_at=clock_timestamp(),cleanup_requested_at=clock_timestamp()
+          WHERE id=$1 AND status IN('preparing','ready','claimed','unwrapping')
+            AND (expires_at<=clock_timestamp() OR generation IS DISTINCT FROM $2::uuid OR NOT $3::boolean
+              OR (status IN('preparing','unwrapping') AND (lease_until IS NULL OR lease_until<=clock_timestamp())))
+          RETURNING *) SELECT * FROM changed`,
+          [id, generation, authorized],
+        );
+        if (changed[0]) {
           await this.repository.audit(
             manager,
-            current,
-            `efirma.custody.${terminal}`,
+            changed[0],
+            `efirma.custody.${changed[0].status}`,
             randomUUID(),
           );
         }
@@ -179,15 +198,18 @@ export class EfirmaCleanupService implements OnModuleInit, OnModuleDestroy {
         );
       });
     }
-    if (
-      row.wrapping_accessor &&
-      row.status !== 'consumed' &&
-      (!row.wrapping_expires_at ||
-        row.wrapping_expires_at.getTime() > Date.now())
-    ) {
-      await new VaultCustodyAdapter(
-        this.repository.config.cleanupVault!,
-      ).revoke(row.wrapping_accessor);
+    const required: { revoke: boolean }[] = await run((manager) =>
+      manager.query(
+        `SELECT (wrapping_accessor IS NOT NULL AND status<>'consumed'
+        AND (wrapping_expires_at IS NULL OR wrapping_expires_at>clock_timestamp())) AS revoke
+       FROM efirma_sessions WHERE id=$1 AND cleanup_claim_id=$2 AND cleanup_lease_until>clock_timestamp()`,
+        [id, claim],
+      ),
+    );
+    if (!required[0]) return;
+    if (required[0].revoke) {
+      if (!this.vault) throw new Error('EFIRMA_VAULT_UNAVAILABLE_OR_UNCERTAIN');
+      await this.vault.revoke(row.wrapping_accessor!);
     }
     await run(async (manager) => {
       const done: CustodyRow[] = await manager.query(

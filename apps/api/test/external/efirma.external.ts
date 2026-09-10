@@ -256,9 +256,18 @@ describe('Phase 3 real isolated PostgreSQL, Vault and private MinIO', () => {
         apiRepository,
         configuration(false),
         storage,
+        new VaultCustodyAdapter(apiRepository.config.vault!),
       );
-      const consumption = new EfirmaConsumerService(workerRepository, storage);
-      const cleaner = new EfirmaCleanupService(workerRepository, storage);
+      const consumption = new EfirmaConsumerService(
+        workerRepository,
+        storage,
+        new VaultCustodyAdapter(workerRepository.config.vault!),
+      );
+      const cleaner = new EfirmaCleanupService(
+        workerRepository,
+        storage,
+        new VaultCustodyAdapter(workerRepository.config.cleanupVault!),
+      );
       const tenant: SessionAuthorizationContext = {
         userId: randomUUID(),
         sessionId: randomUUID(),
@@ -468,6 +477,49 @@ describe('Phase 3 real isolated PostgreSQL, Vault and private MinIO', () => {
         makeInput(beforeGrant.grant),
         randomUUID(),
       );
+      const workerClock = Date.now();
+      const clockSpy = jest
+        .spyOn(Date, 'now')
+        .mockReturnValue(workerClock + 3600000);
+      try {
+        await cleaner.reconcileOne(
+          tenant.organizationId!,
+          before.id,
+          generation,
+        );
+      } finally {
+        clockSpy.mockRestore();
+      }
+      check(
+        (
+          await db.query(
+            'SELECT status,cleanup_requested_at FROM efirma_sessions WHERE id=$1',
+            [before.id],
+          )
+        )[0].status === 'ready',
+        'ahead worker clock cannot expire a live custody',
+      );
+      const behindSpy = jest
+        .spyOn(Date, 'now')
+        .mockReturnValue(workerClock - 3600000);
+      try {
+        await cleaner.reconcileOne(
+          tenant.organizationId!,
+          before.id,
+          generation,
+        );
+      } finally {
+        behindSpy.mockRestore();
+      }
+      check(
+        (
+          await db.query(
+            'SELECT cleanup_requested_at FROM efirma_sessions WHERE id=$1',
+            [before.id],
+          )
+        )[0].cleanup_requested_at === null,
+        'worker clock changes cannot schedule live custody cleanup',
+      );
       const deniedConfig = configuration(true);
       deniedConfig.set('efirma.vault', { ...vaultBase, identity: preparer });
       const deniedConsumer = new EfirmaConsumerService(
@@ -476,6 +528,7 @@ describe('Phase 3 real isolated PostgreSQL, Vault and private MinIO', () => {
           deniedConfig,
         ),
         storage,
+        new VaultCustodyAdapter({ ...vaultBase, identity: preparer }),
       );
       await expect(
         deniedConsumer.withCredential(tenant.organizationId!, before.id, () =>
@@ -584,15 +637,43 @@ describe('Phase 3 real isolated PostgreSQL, Vault and private MinIO', () => {
         (result) => result.status === 'fulfilled',
       );
       if (reservation?.status === 'fulfilled') {
+        const ahead = jest
+          .spyOn(Date, 'now')
+          .mockReturnValue(Date.now() + 3600000);
+        try {
+          await cleaner.reconcileOne(
+            tenant.organizationId!,
+            reservation.value.row.id,
+            generation,
+          );
+          check(
+            (
+              await db.query('SELECT status FROM efirma_sessions WHERE id=$1', [
+                reservation.value.row.id,
+              ])
+            )[0].status === 'preparing',
+            'future preparation lease survives advanced worker clock',
+          );
+        } finally {
+          ahead.mockRestore();
+        }
+
         await db.query(
           `UPDATE efirma_sessions SET lease_until=clock_timestamp()-interval '10 seconds' WHERE id=$1`,
           [reservation.value.row.id],
         );
-        await cleaner.reconcileOne(
-          tenant.organizationId!,
-          reservation.value.row.id,
-          generation,
-        );
+        const behind = jest
+          .spyOn(Date, 'now')
+          .mockReturnValue(Date.now() - 3600000);
+        try {
+          await cleaner.reconcileOne(
+            tenant.organizationId!,
+            reservation.value.row.id,
+            generation,
+          );
+        } finally {
+          behind.mockRestore();
+        }
         check(
           (
             await db.query('SELECT status FROM efirma_sessions WHERE id=$1', [
@@ -619,6 +700,44 @@ describe('Phase 3 real isolated PostgreSQL, Vault and private MinIO', () => {
         ),
       ).rejects.toBeDefined();
       count++;
+      const expirationGrant = await issue();
+      const expiration = (
+        await apiRepository.reserve(
+          tenant,
+          entity,
+          randomUUID(),
+          'c'.repeat(64),
+          expirationGrant.grant,
+          undefined,
+          randomUUID(),
+        )
+      ).row;
+      await db.query(
+        "UPDATE efirma_sessions SET created_at=clock_timestamp()-interval '600 seconds',expires_at=clock_timestamp()-interval '1 second',lease_until=NULL WHERE id=$1",
+        [expiration.id],
+      );
+      const lagging = jest
+        .spyOn(Date, 'now')
+        .mockReturnValue(Date.now() - 3600000);
+      try {
+        await cleaner.reconcileOne(
+          tenant.organizationId!,
+          expiration.id,
+          generation,
+        );
+        const expired = (
+          await db.query(
+            'SELECT status,cleanup_completed_at FROM efirma_sessions WHERE id=$1',
+            [expiration.id],
+          )
+        )[0];
+        check(
+          expired.status === 'expired' && expired.cleanup_completed_at !== null,
+          'database expiry cleans despite lagging worker clock',
+        );
+      } finally {
+        lagging.mockRestore();
+      }
       const revocableGrant = await issue();
       const revocable = await preparation.prepare(
         tenant,
@@ -729,6 +848,28 @@ describe('Phase 3 real isolated PostgreSQL, Vault and private MinIO', () => {
           )
         )[0].n === 0,
         'private storage objects cleaned',
+      );
+      await db.query(
+        "UPDATE efirma_sessions SET terminal_at=clock_timestamp()-interval '91 days' WHERE id=$1",
+        [prepared.id],
+      );
+      const purgeBatch: { id: string }[] =
+        await workerRepository.transactions.runWorkerMaintenance((manager) =>
+          manager.query('SELECT * FROM efirma_metadata_purge_batch()'),
+        );
+      check(
+        purgeBatch.some((row) => row.id === prepared.id) &&
+          !purgeBatch.some((row) => row.id === next.id),
+        'metadata purge selects old terminals and preserves recent custody',
+      );
+      await cleaner.reconcile();
+      check(
+        (
+          await db.query('SELECT id FROM efirma_sessions WHERE id=$1', [
+            prepared.id,
+          ])
+        ).length === 0,
+        'worker purges eligible metadata using restricted identity',
       );
       fixture.password.fill(0);
       console.log(

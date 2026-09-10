@@ -1,3 +1,4 @@
+import { performance } from 'node:perf_hooks';
 import { custodyAad, type CustodyContext } from './custody-envelope';
 
 export interface VaultCustodyIdentity {
@@ -29,6 +30,7 @@ interface VaultReply {
 /** Separate AppRole identity per capability. Only the login token is cached. */
 export class VaultCustodyAdapter {
   private login?: { token: string; expires: number };
+  private loginRequest?: Promise<string>;
   constructor(private readonly configuration: VaultCustodyConfiguration) {
     for (const segment of [
       configuration.transitMount,
@@ -88,18 +90,32 @@ export class VaultCustodyAdapter {
   }
 
   private async authenticate(): Promise<string> {
-    if (this.login && this.login.expires > Date.now()) return this.login.token;
-    const reply = await this.request('auth/approle/login', {
-      role_id: this.configuration.identity.roleId,
-      secret_id: this.configuration.identity.secretId,
-    });
-    if (!reply.auth?.client_token || !reply.auth.lease_duration)
-      throw new Error('EFIRMA_VAULT_UNAVAILABLE_OR_UNCERTAIN');
-    this.login = {
-      token: reply.auth.client_token,
-      expires: Date.now() + Math.max(0, reply.auth.lease_duration - 10) * 1000,
-    };
-    return this.login.token;
+    if (this.login && this.login.expires > performance.now())
+      return this.login.token;
+    if (this.loginRequest) return this.loginRequest;
+    const started = performance.now();
+    this.loginRequest = (async () => {
+      const reply = await this.request('auth/approle/login', {
+        role_id: this.configuration.identity.roleId,
+        secret_id: this.configuration.identity.secretId,
+      });
+      if (
+        !reply.auth?.client_token ||
+        !Number.isFinite(reply.auth.lease_duration) ||
+        reply.auth.lease_duration! <= 0
+      )
+        throw new Error('EFIRMA_VAULT_UNAVAILABLE_OR_UNCERTAIN');
+      this.login = {
+        token: reply.auth.client_token,
+        expires: started + Math.max(0, reply.auth.lease_duration! - 10) * 1000,
+      };
+      return this.login.token;
+    })();
+    try {
+      return await this.loginRequest;
+    } finally {
+      this.loginRequest = undefined;
+    }
   }
 
   async wrap(

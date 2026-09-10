@@ -19,6 +19,7 @@ import {
 } from './efirma.repository';
 import type { ReceivedCredentials } from './receive-credentials';
 import { VaultCustodyAdapter } from './vault-custody.adapter';
+import { EFIRMA_VAULT_RUNTIME } from './vault-custody.tokens';
 
 @Injectable()
 export class EfirmaPreparationService {
@@ -27,6 +28,8 @@ export class EfirmaPreparationService {
     private readonly repository: EfirmaRepository,
     configuration: ConfigService,
     @Inject(OBJECT_STORAGE_PORT) private readonly storage: ObjectStoragePort,
+    @Inject(EFIRMA_VAULT_RUNTIME)
+    private readonly vault: VaultCustodyAdapter | null,
   ) {
     this.fiscal =
       configuration.getOrThrow<FiscalPlatformConfig>('fiscalPlatform');
@@ -82,7 +85,8 @@ export class EfirmaPreparationService {
       const context = envelopeContext(row);
       envelope = encryptPrivateKey(plaintext, dek, context);
       plaintext.fill(0);
-      const vault = new VaultCustodyAdapter(this.repository.config.vault!);
+      const vault = this.vault;
+      if (!vault) throw efirmaError('EFIRMA_DEPENDENCY_UNAVAILABLE', 503);
       const certificateId = randomUUID();
       const keyId = randomUUID();
       const keys = new OpaqueObjectKeyFactory();

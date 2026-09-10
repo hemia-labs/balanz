@@ -17,6 +17,7 @@ import {
 } from './efirma.repository';
 import { efirmaError } from './efirma.errors';
 import { VaultCustodyAdapter } from './vault-custody.adapter';
+import { EFIRMA_VAULT_RUNTIME } from './vault-custody.tokens';
 
 /** Internal worker-only port. The callback must not retain or return the credential. */
 @Injectable()
@@ -24,6 +25,8 @@ export class EfirmaConsumerService {
   constructor(
     private readonly repository: EfirmaRepository,
     @Inject(OBJECT_STORAGE_PORT) private readonly storage: ObjectStoragePort,
+    @Inject(EFIRMA_VAULT_RUNTIME)
+    private readonly vault: VaultCustodyAdapter | null,
   ) {}
 
   async withCredential(
@@ -41,21 +44,12 @@ export class EfirmaConsumerService {
       this.repository.transactions.runAsWorker({ organizationId }, work);
     const row = await run(async (manager) => {
       const rows: CustodyRow[] = await manager.query(
-        `SELECT * FROM efirma_sessions WHERE id=$1 FOR UPDATE`,
+        `SELECT * FROM efirma_sessions WHERE id=$1 AND expires_at>clock_timestamp()
+          AND (status='ready' OR (status='claimed' AND lease_until<clock_timestamp())) FOR UPDATE`,
         [intentionId],
       );
       const current = rows[0];
-      if (
-        !current ||
-        current.generation !== generation ||
-        current.expires_at.getTime() <= Date.now() ||
-        !(
-          current.status === 'ready' ||
-          (current.status === 'claimed' &&
-            current.lease_until &&
-            current.lease_until.getTime() < Date.now())
-        )
-      )
+      if (!current || current.generation !== generation)
         throw efirmaError('EFIRMA_NOT_CONSUMABLE');
       await this.repository.authorized(manager, current);
       await manager.query(
@@ -126,7 +120,8 @@ export class EfirmaConsumerService {
       const certificate = await read(row.certificate_object_id);
       const envelope = await read(row.private_key_object_id);
       await checkAuthority();
-      const vault = new VaultCustodyAdapter(this.repository.config.vault!);
+      const vault = this.vault;
+      if (!vault) throw efirmaError('EFIRMA_DEPENDENCY_UNAVAILABLE', 503);
       token = await vault.decryptToken(
         row.wrapped_token_ciphertext!,
         envelopeContext(row),
