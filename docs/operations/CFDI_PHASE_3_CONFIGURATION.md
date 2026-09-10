@@ -17,7 +17,7 @@ Credenciales reales: **NO habilitadas**. Legal/operación: **PENDING**. Ningún 
 | `AUTH_SESSION_IDLE_TTL_SECONDS` | Autoridad actual: mismo TTL idle que autenticación (default 1,800). No amplía los 600 segundos. |
 | Storage fiscal existente | Bucket privado, SSE configurable y keys opacas; si S3, endpoint local QA. No URLs firmadas para llaves/certificados. |
 
-Perfiles API/worker se cargan mediante `PlatformConfigModule`; con capacidad desactivada no se construye cliente Transit ni se exigen sus secretos. El adaptador de custodia usa AppRole directamente, sin caché KV ni caché de DEK/wrapping token; sólo cachea el token de autenticación durante su lease.
+Perfiles API/worker se cargan mediante `PlatformConfigModule`; con capacidad desactivada no se construye cliente Transit ni se exigen sus secretos. El adaptador de custodia usa AppRole directamente, sin caché KV ni caché de DEK/wrapping token; sólo cachea el token de autenticación durante su lease. La instancia inyectada es singleton por capacidad e identidad; el login concurrente se unifica y su plazo usa reloj monotónico, con margen de diez segundos desde el inicio de la petición. Preparador API, consumidor worker y limpieza conservan identidades separadas. El fallo de un login permite otro intento posterior, sin repetir automáticamente la operación solicitada.
 
 | Identidad | Paths/capacidades mínimas |
 |---|---|

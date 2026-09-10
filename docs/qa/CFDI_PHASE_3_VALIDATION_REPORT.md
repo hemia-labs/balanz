@@ -7,7 +7,8 @@ Fecha: 2026-09-09. Alcance autorizado: desarrollo y QA aislado con certificados 
 - Base/develop incorporado: `709c038ded77476268df59b02380d3fbe51ea4f8`.
 - PR #22 estaba integrada al iniciar; HEAD heredado de Fase 2: `64438b6e6745b94ad848ba67d9c10c8a80cf7ed0`.
 - Rama aislada: `codex/cfdi-phase3-efirma`; PR destino `develop`.
-- Código validado: `01f4b14b95901c712ff8b3157d21e37f37ad8742`. El commit posterior agrega únicamente documentación.
+- Corte inicial validado: `01f4b14b95901c712ff8b3157d21e37f37ad8742`; hasta `51fbb23358d13b57e1b02de4eb16783035f8b6f7` el delta fue documental.
+- Código correctivo validado tras revisión de PR #24: `bf0ae57719e3bd5d3ab82b2b311fd2dfc5da4502`. Evidencia y límites de ese corte se detallan al final.
 - Workspace original conservado; no merge ni deploy. Workflows CI/deploy y migraciones históricas sin modificaciones.
 
 ## Implementación
@@ -18,7 +19,7 @@ Recepción multipart autenticada/CSRF, archivos DER de 16 KiB máximo cada uno, 
 
 Envelope AES-256-GCM con DEK nueva y contexto autenticado. Vault wrapping entrega un único unwrap; Transit protege el bearer persistido, sin segunda copia recuperable de DEK. Objetos privados con SSE. Expiración absoluta limitada por sesión, sin renovación por polling/retry. Consumo interno exclusivo, revocación durable, reconciliación y limpieza idempotente; tras unwrap incierto se exige nueva autorización. Generación externa invalida custodias restauradas. Contraseña y llave abierta sólo en memoria, limpieza best-effort; restos cifrados pueden existir en backups/versiones y no se confunden con acceso vigente.
 
-Una migración append-only: `1787691000000-PhaseThreeEfirmaCustody.ts`, registrada en el manifiesto existente. Crea grants/intenciones, FKs compuestas, constraints, índices, ENABLE/FORCE RLS, ACL y funciones restringidas de autorización/reconciliación. Reutiliza stored_objects y audit_events. Sin nuevos seeds ni aprovisionamiento de secretos. Se aplicó únicamente en la base descartable de esta integración; aplicación en ambientes compartidos: **UNKNOWN**.
+Entrega inicial, una migración append-only: `1787691000000-PhaseThreeEfirmaCustody.ts`, registrada en el manifiesto existente. Crea grants/intenciones, FKs compuestas, constraints, índices, ENABLE/FORCE RLS, ACL y funciones restringidas de autorización/reconciliación. Reutiliza stored_objects y audit_events. Sin nuevos seeds ni aprovisionamiento de secretos. Se aplicó únicamente en la base descartable de esta integración; aplicación en ambientes compartidos: **UNKNOWN**.
 
 Frontend integrado en configuración fiscal: entidad, TOTP, entrega de archivos, estado/vencimiento, revocación y nueva autorización. Recuperación por IDs en URL, polling y limpieza de memoria al cambiar contexto. Ningún secreto en almacenamiento persistente del navegador. No presenta descarga SAT disponible.
 
@@ -83,3 +84,35 @@ Siguiente acción: revisar la PR en borrador y sus evidencias sintéticas; mante
 - [Runbook de cleanup y restore](../operations/CFDI_PHASE_3_RUNBOOK.md)
 - [Nota para despliegue](../operations/CFDI_PHASE_3_DEPLOYMENT_NOTE.md)
 - [Roadmap](../roadmaps/CFDI_P0_MASTER_IMPLEMENTATION_PLAN.md)
+
+## Corrección de los cuatro comentarios de PR #24
+
+Código: `bf0ae57719e3bd5d3ab82b2b311fd2dfc5da4502`. Se reprodujo el fallo remoto de `qa:migrations`: TypeORM proponía eliminar `uq_auth_sessions_fiscal_identity` e `ix_credential_objects_reconcile`, ausentes en metadata de entidades. Se declararon ambos índices sin editar la migración original. La validación inicial anterior no incluía este gate; sus PASS no implicaban CI remoto aprobado.
+
+La reconciliación decide expiración/leases en PostgreSQL y el consumidor reclama con la misma autoridad temporal. Se separan selección de pendientes y purga de metadata mediante una migración correctiva nueva `1787691010000-PhaseThreeCustodyReconciliation`; **total Fase 3: dos migraciones**. La desviación se justifica por preservar la migración ya compartida. El historial anterior permanece intacto. Aplicación compartida de la correctiva: **UNKNOWN**; sólo se ejecutó en bases locales desechables.
+
+Vault se inyecta por capacidad, conserva las identidades separadas y reutiliza únicamente el login durante su lease monotónico; cien operaciones concurrentes no provocan cien logins. No se cachea ni se repite una operación one-time.
+
+| Validación de la corrección | Evidencia |
+|---|---|
+| Jest focalizado | 9 suites, **72/72 PASS**, incluidas 4 pruebas nuevas de caché/concurrencia/lease del login |
+| Integración sintética y migraciones | 2 suites externas, **2/2 PASS**, PostgreSQL + Vault dedicado + MinIO privado local |
+| Gate `qa:migrations` | Runner existente ejecutado por la prueba externa en DB desechable: **PASS**, 0 upQueries y 0 downQueries |
+| Índices | EXPLAIN verifica disponibilidad del orden mediante los índices de pendientes y terminales, desactivando scans secuenciales/bitmap sólo en la transacción de prueba. No es benchmark de costos/volumen productivo |
+| ESLint, TypeScript API, build API | **PASS** |
+| Frontend | Sin cambios; no se repitieron pruebas/build locales. Evidencia inicial conservada arriba |
+| CI remoto | Debe consultarse en la PR sobre el SHA publicado; no sustituido por evidencia local |
+
+Las nuevas comprobaciones externas cubren reloj del worker adelantado/atrasado, lease vigente/vencido según DB, expiración con reloj atrasado, selección de terminales antiguos preservando recientes y purga con identidad worker restringida. Se conservan las pruebas reales de consumo único, recuperación y cleanup. Una ejecución intermedia de preparación devolvió error controlado de dependencia; la repetición y la ejecución final de ambas suites pasaron. No se atribuye a esto disponibilidad garantizada de servicios externos.
+
+Comandos de esta revisión, desde `apps/api`:
+
+```text
+bun x jest --runInBand --runTestsByPath test/efirma-vault-cache.spec.ts test/efirma-vault.spec.ts test/efirma-configuration.spec.ts test/runtime-config-profiles.spec.ts test/sessions.service.spec.ts test/cfdi-access-grant.spec.ts test/s3-object-storage.contract.spec.ts test/zip-cleanup.spec.ts test/efirma-reauth.spec.ts
+# RUN_EFIRMA_INTEGRATION=true; recursos de prueba locales aislados
+bun x jest --testRegex='test/external/efirma(-review)?\.external\.ts$' --runInBand --silent=false
+bun x tsc --noEmit --incremental false
+bun run build
+```
+
+Sin cambios a ci.yml/deploy-dev.yml, S3 del equipo, frontend ni fases posteriores. Sin merge/deploy. Credenciales reales NO habilitadas; gates operativos/legales y browser NOT_RUN permanecen pendientes.

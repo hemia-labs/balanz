@@ -4,7 +4,7 @@ Alcance actual: sintético/aislado. No habilitar material real. La custodia expi
 
 ## Operación y recuperación
 
-El worker reconcilia lotes de hasta 100 intenciones cada 30 segundos. Leases exclusivos protegen preparación/consumo y cleanup. Una preparación abandonada pasa a `requires_user_authorization`; un claim previo a unwrap puede recuperarse dentro del plazo. Un estado `unwrapping` abandonado nunca se reintenta: requiere nueva autorización. El callback debe comprobar autoridad antes de cada futura operación; no conservar/exportar KeyObject.
+El worker reconcilia lotes de hasta 100 intenciones pendientes cada 30 segundos, ordenados por `reconciled_at NULLS FIRST, id` mediante `ix_efirma_pending_reconcile`. Una selección independiente purga hasta 100 intenciones con cleanup completado y terminal anterior a 90 días, ordenadas por `terminal_at, id` usando `ix_efirma_terminal`; no mezcla el historial purgable con el lote de pendientes. Leases exclusivos protegen preparación/consumo y cleanup. Las decisiones de expiración, lease vencido y necesidad de revocar wrapping se evalúan con el reloj de PostgreSQL, no con `Date.now()` del worker. Una preparación abandonada pasa a `requires_user_authorization`; un claim previo a unwrap puede recuperarse dentro del plazo. Un estado `unwrapping` abandonado nunca se reintenta: requiere nueva autorización. El callback debe comprobar autoridad antes de cada futura operación; no conservar/exportar KeyObject.
 
 Revocar, expirar, cambiar generación o perder autoridad impide nuevo consumo inmediatamente en API/worker. Se marca cleanup durable. Se espera el lease de una transferencia externa acotada y cinco segundos de margen antes de eliminar; nunca se mantiene lock DB durante storage/Vault.
 
