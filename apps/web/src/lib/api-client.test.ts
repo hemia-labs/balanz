@@ -13,6 +13,21 @@ import {
   subscribeToUnauthorizedApi,
 } from "./api-client";
 
+test("multipart conserva el boundary del navegador y admite 202", async () => {
+  const original = globalThis.fetch;
+  globalThis.fetch = async (_input, init) => {
+    assert.equal(new Headers(init?.headers).has("Content-Type"), false);
+    assert.ok(init?.body instanceof FormData);
+    assert.equal(init?.credentials, "include");
+    return new Response(JSON.stringify({ id: "durable-id" }), { status: 202, headers: { "Content-Type": "application/json" } });
+  };
+  try {
+    const body = new FormData(); body.set("certificate", new Blob(["synthetic"]), "synthetic.cer");
+    const response = await apiClientResponse<{id:string}>("/legal-entities/id/efirma-sessions", { method: "POST", body, cache: "no-store" });
+    assert.equal(response.status, 202); assert.equal(response.data.id, "durable-id");
+  } finally { globalThis.fetch = original; }
+});
+
 test("aborta transports XHR registrados antes de cambiar de tenant", () => {
   let aborts = 0;
   const unregister = registerPendingApiAbort(() => {

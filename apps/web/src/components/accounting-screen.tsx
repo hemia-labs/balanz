@@ -1,4 +1,5 @@
 "use client";
+import { EfirmaScreen } from "@/features/efirma/efirma-screen";
 
 import dynamic from "next/dynamic";
 import { useAccountingContext } from "@/components/accounting-context";
@@ -123,6 +124,13 @@ export function AccountingScreen({ route }: { route: ResolvedProductRoute }) {
     case "client-overview":
       return <LiveClientDetailScreen clientId={clientId!} section="overview" />;
     case "client-settings":
+      if (route.section === "e-signature-sat")
+        return (
+          <EfirmaScreen
+            key={`${organizationId}:${clientId}`}
+            clientId={clientId!}
+          />
+        );
       if (
         route.section === "data" ||
         route.section === "responsibles" ||

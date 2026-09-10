@@ -166,6 +166,7 @@ describe('runtime configuration profiles', () => {
       'CONFIGURATION(secrets)',
       'CONFIGURATION(horus)',
       'CONFIGURATION(fiscalPlatform)',
+      'CONFIGURATION(efirma)',
       'CONFIGURATION(auth)',
       'CONFIGURATION(cookies)',
       'CONFIGURATION(email)',
@@ -176,6 +177,7 @@ describe('runtime configuration profiles', () => {
       'CONFIGURATION(secrets)',
       'CONFIGURATION(horus)',
       'CONFIGURATION(fiscalPlatform)',
+      'CONFIGURATION(efirma)',
     ]);
   });
 

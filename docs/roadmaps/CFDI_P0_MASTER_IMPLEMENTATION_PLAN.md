@@ -518,14 +518,14 @@ requiere crear otra base de datos. La ejecución final de cierre no se declara
 | Campo                | Definición                                                                                   |
 | -------------------- | -------------------------------------------------------------------------------------------- |
 | ID                   | `PHASE_3_REAUTH_AND_EFIRMA`                                                                  |
-| Objetivo             | Proveer step-up purpose-bound y custodia segura para solicitudes SAT.                        |
+| Objetivo | Reautenticación fiscal contextual y custodia temporal; sin operaciones SAT. |
 | Valor de producto    | Autorizar uso puntual de e.firma sin conservar password.                                     |
-| Dependencias         | Fase 0 `DONE`; revisión seguridad/legal.                                                     |
+| Dependencias | Fase 2 integrada; diseño autorizado para desarrollo sintético. Legal/operación de credenciales reales pendiente. |
 | Alcance              | reauth 10 min, .cer/.key, KMS/envelope, Vault wrapping/TTL one-time, rotación/revocación/UI. |
 | Fuera de alcance     | Descarga SAT.                                                                                |
 | Tablas/migraciones   | metadata/versiones de credencial y grant de reauth; nunca password/llave clara.              |
 | Backend              | Endpoints de reauth/credencial y autorización.                                               |
-| Worker               | Acceso one-time ligado a job futuro.                                                         |
+| Worker | Puerto interno one-time con callback; sin conexión a jobs SAT. |
 | Frontend             | Gestión de credencial y step-up.                                                             |
 | Seguridad            | MFA+reauth, KMS, Vault, destrucción y auditoría.                                             |
 | Operación            | Rotación, revocación e incidente de credencial.                                              |
@@ -533,13 +533,13 @@ requiere crear otra base de datos. La ejecución final de cierre no se declara
 | Métricas             | Uso, expiración y fallos sin labels sensibles.                                               |
 | Pruebas              | RFC/par/vigencia, ausencia de secretos, TTL, one-time y revocación.                          |
 | Datos de QA          | Certificados sintéticos/controlados.                                                         |
-| Entregables          | Custodia aprobada y runbooks.                                                                |
-| Criterios de entrada | Revisión de seguridad/legal aprobada.                                                        |
-| Criterios de salida  | Cero material privado en DB/Redis/logs/backups.                                              |
+| Entregables | Implementación sintética y ADR/contrato/runbook; no aprobación humana independiente. |
+| Criterios de entrada | Desarrollo y QA sintético autorizados. No habilitar e.firmas reales. |
+| Criterios de salida | Password y llave clara sólo en memoria; persistencia cifrada temporal, acceso <=10 min, cleanup y restore verificables. Backups cifrados pueden retener material. |
 | Riesgos              | R-008.                                                                                       |
 | Rollback             | Revocar credenciales/grants, cancelar usos y conservar evidencia.                            |
-| Estado               | `NOT_STARTED`                                                                                |
-| Evidencia            | Ninguna.                                                                                     |
+| Estado | `IMPLEMENTED_SYNTHETIC`; release real `BLOCKED`. |
+| Evidencia | [Reporte Fase 3](../qa/CFDI_PHASE_3_VALIDATION_REPORT.md) y [ADR-CFDI-006](../architecture/decisions/ADR-CFDI-006-TEMPORARY-EFIRMA-CUSTODY.md). |
 
 ### Fase 4 — Descarga SAT on-demand
 

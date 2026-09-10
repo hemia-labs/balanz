@@ -1,5 +1,12 @@
 # ADR-CFDI-002: almacenamiento privado de objetos originales
 
+Aplicación específica a credenciales temporales (Fase 3, 2026-09-09): véase
+[ADR-CFDI-006](ADR-CFDI-006-TEMPORARY-EFIRMA-CUSTODY.md). Los tipos de credencial
+usan retención propia y envelope GCM adicional a SSE. Hay persistencia cifrada
+temporal; delete markers/versiones, WAL y snapshots pueden conservar copias.
+Expiración de acceso no acredita eliminación física de backups. Esta precisión
+no autoriza credenciales reales ni modifica la retención de XML/ZIP.
+
 - Estado: `ACCEPTED`
 - Fecha: 2026-08-28
 - Alcance: Fase 0, reutilizable por Fases 1–8

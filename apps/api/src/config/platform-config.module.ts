@@ -13,6 +13,7 @@ import fiscalPlatformConfig from './fiscal-platform.config';
 import horusConfig from './horus.config';
 import redisConfig from './redis.config';
 import { secretsConfigForRuntime } from './secrets.config';
+import { efirmaConfigForRuntime } from './efirma.config';
 
 export const RUNTIME_CONFIG_PROFILE = Symbol('RUNTIME_CONFIG_PROFILE');
 
@@ -33,6 +34,7 @@ export function runtimeConfigFactories(profile: RuntimeConfigProfile) {
     secretsConfigForRuntime(profile),
     horusConfig,
     fiscalPlatformConfig,
+    efirmaConfigForRuntime(profile),
   ];
   return profile === 'api'
     ? [appConfig, ...sharedFactories, authConfig, cookiesConfig, emailConfig]

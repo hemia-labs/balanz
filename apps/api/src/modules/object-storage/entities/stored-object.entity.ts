@@ -149,6 +149,11 @@ export type ObjectEncryptionClass =
   'updatedAt',
   'id',
 ])
+@Index(
+  'ix_credential_objects_reconcile',
+  ['updatedAt', 'retentionUntil', 'id'],
+  { where: "kind IN('credential_certificate','credential_private_key')" },
+)
 @Index('ix_stored_objects_retention', { synchronize: false })
 @Index('ix_zip_cleanup_due', ['retentionUntil', 'id'], {
   where:

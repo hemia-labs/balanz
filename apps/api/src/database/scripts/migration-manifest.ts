@@ -54,6 +54,11 @@ export const EXPECTED_MIGRATION_IDENTITIES = [
     timestamp: 1787690830000,
   },
   { name: 'PhaseTwoZipIngestion1787690900000', timestamp: 1787690900000 },
+  { name: 'PhaseThreeEfirmaCustody1787691000000', timestamp: 1787691000000 },
+  {
+    name: 'PhaseThreeCustodyReconciliation1787691010000',
+    timestamp: 1787691010000,
+  },
 ] as const;
 
 export const EXPECTED_MIGRATION_NAMES: readonly string[] =
