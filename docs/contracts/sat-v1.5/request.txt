@@ -1,144 +1,144 @@
- 
- 
- 
- 
-1 / 29 
- 
- 
- 
- 
-Fecha: mayo 2025 
-Versión 1.5 
- 
- 
- 
- 
- 
- 
-2 / 29 
- 
-ÍNDICE 
- 
-1. INTRODUCCIÓN ................................................................................................................................................... 3 
-2. PRERREQUISITOS ................................................................................................................................................. 3 
-3. MODO DE USO PARA SERVICIOS ....................................................................................................................... 3 
-4. AUTENTICACIÓN PARA SERVICIOS .................................................................................................................... 3 
-5. SERVICIO DE SOLICITUD DE DESCARGA MASIVA ............................................................................................ 7 
-5.1 SolicitaDescargaEmitidos ................................................................................................................................. 8 
-5.2 SolicitaDescargaRecibidos ............................................................................................................................. 15 
-5.3 SolicitaDescargaFolio ...................................................................................................................................... 23 
-6. CONTROL DE CAMBIOS..................................................................................................................................... 29 
- 
- 
- 
-  
- 
- 
- 
- 
-3 / 29 
-1. INTRODUCCIÓN 
-El servicio de solicitud de descarga masiva se diseñó para permitir realizar una petición de descarga 
-de CFDI o Metadata por emisor y receptor , para comprobantes con antigüedad a cinco ejercicios y 
-el año en curso. Esto mediante un servicio publicado en la página del SAT desde internet, siendo que 
-este servicio solo puede ser consumido por los emisores y receptores, con lo cual se protege esta 
-información.  
- 
-El presen te documento contiene la información necesaria para conocer y utilizar los siguientes 
-elementos que forman parte del Servicio de Solicitud de Descarga Masiva.  
-2. PRERREQUISITOS 
-Contar con el Certificado de tipo e.firma del emisor o receptor del cual se requie re la información. 
-3. MODO DE USO PARA SERVICIOS 
-A fin de utilizar los servicios web descritos en el presente documento es necesario crear el cliente de 
-servicios web correspondiente a partir de la URL del Servicio y/o la URL del WSDL de acuerdo con las 
-instrucciones de la plataforma desde la que se vaya a consumir el servicio web.  
- 
-En la descripción de cada uno de los servicios se proporcionará la URL del servicio y / o del WSDL 
-para generar el cliente del servicio web.   
- 
-Para más información acerca de la manera en la que se genera el cliente del servicio web consulte 
-la documentación de la plataforma desde la que consumirá el servicio.  
- 
-Una vez que se creó el cliente, el siguiente paso es verificar el tipo de certificado a enviar para poder 
-realizar la autenticación y posterior consumo de los servicios.   
- 
-En el siguiente paso se habla específicamente de cómo realizar dicha autenticación.   
-4. AUTENTICACIÓN PARA SERVICIOS 
-Adicionalmente, para utilizar los servicios web descritos en el presente documento es nec esario 
-autenticarse ante el servidor de servicios web mediante un par de llaves proporcionados por el SAT, 
-estas llaves son las correspondientes al certificado de firma Electrónica (e.firma).   
- 
-El tipo de autenticación del servicio cumple con las especifi caciones de Web Services Security v1.0 
-(WS-Security 2004): https://www.oasis-open.org/standards#wssv1.0   
- 
- 
- 
- 
-4 / 29 
-A continuación, se muestra la parte del WSDL de cada uno de los servicios que mencio na el método 
-de autenticación que se requiere para el consumo de los servicios:  
- 
-Servicio de Autenticación 
- 
-A fin de facilitar la autenticación mediante el uso del e.firma, se recomienda utilizar el almacén local 
-de llaves criptográficas para almacenar y recuperar una llave para utilizarla posteriormente, a 
-continuación, se muestra un ejemplo de código en C# de cómo obtener un certificado específico.   
- 
- Ejemplo 
- 
-Una vez seleccionado el certificado a utilizar como medio de autenticación se tiene que mandar la 
-petición hacia el servicio de autenticación para poder obtener el token que se requiere para poder 
-usar el servicio de solicitud de descarga masiva, esto se realiza de la siguiente manera: 
- 
-Ejemplo 
- 
-Servicio Autenticación 
- 
- 
- 
-El código mostrado anteriormente es en C#, pero sirve como ejemplo para ilustrar como enviar estos 
-certificados a los servicios descritos y poder obtener el token de autenticación correspondiente.   
- 
-Ahora se muestra un ejemplo, de cómo se ve una petición hacia el servicio de autenticación: 
- 
-  
 
- 
- 
- 
- 
-5 / 29 
-Servicio Autenticación 
- 
- 
-POST https://cu1-cfd-uat-webc-dmtsoli.cloudapp.net/Autenticacion.svc HTTP/1.1 
-Content-Type: text/xml; charset=utf-8 
-SOAPAction: "http://DescargaMasivaTerceros.gob.mx/IAutenticacion/Autentica" 
-Host: cu1-cfd-uat-webc-dmtsoli.cloudapp.net 
-Content-Length: 4488 
-Expect: 100-continue 
-Accept-Encoding: gzip, deflate 
- 
+
+
+
+1 / 29
+
+
+
+
+Fecha: mayo 2025
+Versión 1.5
+
+
+
+
+
+
+2 / 29
+
+ÍNDICE
+
+1. INTRODUCCIÓN ................................................................................................................................................... 3
+2. PRERREQUISITOS ................................................................................................................................................. 3
+3. MODO DE USO PARA SERVICIOS ....................................................................................................................... 3
+4. AUTENTICACIÓN PARA SERVICIOS .................................................................................................................... 3
+5. SERVICIO DE SOLICITUD DE DESCARGA MASIVA ............................................................................................ 7
+5.1 SolicitaDescargaEmitidos ................................................................................................................................. 8
+5.2 SolicitaDescargaRecibidos ............................................................................................................................. 15
+5.3 SolicitaDescargaFolio ...................................................................................................................................... 23
+6. CONTROL DE CAMBIOS..................................................................................................................................... 29
+
+
+
+
+
+
+
+
+3 / 29
+1. INTRODUCCIÓN
+El servicio de solicitud de descarga masiva se diseñó para permitir realizar una petición de descarga
+de CFDI o Metadata por emisor y receptor , para comprobantes con antigüedad a cinco ejercicios y
+el año en curso. Esto mediante un servicio publicado en la página del SAT desde internet, siendo que
+este servicio solo puede ser consumido por los emisores y receptores, con lo cual se protege esta
+información.
+
+El presen te documento contiene la información necesaria para conocer y utilizar los siguientes
+elementos que forman parte del Servicio de Solicitud de Descarga Masiva.
+2. PRERREQUISITOS
+Contar con el Certificado de tipo e.firma del emisor o receptor del cual se requie re la información.
+3. MODO DE USO PARA SERVICIOS
+A fin de utilizar los servicios web descritos en el presente documento es necesario crear el cliente de
+servicios web correspondiente a partir de la URL del Servicio y/o la URL del WSDL de acuerdo con las
+instrucciones de la plataforma desde la que se vaya a consumir el servicio web.
+
+En la descripción de cada uno de los servicios se proporcionará la URL del servicio y / o del WSDL
+para generar el cliente del servicio web.
+
+Para más información acerca de la manera en la que se genera el cliente del servicio web consulte
+la documentación de la plataforma desde la que consumirá el servicio.
+
+Una vez que se creó el cliente, el siguiente paso es verificar el tipo de certificado a enviar para poder
+realizar la autenticación y posterior consumo de los servicios.
+
+En el siguiente paso se habla específicamente de cómo realizar dicha autenticación.
+4. AUTENTICACIÓN PARA SERVICIOS
+Adicionalmente, para utilizar los servicios web descritos en el presente documento es nec esario
+autenticarse ante el servidor de servicios web mediante un par de llaves proporcionados por el SAT,
+estas llaves son las correspondientes al certificado de firma Electrónica (e.firma).
+
+El tipo de autenticación del servicio cumple con las especifi caciones de Web Services Security v1.0
+(WS-Security 2004): https://www.oasis-open.org/standards#wssv1.0
+
+
+
+
+4 / 29
+A continuación, se muestra la parte del WSDL de cada uno de los servicios que mencio na el método
+de autenticación que se requiere para el consumo de los servicios:
+
+Servicio de Autenticación
+
+A fin de facilitar la autenticación mediante el uso del e.firma, se recomienda utilizar el almacén local
+de llaves criptográficas para almacenar y recuperar una llave para utilizarla posteriormente, a
+continuación, se muestra un ejemplo de código en C# de cómo obtener un certificado específico.
+
+ Ejemplo
+
+Una vez seleccionado el certificado a utilizar como medio de autenticación se tiene que mandar la
+petición hacia el servicio de autenticación para poder obtener el token que se requiere para poder
+usar el servicio de solicitud de descarga masiva, esto se realiza de la siguiente manera:
+
+Ejemplo
+
+Servicio Autenticación
+
+
+
+El código mostrado anteriormente es en C#, pero sirve como ejemplo para ilustrar como enviar estos
+certificados a los servicios descritos y poder obtener el token de autenticación correspondiente.
+
+Ahora se muestra un ejemplo, de cómo se ve una petición hacia el servicio de autenticación:
+
+
+
+
+
+
+
+5 / 29
+Servicio Autenticación
+
+
+POST https://cu1-cfd-uat-webc-dmtsoli.cloudapp.net/Autenticacion.svc HTTP/1.1
+Content-Type: text/xml; charset=utf-8
+SOAPAction: "http://DescargaMasivaTerceros.gob.mx/IAutenticacion/Autentica"
+Host: cu1-cfd-uat-webc-dmtsoli.cloudapp.net
+Content-Length: 4488
+Expect: 100-continue
+Accept-Encoding: gzip, deflate
+
 <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" xmlns:u="http://docs.oasis-
-open.org/wss/2004/01/oasis-200401-wss-wssecurity-utility-1.0.xsd"> 
-  <s:Header> 
-    <ActivityId CorrelationId="c5478a6f-8f27-43f4-bc97-bea17612517c" 
+open.org/wss/2004/01/oasis-200401-wss-wssecurity-utility-1.0.xsd">
+  <s:Header>
+    <ActivityId CorrelationId="c5478a6f-8f27-43f4-bc97-bea17612517c"
 xmlns="http://schemas.microsoft.com/2004/09/ServiceModel/Diagnostics">00000000-0000-0000-0000-
-000000000000</ActivityId> 
+000000000000</ActivityId>
     <o:Security s:mustUnderstand="1" xmlns:o="http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-
-secext-1.0.xsd"> 
-      <u:Timestamp u:Id="_0"> 
-        <u:Created>2022-02-15T19:06:32.002Z</u:Created> 
-        <u:Expires>2022-02-15T19:11:32.002Z</u:Expires> 
-      </u:Timestamp> 
+secext-1.0.xsd">
+      <u:Timestamp u:Id="_0">
+        <u:Created>2022-02-15T19:06:32.002Z</u:Created>
+        <u:Expires>2022-02-15T19:11:32.002Z</u:Expires>
+      </u:Timestamp>
       <o:BinarySecurityToken u:Id="uuid-726d6583-bb04-4d74-8841-f0d404dffadb-4" ValueType="http://docs.oasis-
 open.org/wss/2004/01/oasis-200401-wss-x509-token-profile-1.0#X509v3" EncodingType="http://docs.oasis-
 
- 
- 
- 
- 
-6 / 29 
+
+
+
+
+6 / 29
 open.org/wss/2004/01/oasis-200401-wss-soap-message-security-
 1.0#Base64Binary">MIIG6jCCBNKgAwIBAgIUMzAwMDEwMDAwMDA0MDAwMDk0MjQwDQYJKoZIhvcNAQELBQAwggErM
 Q8wDQYDVQQDDAZBQyBVQVQxLjAsBgNVBAoMJVNFUlZJQ0lPIERFIEFETUlOSVNUUkFDSU9OIFRSSUJVVEFSSUExGjAYBgN
@@ -165,309 +165,309 @@ Sj6OWPaWXd4rCf79gID8FFl6aSCnrOu7Gj5p33fugzDL6N99NJ4aRQdHfWLjGbHWBN3yTlMs22TRuYIi
 TOrfX9zl3KBNbN2UmIC2bGEpQI4BOkOF71Vi/AYhPFe5wB+8rLgJPu7AURu39UIMPlQM4N8so+1m2sjCFy+R1mAMGMdbtV
 bUjjfmpWmg6slAHENd/hjkmPtOQFZ3SULWwSISS3ak4taQakujIztTO6C1694WB2vXa72QHNe9wCoyDytIoq9mhJGusICFACf
 VVWKyL3S74yE1YNJsHcwgHm76umciaadO3ka3hzQ79u+5nhttNwkwuQAnwHCdVM0SE/3ptjFoyYRQ7BzNzWx6YQSI3K459
-miVfvhGaF7g==</o:BinarySecurityToken> 
-      <Signature xmlns="http://www.w3.org/2000/09/xmldsig#"> 
-        <SignedInfo> 
-          <CanonicalizationMethod Algorithm="http://www.w3.org/2001/10/xml-exc-c14n#"/> 
-          <SignatureMethod Algorithm="http://www.w3.org/2000/09/xmldsig#rsa-sha1"/> 
-          <Reference URI="#_0"> 
-            <Transforms> 
-              <Transform Algorithm="http://www.w3.org/2001/10/xml-exc-c14n#"/> 
-            </Transforms> 
-            <DigestMethod Algorithm="http://www.w3.org/2000/09/xmldsig#sha1"/> 
-            <DigestValue>PGHeLUNdZvws7kjlTpPPxlY2XGM=</DigestValue> 
-          </Reference> 
-        </SignedInfo> 
-        
+miVfvhGaF7g==</o:BinarySecurityToken>
+      <Signature xmlns="http://www.w3.org/2000/09/xmldsig#">
+        <SignedInfo>
+          <CanonicalizationMethod Algorithm="http://www.w3.org/2001/10/xml-exc-c14n#"/>
+          <SignatureMethod Algorithm="http://www.w3.org/2000/09/xmldsig#rsa-sha1"/>
+          <Reference URI="#_0">
+            <Transforms>
+              <Transform Algorithm="http://www.w3.org/2001/10/xml-exc-c14n#"/>
+            </Transforms>
+            <DigestMethod Algorithm="http://www.w3.org/2000/09/xmldsig#sha1"/>
+            <DigestValue>PGHeLUNdZvws7kjlTpPPxlY2XGM=</DigestValue>
+          </Reference>
+        </SignedInfo>
+
 <SignatureValue>K8vjpiExzxNDvD0hVPQlAXw5LOafN0xNyd6TpT0PF/aiE6wejLE8iyqk8IEehoKOe6MR3Fz0JKl1ELSkhlNU1R
 AZ6qQdQpPAP2HNE+hzHoGLitNycR30VZ3/aUVvesqNC/KZP+uRp3zPlED9OOO9rqUiN87xChi3yCHXm41cyrDSygUyzfIfS+Gf
 seJxSbVBFcKs1AiHRAI8j4ZAhq/tOjjxr4mRYK4nKQ6yRYnIMR3OElsF27+4b0tCmWUNTLDpys7KG9XRkBZzNRmWIHNgnwSX
-op+uIPSeZkJmGt081tn+/EI9TtIBlFb2hBw41hS2Ugf17+ycv0F8mv017eUqgA==</SignatureValue> 
-        <KeyInfo> 
-          <o:SecurityTokenReference> 
+op+uIPSeZkJmGt081tn+/EI9TtIBlFb2hBw41hS2Ugf17+ycv0F8mv017eUqgA==</SignatureValue>
+        <KeyInfo>
+          <o:SecurityTokenReference>
             <o:Reference ValueType="http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-x509-token-profile-
-1.0#X509v3" URI="#uuid-726d6583-bb04-4d74-8841-f0d404dffadb-4"/> 
-          </o:SecurityTokenReference> 
- 
- 
- 
- 
-7 / 29 
-        </KeyInfo> 
-      </Signature> 
-    </o:Security> 
-  </s:Header> 
-  <s:Body> 
-    <Autentica xmlns="http://DescargaMasivaTerceros.gob.mx"/> 
-  </s:Body> 
-</s:Envelope> 
- 
-Si existe algún error durante la autenticación y no se obtiene el token no se podrá utilizar los demás 
-servicios; otro punto a considerar es que al consumir los servicios se validará el token enviado, si 
-este es válido se podrá hacer uso de los métodos exp uestos de cada uno, en caso contrario se 
-mandará una excepción de autenticación y no se podrá hacer uso del Web Service.  
- 
-Nota: El servicio de autenticación descrito en esta sección es el mismo a utilizar para los servicios de 
-Solicitud de Descarga Masiva, Verificación Descarga Masiva y Descarga Masiva. 
- 
-5. SERVICIO DE SOLICITUD DE DESCARGA MASIVA 
- 
-Es un servicio web que permite realizar solicitudes de descarga de CFDI o Metadata por un rango de 
-fechas, siempre y cuando la antigüedad de los comprobantes sea de ntro del plazo de 6 años, 
-contemplando el año en curso, para que la petición sea aceptada debe ser realizada por el emisor o 
-receptor de los CFDI de los cuales se quiere descargar. Este WS está compuesto por la siguiente 
-operación:  
- 
-• SolicitaDescargaEmitidos 
-• SolicitaDescargaRecibidos 
-• SolicitaDescargaFolio 
- 
-  
- 
- 
- 
- 
-8 / 29 
-5.1 SolicitaDescargaEmitidos 
- 
-Esta operación permite solicitar la descarga de CFDIs o Metadata de comprobantes emitidos y como 
-resultado devuelve un id de solicitud o estatus de la petición realizada. Al tratarse de comprobantes 
-emitidos se podrá realizar la descarga de comprobantes tanto vigentes como cancelados . 
- 
-Los parámetros que requiere esta operación son los siguientes: 
-Parámetro Tipo de Dato Descripción Tipo de 
-Parámetro 
-Authorization Header Contiene el token de autenticación que se obtuvo en el 
-servicio correspondiente, se debe de usar el nombre 
-“Authorization” y el valor debe de ser en el siguiente 
-formato “WRAP access_token="Token"”  
- 
-Parámetro obligatorio 
- 
-Entrada 
-FechaInicial DateTime Solo se buscarán CFDI, cuya fecha de emisión sea igual 
-o mayor a la fecha inicial indicada en este parámetro 
- 
-Parámetro obligatorio.  
- 
-Entrada 
-FechaFinal DateTime Solo se buscarán CFDI, cuya fecha de emisión sea igual 
-o menor a la fecha final indicada en este parámetro. 
- 
-Parámetro obligatorio.  
- 
-Entrada 
-RfcReceptor Arreglo de Rfc’s Contiene el/los RFC’s receptores de los cuales se quiere 
-consultar los CFDIs 
- 
-Importante: El campo RfcReceptor, únicamente permite 
-la captura de 5 registros como máximo. 
-Entrada 
-RfcEmisor String Contiene el RFC del emisor del cual se quiere consultar 
-los CFDIs 
- 
-Parámetro obligatorio. 
- 
-Entrada 
-RfcSolicitante String El RFC Solicitante corresponde al contribuyente que 
-está realizando la solicitud de descarga. 
- 
-Este parámetro es opcional, pero en caso de 
-proporcionarse debe coincidir con el RFC Emisor. 
- 
-Parámetro Opcional. 
- 
-Entrada 
+1.0#X509v3" URI="#uuid-726d6583-bb04-4d74-8841-f0d404dffadb-4"/>
+          </o:SecurityTokenReference>
+
+
+
+
+7 / 29
+        </KeyInfo>
+      </Signature>
+    </o:Security>
+  </s:Header>
+  <s:Body>
+    <Autentica xmlns="http://DescargaMasivaTerceros.gob.mx"/>
+  </s:Body>
+</s:Envelope>
+
+Si existe algún error durante la autenticación y no se obtiene el token no se podrá utilizar los demás
+servicios; otro punto a considerar es que al consumir los servicios se validará el token enviado, si
+este es válido se podrá hacer uso de los métodos exp uestos de cada uno, en caso contrario se
+mandará una excepción de autenticación y no se podrá hacer uso del Web Service.
+
+Nota: El servicio de autenticación descrito en esta sección es el mismo a utilizar para los servicios de
+Solicitud de Descarga Masiva, Verificación Descarga Masiva y Descarga Masiva.
+
+5. SERVICIO DE SOLICITUD DE DESCARGA MASIVA
+
+Es un servicio web que permite realizar solicitudes de descarga de CFDI o Metadata por un rango de
+fechas, siempre y cuando la antigüedad de los comprobantes sea de ntro del plazo de 6 años,
+contemplando el año en curso, para que la petición sea aceptada debe ser realizada por el emisor o
+receptor de los CFDI de los cuales se quiere descargar. Este WS está compuesto por la siguiente
+operación:
+
+• SolicitaDescargaEmitidos
+• SolicitaDescargaRecibidos
+• SolicitaDescargaFolio
+
+
+
+
+
+
+8 / 29
+5.1 SolicitaDescargaEmitidos
+
+Esta operación permite solicitar la descarga de CFDIs o Metadata de comprobantes emitidos y como
+resultado devuelve un id de solicitud o estatus de la petición realizada. Al tratarse de comprobantes
+emitidos se podrá realizar la descarga de comprobantes tanto vigentes como cancelados .
+
+Los parámetros que requiere esta operación son los siguientes:
+Parámetro Tipo de Dato Descripción Tipo de
+Parámetro
+Authorization Header Contiene el token de autenticación que se obtuvo en el
+servicio correspondiente, se debe de usar el nombre
+“Authorization” y el valor debe de ser en el siguiente
+formato “WRAP access_token="Token"”
+
+Parámetro obligatorio
+
+Entrada
+FechaInicial DateTime Solo se buscarán CFDI, cuya fecha de emisión sea igual
+o mayor a la fecha inicial indicada en este parámetro
+
+Parámetro obligatorio.
+
+Entrada
+FechaFinal DateTime Solo se buscarán CFDI, cuya fecha de emisión sea igual
+o menor a la fecha final indicada en este parámetro.
+
+Parámetro obligatorio.
+
+Entrada
+RfcReceptor Arreglo de Rfc’s Contiene el/los RFC’s receptores de los cuales se quiere
+consultar los CFDIs
+
+Importante: El campo RfcReceptor, únicamente permite
+la captura de 5 registros como máximo.
+Entrada
+RfcEmisor String Contiene el RFC del emisor del cual se quiere consultar
+los CFDIs
+
+Parámetro obligatorio.
+
+Entrada
+RfcSolicitante String El RFC Solicitante corresponde al contribuyente que
+está realizando la solicitud de descarga.
+
+Este parámetro es opcional, pero en caso de
+proporcionarse debe coincidir con el RFC Emisor.
+
+Parámetro Opcional.
+
+Entrada
 TipoSolicitud TipoDescargaMasiv
-aTerceros 
-Define el tipo de descarga: 
-• Metadata 
-• CFDI 
- 
-Parámetro Obligatorio. 
- 
-Entrada 
- 
- 
- 
- 
-9 / 29 
-TipoComprobante String Define el tipo de comprobante: 
-• null 
-• I = Ingreso 
-• E = Egreso 
-• T= Traslado 
-• N = Nomina 
-• P = Pago 
- 
-*null es el valor predeterminado y en caso de no 
-declararse, se obtendrán todos los comprobantes sin 
-importar el tipo comprobante. Los valores aceptados 
-son: I, E, T, N y P. 
- 
-Entrada 
-EstadoComprobante String Dato opcional que define el estado del comprobante: 
- 
-• Todos  
-• Cancelado. 
-• Vigente. 
-  
-En caso de que no se proporcione, se considerara 
-Vigente como valor por defecto. 
- 
-Entrada 
-RfcACuentaTerceros String Contiene el RFC del a cuenta a tercero del cual se 
-quiere consultar los CFDIs 
-Entrada 
-Complemento String 
- 
-Define el complemento de CFDI a descargar: 
-• null 
-• acreditamientoieps10 
-• aerolineas 
-• certificadodedestruccion 
-• cfdiregistrofiscal 
-• comercioexterior10 
-• comercioexterior11 
-• comprobante 
-• consumodecombustibles 
-• consumodecombustibles11 
-• detallista 
-• divisas 
-• donat11 
-• ecc11 
-• ecc12 
-• gastoshidrocarburos10 
-• iedu 
-• implocal 
-• ine11 
-• ingresoshidrocarburos 
-• leyendasfisc 
-• nomina11 
-• nomina12 
-• notariospublicos 
-• obrasarteantiguedades 
-• pagoenespecie 
-• pagos10 
-• pfic 
-Entrada 
- 
- 
- 
- 
-10 / 29 
-• renovacionysustitucionvehiculos 
-• servicioparcialconstruccion 
-• spei 
-• terceros11 
-• turistapasajeroextranjero 
-• valesdedespensa 
-• vehiculousado 
-• ventavehiculos11 
- 
-* null es el valor predeterminado y en caso de no 
-declararse, se obtendrán todos los comprobantes sin 
-importar el complemento asociado a los 
-comprobantes. 
-Signature SignatureType Firma de la petición realizada con el certificado de tipo 
-E.FIRMA. 
- 
-Parámetro obligatorio. La petición debe ordenarse 
-alfabéticamente para que pueda realizarse 
-correctamente la validación de la firma. 
- 
-Atributos: 
- 
-1.  Complemento 
-2.  EstadoComprobante 
-3.  FechaInicial 
-4.  FechaFinal 
-5.  RfcEmisor 
-6.  RfcSolicitante 
-7.  TipoComprobante 
-8.  TipoSolicitud 
-9.  RfcACuentaTerceros 
- 
-Nota: Se anexa un ejemplo del ordenamiento. 
- 
-Entrada 
-RfcSolicitante String Contiene el RFC que realizo la solicitud. Salida 
-IdSolicitud String Contiene el resultado de la petición con el código de 
-respuesta y los UUID de los CFDIs de los cuales se 
-solicitó la descarga, pero se encuentran en espera de 
-una confirmación por parte del receptor. 
-Salida 
-CodEstatus String Código de estatus de la solicitud Salida 
-Mensaje String Pequeña descripción del código estatus Salida 
- 
- 
-  
- 
- 
- 
- 
-11 / 29 
-Ejemplo de petición a la operación SolicitaDescargaEmitidos del servicio Solicitud de Descarga 
-Masiva 
- 
- 
- 
-POST https://cu1-cfd-uat-cse-dmasiva.centralus.cloudapp.azure.com/SolicitaDescargaService.svc HTTP/1.1 
-Accept-Encoding: gzip,deflate 
-Content-Type: text/xml;charset=UTF-8 
-SOAPAction: "http://DescargaMasivaTerceros.sat.gob.mx/ISolicitaDescargaService/SolicitaDescargaEmitidos" 
-Authorization: WRAP 
+aTerceros
+Define el tipo de descarga:
+• Metadata
+• CFDI
+
+Parámetro Obligatorio.
+
+Entrada
+
+
+
+
+9 / 29
+TipoComprobante String Define el tipo de comprobante:
+• null
+• I = Ingreso
+• E = Egreso
+• T= Traslado
+• N = Nomina
+• P = Pago
+
+*null es el valor predeterminado y en caso de no
+declararse, se obtendrán todos los comprobantes sin
+importar el tipo comprobante. Los valores aceptados
+son: I, E, T, N y P.
+
+Entrada
+EstadoComprobante String Dato opcional que define el estado del comprobante:
+
+• Todos
+• Cancelado.
+• Vigente.
+
+En caso de que no se proporcione, se considerara
+Vigente como valor por defecto.
+
+Entrada
+RfcACuentaTerceros String Contiene el RFC del a cuenta a tercero del cual se
+quiere consultar los CFDIs
+Entrada
+Complemento String
+
+Define el complemento de CFDI a descargar:
+• null
+• acreditamientoieps10
+• aerolineas
+• certificadodedestruccion
+• cfdiregistrofiscal
+• comercioexterior10
+• comercioexterior11
+• comprobante
+• consumodecombustibles
+• consumodecombustibles11
+• detallista
+• divisas
+• donat11
+• ecc11
+• ecc12
+• gastoshidrocarburos10
+• iedu
+• implocal
+• ine11
+• ingresoshidrocarburos
+• leyendasfisc
+• nomina11
+• nomina12
+• notariospublicos
+• obrasarteantiguedades
+• pagoenespecie
+• pagos10
+• pfic
+Entrada
+
+
+
+
+10 / 29
+• renovacionysustitucionvehiculos
+• servicioparcialconstruccion
+• spei
+• terceros11
+• turistapasajeroextranjero
+• valesdedespensa
+• vehiculousado
+• ventavehiculos11
+
+* null es el valor predeterminado y en caso de no
+declararse, se obtendrán todos los comprobantes sin
+importar el complemento asociado a los
+comprobantes.
+Signature SignatureType Firma de la petición realizada con el certificado de tipo
+E.FIRMA.
+
+Parámetro obligatorio. La petición debe ordenarse
+alfabéticamente para que pueda realizarse
+correctamente la validación de la firma.
+
+Atributos:
+
+1.  Complemento
+2.  EstadoComprobante
+3.  FechaInicial
+4.  FechaFinal
+5.  RfcEmisor
+6.  RfcSolicitante
+7.  TipoComprobante
+8.  TipoSolicitud
+9.  RfcACuentaTerceros
+
+Nota: Se anexa un ejemplo del ordenamiento.
+
+Entrada
+RfcSolicitante String Contiene el RFC que realizo la solicitud. Salida
+IdSolicitud String Contiene el resultado de la petición con el código de
+respuesta y los UUID de los CFDIs de los cuales se
+solicitó la descarga, pero se encuentran en espera de
+una confirmación por parte del receptor.
+Salida
+CodEstatus String Código de estatus de la solicitud Salida
+Mensaje String Pequeña descripción del código estatus Salida
+
+
+
+
+
+
+
+11 / 29
+Ejemplo de petición a la operación SolicitaDescargaEmitidos del servicio Solicitud de Descarga
+Masiva
+
+
+
+POST https://cu1-cfd-uat-cse-dmasiva.centralus.cloudapp.azure.com/SolicitaDescargaService.svc HTTP/1.1
+Accept-Encoding: gzip,deflate
+Content-Type: text/xml;charset=UTF-8
+SOAPAction: "http://DescargaMasivaTerceros.sat.gob.mx/ISolicitaDescargaService/SolicitaDescargaEmitidos"
+Authorization: WRAP
 access_token="eyJhbGciOiJodHRwOi8vd3d3LnczLm9yZy8yMDAxLzA0L3htbGRzaWctbW9yZSNobWFjLXNoYTI1NiIsInR5cCI
 6IkpXVCJ9.eyJuYmYiOjE3NDcwOTc5MjUsImV4cCI6MTc0NzA5ODUyNSwiaWF0IjoxNzQ3MDk3OTI1LCJpc3MiOiJMb2FkU2Vy
 dmljaW9EZWNhcmdhTWFzaXZhVGVyY2Vyb3MiLCJhY3RvcnQiOiIzMzMwMzAzMDMxMzAzMDMwMzAzMDMwMzUzMDMw
 MzAzMDM0MzUzNjMwIn0._eOSO175aj_Op9S1wFf1iXKOnJkdnMwxnGyQm-
-Jyblg&wrap_subject=3330303031303030303030353030303034353630" 
-Content-Length: 4979 
-Host: cu1-cfd-uat-cse-dmasiva.centralus.cloudapp.azure.com 
- 
-<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" 
-xmlns:des="http://DescargaMasivaTerceros.sat.gob.mx" xmlns:xd="http://www.w3.org/2000/09/xmldsig#"> 
-   <soapenv:Header/> 
-   <soapenv:Body> 
-      <des:SolicitaDescargaEmitidos> 
-         <des:solicitud EstadoComprobante="Todos" FechaInicial="2025-05-12T18:57:43" FechaFinal="2025-05-13T18:57:43" 
-RfcEmisor="AXT940727FP8" TipoComprobante="I" TipoSolicitud="CFDI"> 
-            <des:RfcReceptores> 
-               <des:RfcReceptor>VADA800927DJ3</des:RfcReceptor> 
-            </des:RfcReceptores> 
-            <Signature xmlns="http://www.w3.org/2000/09/xmldsig#"> 
-               <SignedInfo> 
-                  <CanonicalizationMethod Algorithm="http://www.w3.org/TR/2001/REC-xml-c14n-20010315"/> 
+Jyblg&wrap_subject=3330303031303030303030353030303034353630"
+Content-Length: 4979
+Host: cu1-cfd-uat-cse-dmasiva.centralus.cloudapp.azure.com
 
- 
- 
- 
- 
-12 / 29 
-                  <SignatureMethod Algorithm="http://www.w3.org/2000/09/xmldsig#rsa-sha1"/> 
-                  <Reference URI=""> 
-                     <Transforms> 
-                        <Transform Algorithm="http://www.w3.org/2000/09/xmldsig#enveloped-signature"/> 
-                     </Transforms> 
-                     <DigestMethod Algorithm="http://www.w3.org/2000/09/xmldsig#sha1"/> 
-                     <DigestValue>EmjkJoOL6FL3lbJr+DZuBrVRXDg=</DigestValue> 
-                  </Reference> 
-               </SignedInfo> 
-               
+<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/"
+xmlns:des="http://DescargaMasivaTerceros.sat.gob.mx" xmlns:xd="http://www.w3.org/2000/09/xmldsig#">
+   <soapenv:Header/>
+   <soapenv:Body>
+      <des:SolicitaDescargaEmitidos>
+         <des:solicitud EstadoComprobante="Todos" FechaInicial="2025-05-12T18:57:43" FechaFinal="2025-05-13T18:57:43"
+RfcEmisor="AXT940727FP8" TipoComprobante="I" TipoSolicitud="CFDI">
+            <des:RfcReceptores>
+               <des:RfcReceptor>VADA800927DJ3</des:RfcReceptor>
+            </des:RfcReceptores>
+            <Signature xmlns="http://www.w3.org/2000/09/xmldsig#">
+               <SignedInfo>
+                  <CanonicalizationMethod Algorithm="http://www.w3.org/TR/2001/REC-xml-c14n-20010315"/>
+
+
+
+
+
+12 / 29
+                  <SignatureMethod Algorithm="http://www.w3.org/2000/09/xmldsig#rsa-sha1"/>
+                  <Reference URI="">
+                     <Transforms>
+                        <Transform Algorithm="http://www.w3.org/2000/09/xmldsig#enveloped-signature"/>
+                     </Transforms>
+                     <DigestMethod Algorithm="http://www.w3.org/2000/09/xmldsig#sha1"/>
+                     <DigestValue>EmjkJoOL6FL3lbJr+DZuBrVRXDg=</DigestValue>
+                  </Reference>
+               </SignedInfo>
+
 <SignatureValue>F8IY+ssdqxgWGXcaO4N1VBtT5VEPUbTdLDqgepHpK5FS2zQWPaUcxtedz+7aEC6mdFXjGzfs4vAI4KPCBO
 Q3jXScw+ksXU1AGMglCEgONT1KTgzgdSNYAePozrwTJJYYNVKRkEao56M0v155e6Q5gyc48ePvX+Wk1i8Ipdey/EI1h7HZbUQ
 CE6+dHnxEMlomymlEyoHEDG0/MzVtuW4s2riceZ6Z63Mn8KRah3kVyLuslW0iwP5S59adkH8bpPkrCHQBg7sMYpSBxHSJm9
-g5BL7o35tygcdBgaxmTdCNQXnoyIW9oazlPJbGnqx2UVnHROixaXxAYu56j0A0i1YfAg==</SignatureValue> 
-               <KeyInfo> 
-                  <X509Data> 
-                     <X509IssuerSerial> 
-                        <X509IssuerName>OID.1.2.840.113549.1.9.2=responsable: ACDMA-SAT, OID.2.5.4.45=2.5.4.45, 
-L=COYOACAN, S=CIUDAD DE MEXICO, C=MX, PostalCode=06370, STREET=3ra cerrada de caliz, 
-E=oscar.martinez@sat.gob.mx, OU=SAT-IES Authority, O=SERVICIO DE ADMINISTRACION TRIBUTARIA, CN=AC 
-UAT</X509IssuerName> 
-                        <X509SerialNumber>292233162870206001759766198462772978647781684784</X509SerialNumber> 
-                     </X509IssuerSerial> 
-                     
+g5BL7o35tygcdBgaxmTdCNQXnoyIW9oazlPJbGnqx2UVnHROixaXxAYu56j0A0i1YfAg==</SignatureValue>
+               <KeyInfo>
+                  <X509Data>
+                     <X509IssuerSerial>
+                        <X509IssuerName>OID.1.2.840.113549.1.9.2=responsable: ACDMA-SAT, OID.2.5.4.45=2.5.4.45,
+L=COYOACAN, S=CIUDAD DE MEXICO, C=MX, PostalCode=06370, STREET=3ra cerrada de caliz,
+E=oscar.martinez@sat.gob.mx, OU=SAT-IES Authority, O=SERVICIO DE ADMINISTRACION TRIBUTARIA, CN=AC
+UAT</X509IssuerName>
+                        <X509SerialNumber>292233162870206001759766198462772978647781684784</X509SerialNumber>
+                     </X509IssuerSerial>
+
 <X509Certificate>MIIHMDCCBRigAwIBAgIUMzAwMDEwMDAwMDA1MDAwMDQ1NjAwDQYJKoZIhvcNAQELBQAwggErMQ
 8wDQYDVQQDDAZBQyBVQVQxLjAsBgNVBAoMJVNFUlZJQ0lPIERFIEFETUlOSVNUUkFDSU9OIFRSSUJVVEFSSUExGjAYBgNVB
 AsMEVNBVC1JRVMgQXV0aG9yaXR5MSgwJgYJKoZIhvcNAQkBFhlvc2Nhci5tYXJ0aW5lekBzYXQuZ29iLm14MR0wGwYDVQQJ
@@ -493,360 +493,360 @@ MCo9G+4Ji5r3nUQWxS4NsQv/rFp+CJ/l8HQ1APM2HXD8CbYYStEkvC3EKR+ny74PwcRD6dROzOaGwCwi
 STjEU3pkkx1P13Tcg5iv8zgUQCkbj2JlhCBDjwRqjTeas2B3p03iZQoKqDA48Zq8WQR9AaP1qjkIwY1xP7MMJd07qISc9TABhgS
 WwW25GPWY65KhIAtzV/0peQBmXFzXT0dwcryKRlZntzT6mAbtwxpX/MV/djZ44id+r9/geEOWeIBkCFp1H6mF/0a/c6c0SMw
 nvRI3iych6Fsx2JeKelpitJMYGhQh8IH4w1b5WLmmf7OJsxe7x1DCY4of7kqgaUV3OhGNknOCCLHDhlf61mRWfXSwrg0q0tRB
- 
- 
- 
- 
-13 / 29 
+
+
+
+
+13 / 29
 ZTDGZF7FQ7Mf8SmOiibdEWsYr4MdyAdmGnAUwToS1NIsKRExLV0NgbFsGN6okNdyXx2lXULkas0LDwi8ky/Vc0ky/P1Xucg1
-E=</X509Certificate> 
-                  </X509Data> 
-               </KeyInfo> 
-            </Signature> 
-         </des:solicitud> 
-      </des:SolicitaDescargaEmitidos> 
-   </soapenv:Body> 
-</soapenv:Envelope> 
- 
- 
-En el ejemplo anterior se puede visualizar que la petición va dividida en dos partes:  
- 
-• La primera es el Header, que contiene el token de autenticación, del cual se puede encontrar 
-el detalle en el tema 4 Autenticación para servicios.  
-  
-• La segunda es aquella que contiene la petición hacia el servicio con los parámetros ya 
-establecidos anteriormente, como se mencio nó en el punto de la autenticación esta 
-operación del Web Service solo puede ser usada siempre y cuando se haya autenticado de 
-manera exitosa y el token sea válido en el momento en que se intenta consumir.  
- 
- 
-Ejemplo de respuesta de la operación SolicitaDescargaEmitidos del servicio de Solicitud 
-Descarga Masiva 
- 
- 
- 
-HTTP/1.1 200 OK 
-Content-Type: text/xml; charset=utf-8 
-Vary: Accept-Encoding 
-Server: Microsoft-IIS/10.0 
-Date: Tue, 13 May 2025 01:02:45 GMT 
- 
-<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/"> 
-   <s:Body xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" 
-xmlns:xsd="http://www.w3.org/2001/XMLSchema"> 
-      <SolicitaDescargaEmitidosResponse xmlns="http://DescargaMasivaTerceros.sat.gob.mx"> 
+E=</X509Certificate>
+                  </X509Data>
+               </KeyInfo>
+            </Signature>
+         </des:solicitud>
+      </des:SolicitaDescargaEmitidos>
+   </soapenv:Body>
+</soapenv:Envelope>
 
- 
- 
- 
- 
-14 / 29 
-         <SolicitaDescargaEmitidosResult IdSolicitud="05e4038d-1f0d-4617-87d1-232fdd93bcc5" 
-RfcSolicitante="AXT940727FP8" CodEstatus="5000" Mensaje="Solicitud Aceptada"/> 
-      </SolicitaDescargaEmitidosResponse> 
-   </s:Body> 
-</s:Envelope> 
- 
-En el ejemplo mostrado en la imagen anterior se puede ver que la respuesta contiene los parámetros 
-de salida mencionados anteriormente. 
- 
-Ordenamiento de la petición 
- 
-Como se puede observar los atributos están ordenados, de acuerdo con el siguiente ejemplo:  
-2. EstadoComprobante 
-3. FechaInicial 
-4. FechaFinal 
-5. RfcEmisor 
-7. TipoComprobante 
-8. TipoSolicitud 
- 
- 
- 
-Nota importante: Las direcciones electrónicas (URL) que se integran en esta documentación, son 
-solo referencia para la correcta interpretación de los ejemplos contenidos, por lo que las URL válidas 
-para la implementación del Web Service, están publicadas en el Portal del SAT en: Trámites y 
-Servicios/ Factura electrónica, en la sección de Documentos relacionados, apartado 3, como: URL´s 
-Web Service: Descarga masiva de CFDI y retenciones. 
- 
-Mensajes recibidos desde la operación SolicitaDescargaEmitidos del servicio Solicitud descarga 
-masiva 
- 
-Evento Mensaje Observaciones 
-300 Usuario No Válido  
-301 XML Mal Formado Este código de error se regresa cuando el request posee 
-información invalida, ejemplo: un RFC de receptor no valido. 
-302 Sello Mal Formado  
-303 Sello no corresponde con RfcEmisor  
 
- 
- 
- 
- 
-15 / 29 
-304 Certificado Revocado o Caduco El certificado puede ser invalido por múltiples razones como 
-son el tipo, la vigencia, etc. 
-305 Certificado Inválido El certificado puede ser invalido por múltiples razones como 
-son el tipo, la vigencia, etc. 
-5000 Solicitud de descarga recibida con éxito  
-5001 Tercero no autorizado Se da cuando se trata de descargar comprobantes que no 
-son propios. 
-5002 Se han agotado las solicitudes de por vida Se ha alcanzado el límite de solicitudes, con el mismo criterio 
-5005 Ya se tiene una solicitud registrada Ya existe una solicitud activa con los mismos criterios 
-404 Error no controlado  
- 
-5.2 SolicitaDescargaRecibidos 
- 
-Esta operación permite solicitar la descarga de CFDIs o Metadata de comprobantes recibidos y como 
-resultado devuelve un id de solicitud o estatus de la petición realizada. Permite la descarga de 
-Metadata de comprobantes vigentes y cancelados, de igual forma, Permite la descarga de CFDI de 
-comprobantes vigentes, pero no se permite la descarga de CFDI de comprobantes cancelados. 
- 
-Los parámetros que requiere esta operación son los siguientes: 
-Parámetro Tipo de Dato Descripción Tipo de 
-Parámetro 
-Authorization Header Contiene el token de autenticación que se obtuvo en el 
-servicio correspondiente, se debe de usar el nombre 
-“Authorization” y el valor debe de ser en el siguiente 
-formato “WRAP access_token="Token"”  
- 
-Parámetro obligatorio 
- 
-Entrada 
-FechaInicial DateTime Solo se buscarán CFDI, cuya fecha de emisión sea igual 
-o mayor a la fecha inicial indicada en este parámetro 
- 
-Parámetro obligatorio. 
- 
-Entrada 
-FechaFinal DateTime Solo se buscarán CFDI, cuya fecha de emisión sea igual 
-o menor a la fecha final indicada en este parámetro. 
- 
-Parámetro obligatorio. 
- 
-Entrada 
-RfcReceptor String Contiene el RFC Receptor el cual corresponde con el 
-contribuyente del cual se requiere la información. 
- 
-Parámetro obligatorio. 
- 
-Entrada 
-RfcEmisor String Contiene el RFC del emisor del cual se quiere consultar 
-los CFDIs. 
- 
-Parámetro opcional. 
-Entrada 
- 
- 
- 
- 
-16 / 29 
- 
-RfcSolicitante String El RFC Solicitante corresponde al contribuyente que 
-está realizando la solicitud de descarga. Este 
-parámetro es opcional, pero en caso de proporcionarse 
-debe coincidir con el RFC Receptor. 
- 
-Parámetro opcional. 
- 
-Entrada 
+En el ejemplo anterior se puede visualizar que la petición va dividida en dos partes:
+
+• La primera es el Header, que contiene el token de autenticación, del cual se puede encontrar
+el detalle en el tema 4 Autenticación para servicios.
+
+• La segunda es aquella que contiene la petición hacia el servicio con los parámetros ya
+establecidos anteriormente, como se mencio nó en el punto de la autenticación esta
+operación del Web Service solo puede ser usada siempre y cuando se haya autenticado de
+manera exitosa y el token sea válido en el momento en que se intenta consumir.
+
+
+Ejemplo de respuesta de la operación SolicitaDescargaEmitidos del servicio de Solicitud
+Descarga Masiva
+
+
+
+HTTP/1.1 200 OK
+Content-Type: text/xml; charset=utf-8
+Vary: Accept-Encoding
+Server: Microsoft-IIS/10.0
+Date: Tue, 13 May 2025 01:02:45 GMT
+
+<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/">
+   <s:Body xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+xmlns:xsd="http://www.w3.org/2001/XMLSchema">
+      <SolicitaDescargaEmitidosResponse xmlns="http://DescargaMasivaTerceros.sat.gob.mx">
+
+
+
+
+
+14 / 29
+         <SolicitaDescargaEmitidosResult IdSolicitud="05e4038d-1f0d-4617-87d1-232fdd93bcc5"
+RfcSolicitante="AXT940727FP8" CodEstatus="5000" Mensaje="Solicitud Aceptada"/>
+      </SolicitaDescargaEmitidosResponse>
+   </s:Body>
+</s:Envelope>
+
+En el ejemplo mostrado en la imagen anterior se puede ver que la respuesta contiene los parámetros
+de salida mencionados anteriormente.
+
+Ordenamiento de la petición
+
+Como se puede observar los atributos están ordenados, de acuerdo con el siguiente ejemplo:
+2. EstadoComprobante
+3. FechaInicial
+4. FechaFinal
+5. RfcEmisor
+7. TipoComprobante
+8. TipoSolicitud
+
+
+
+Nota importante: Las direcciones electrónicas (URL) que se integran en esta documentación, son
+solo referencia para la correcta interpretación de los ejemplos contenidos, por lo que las URL válidas
+para la implementación del Web Service, están publicadas en el Portal del SAT en: Trámites y
+Servicios/ Factura electrónica, en la sección de Documentos relacionados, apartado 3, como: URL´s
+Web Service: Descarga masiva de CFDI y retenciones.
+
+Mensajes recibidos desde la operación SolicitaDescargaEmitidos del servicio Solicitud descarga
+masiva
+
+Evento Mensaje Observaciones
+300 Usuario No Válido
+301 XML Mal Formado Este código de error se regresa cuando el request posee
+información invalida, ejemplo: un RFC de receptor no valido.
+302 Sello Mal Formado
+303 Sello no corresponde con RfcEmisor
+
+
+
+
+
+15 / 29
+304 Certificado Revocado o Caduco El certificado puede ser invalido por múltiples razones como
+son el tipo, la vigencia, etc.
+305 Certificado Inválido El certificado puede ser invalido por múltiples razones como
+son el tipo, la vigencia, etc.
+5000 Solicitud de descarga recibida con éxito
+5001 Tercero no autorizado Se da cuando se trata de descargar comprobantes que no
+son propios.
+5002 Se han agotado las solicitudes de por vida Se ha alcanzado el límite de solicitudes, con el mismo criterio
+5005 Ya se tiene una solicitud registrada Ya existe una solicitud activa con los mismos criterios
+404 Error no controlado
+
+5.2 SolicitaDescargaRecibidos
+
+Esta operación permite solicitar la descarga de CFDIs o Metadata de comprobantes recibidos y como
+resultado devuelve un id de solicitud o estatus de la petición realizada. Permite la descarga de
+Metadata de comprobantes vigentes y cancelados, de igual forma, Permite la descarga de CFDI de
+comprobantes vigentes, pero no se permite la descarga de CFDI de comprobantes cancelados.
+
+Los parámetros que requiere esta operación son los siguientes:
+Parámetro Tipo de Dato Descripción Tipo de
+Parámetro
+Authorization Header Contiene el token de autenticación que se obtuvo en el
+servicio correspondiente, se debe de usar el nombre
+“Authorization” y el valor debe de ser en el siguiente
+formato “WRAP access_token="Token"”
+
+Parámetro obligatorio
+
+Entrada
+FechaInicial DateTime Solo se buscarán CFDI, cuya fecha de emisión sea igual
+o mayor a la fecha inicial indicada en este parámetro
+
+Parámetro obligatorio.
+
+Entrada
+FechaFinal DateTime Solo se buscarán CFDI, cuya fecha de emisión sea igual
+o menor a la fecha final indicada en este parámetro.
+
+Parámetro obligatorio.
+
+Entrada
+RfcReceptor String Contiene el RFC Receptor el cual corresponde con el
+contribuyente del cual se requiere la información.
+
+Parámetro obligatorio.
+
+Entrada
+RfcEmisor String Contiene el RFC del emisor del cual se quiere consultar
+los CFDIs.
+
+Parámetro opcional.
+Entrada
+
+
+
+
+16 / 29
+
+RfcSolicitante String El RFC Solicitante corresponde al contribuyente que
+está realizando la solicitud de descarga. Este
+parámetro es opcional, pero en caso de proporcionarse
+debe coincidir con el RFC Receptor.
+
+Parámetro opcional.
+
+Entrada
 TipoSolicitud TipoDescargaMas
-ivaTerceros 
-Define el tipo de descarga: 
-• Metadata 
-• CFDI 
- 
-Parámetro obligatorio. 
- 
-Entrada 
+ivaTerceros
+Define el tipo de descarga:
+• Metadata
+• CFDI
+
+Parámetro obligatorio.
+
+Entrada
 TipoComprobante TipoComprobant
-e 
-Define el tipo de comprobante: 
-• null 
-• I = Ingreso 
-• E = Egreso 
-• T= Traslado 
-• N = Nomina 
-• P = Pago 
- 
-*null es el valor predeterminado y en caso de no 
-declararse, se obtendrán todos los comprobantes sin 
-importar el tipo comprobante. Los valores aceptados 
-son: I, E, T, N y P. 
- 
-Entrada 
-EstadoComprobante String Dato opcional que define el estado del comprobante: 
- 
-• Todos  
-• Cancelado. 
-• Vigente. 
-  
-En caso de que no se proporcione, se considerara 
-Vigente como valor por defecto. 
- 
-Regla: Para efectos de la metadata  el listado solo 
-incluirá los comprobantes vigentes y cancelados, para 
-efectos de la descarga de XML, solo se incluirán los 
-vigentes. Por lo tanto, el servicio no descargará XML 
-cancelados. 
- 
-Entrada 
-RfcACuentaTerceros String Contiene el RFC del a cuenta a tercero del cual se 
-quiere consultar los CFDIs 
- 
-Entrada 
-Complemento String 
- 
-Define el complemento de CFDI a descargar: 
-• null 
-• acreditamientoieps10 
-• aerolineas 
-• certificadodedestruccion 
-• cfdiregistrofiscal 
-• comercioexterior10 
-• comercioexterior11 
-Entrada 
- 
- 
- 
- 
-17 / 29 
-• comprobante 
-• consumodecombustibles 
-• consumodecombustibles11 
-• detallista 
-• divisas 
-• donat11 
-• ecc11 
-• ecc12 
-• gastoshidrocarburos10 
-• iedu 
-• implocal 
-• ine11 
-• ingresoshidrocarburos 
-• leyendasfisc 
-• nomina11 
-• nomina12 
-• notariospublicos 
-• obrasarteantiguedades 
-• pagoenespecie 
-• pagos10 
-• pfic 
-• renovacionysustitucionvehiculos 
-• servicioparcialconstruccion 
-• spei 
-• terceros11 
-• turistapasajeroextranjero 
-• valesdedespensa 
-• vehiculousado 
-• ventavehiculos11 
- 
-* null es el valor predeterminado y en caso de no 
-declararse, se obtendrán todos los comprobantes sin 
-importar el complemento asociado a los 
-comprobantes. 
- 
-Signature SignatureType Firma de la petición realizada con el certificado de tipo 
-E.FIRMA. 
- 
-Parámetro obligatorio. La petición debe ordenarse 
-alfabéticamente para que pueda realizarse 
-correctamente la validación de la firma. 
- 
-Atributos: 
- 
-1.  Complemento 
-2.  EstadoComprobante 
-3.  FechaInicial 
-4.  FechaFinal 
-5.  RfcEmisor 
-6.  RfcSolicitante 
-7.  TipoComprobante 
-8.  TipoSolicitud 
-9.  RfcReceptor 
-Entrada 
- 
- 
- 
- 
-18 / 29 
-10.RfcACuentaTerceros 
- 
- 
-Nota: Se anexa un ejemplo del ordenamiento. 
- 
-RfcSolicitante String Contiene el RFC que realizo la solicitud. Salida 
-IdSolicitud String Contiene el resultado de la petición con el código de 
-respuesta y los UUID de los CFDIs de los cuales se 
-solicitó la descarga, pero se encuentran en espera de 
-una confirmación por parte del receptor. 
-Salida 
-CodEstatus String Código de estatus de la solicitud Salida 
-Mensaje String Pequeña descripción del código estatus Salida 
- 
-Ejemplo de petición a la operación SolicitaDescargaRecibidos del servicio Solicitud de Descarga 
-Masiva 
- 
- 
- 
-POST https://cu1-cfd-uat-cse-dmasiva.centralus.cloudapp.azure.com/SolicitaDescargaService.svc HTTP/1.1 
-Accept-Encoding: gzip,deflate 
-Content-Type: text/xml;charset=UTF-8 
-SOAPAction: "http://DescargaMasivaTerceros.sat.gob.mx/ISolicitaDescargaService/SolicitaDescargaRecibidos" 
-Authorization: WRAP 
+e
+Define el tipo de comprobante:
+• null
+• I = Ingreso
+• E = Egreso
+• T= Traslado
+• N = Nomina
+• P = Pago
+
+*null es el valor predeterminado y en caso de no
+declararse, se obtendrán todos los comprobantes sin
+importar el tipo comprobante. Los valores aceptados
+son: I, E, T, N y P.
+
+Entrada
+EstadoComprobante String Dato opcional que define el estado del comprobante:
+
+• Todos
+• Cancelado.
+• Vigente.
+
+En caso de que no se proporcione, se considerara
+Vigente como valor por defecto.
+
+Regla: Para efectos de la metadata  el listado solo
+incluirá los comprobantes vigentes y cancelados, para
+efectos de la descarga de XML, solo se incluirán los
+vigentes. Por lo tanto, el servicio no descargará XML
+cancelados.
+
+Entrada
+RfcACuentaTerceros String Contiene el RFC del a cuenta a tercero del cual se
+quiere consultar los CFDIs
+
+Entrada
+Complemento String
+
+Define el complemento de CFDI a descargar:
+• null
+• acreditamientoieps10
+• aerolineas
+• certificadodedestruccion
+• cfdiregistrofiscal
+• comercioexterior10
+• comercioexterior11
+Entrada
+
+
+
+
+17 / 29
+• comprobante
+• consumodecombustibles
+• consumodecombustibles11
+• detallista
+• divisas
+• donat11
+• ecc11
+• ecc12
+• gastoshidrocarburos10
+• iedu
+• implocal
+• ine11
+• ingresoshidrocarburos
+• leyendasfisc
+• nomina11
+• nomina12
+• notariospublicos
+• obrasarteantiguedades
+• pagoenespecie
+• pagos10
+• pfic
+• renovacionysustitucionvehiculos
+• servicioparcialconstruccion
+• spei
+• terceros11
+• turistapasajeroextranjero
+• valesdedespensa
+• vehiculousado
+• ventavehiculos11
+
+* null es el valor predeterminado y en caso de no
+declararse, se obtendrán todos los comprobantes sin
+importar el complemento asociado a los
+comprobantes.
+
+Signature SignatureType Firma de la petición realizada con el certificado de tipo
+E.FIRMA.
+
+Parámetro obligatorio. La petición debe ordenarse
+alfabéticamente para que pueda realizarse
+correctamente la validación de la firma.
+
+Atributos:
+
+1.  Complemento
+2.  EstadoComprobante
+3.  FechaInicial
+4.  FechaFinal
+5.  RfcEmisor
+6.  RfcSolicitante
+7.  TipoComprobante
+8.  TipoSolicitud
+9.  RfcReceptor
+Entrada
+
+
+
+
+18 / 29
+10.RfcACuentaTerceros
+
+
+Nota: Se anexa un ejemplo del ordenamiento.
+
+RfcSolicitante String Contiene el RFC que realizo la solicitud. Salida
+IdSolicitud String Contiene el resultado de la petición con el código de
+respuesta y los UUID de los CFDIs de los cuales se
+solicitó la descarga, pero se encuentran en espera de
+una confirmación por parte del receptor.
+Salida
+CodEstatus String Código de estatus de la solicitud Salida
+Mensaje String Pequeña descripción del código estatus Salida
+
+Ejemplo de petición a la operación SolicitaDescargaRecibidos del servicio Solicitud de Descarga
+Masiva
+
+
+
+POST https://cu1-cfd-uat-cse-dmasiva.centralus.cloudapp.azure.com/SolicitaDescargaService.svc HTTP/1.1
+Accept-Encoding: gzip,deflate
+Content-Type: text/xml;charset=UTF-8
+SOAPAction: "http://DescargaMasivaTerceros.sat.gob.mx/ISolicitaDescargaService/SolicitaDescargaRecibidos"
+Authorization: WRAP
 access_token="eyJhbGciOiJodHRwOi8vd3d3LnczLm9yZy8yMDAxLzA0L3htbGRzaWctbW9yZSNobWFjLXNoYTI1NiI
 sInR5cCI6IkpXVCJ9.eyJuYmYiOjE3NDcxMDY5MTcsImV4cCI6MTc0NzEwNzUxNywiaWF0IjoxNzQ3MTA2OTE3LCJpc
 3MiOiJMb2FkU2VydmljaW9EZWNhcmdhTWFzaXZhVGVyY2Vyb3MiLCJhY3RvcnQiOiIzMzMwMzAzMDMxMzAzMD
 MwMzAzMDMwMzUzMDMwMzAzMDM0MzUzNjMwIn0.VZUTvZujvsarne_38T5HIEHxxtTKfT3K48vSm7QmFk0&wr
-ap_subject=3330303031303030303030353030303034353630" 
-Content-Length: 4833 
-Host: cu1-cfd-uat-cse-dmasiva.centralus.cloudapp.azure.com 
- 
+ap_subject=3330303031303030303030353030303034353630"
+Content-Length: 4833
+Host: cu1-cfd-uat-cse-dmasiva.centralus.cloudapp.azure.com
 
- 
- 
- 
- 
-19 / 29 
-<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" 
-xmlns:des="http://DescargaMasivaTerceros.sat.gob.mx" xmlns:xd="http://www.w3.org/2000/09/xmldsig#"> 
-   <soapenv:Header/> 
-   <soapenv:Body> 
-   <des:SolicitaDescargaRecibidos> 
-   <des:solicitud EstadoComprobante="Vigente" FechaInicial="2025-05-01T21:27:14" 
-FechaFinal="2025-05-02T21:27:14" TipoSolicitud="CFDI" RfcReceptor="AXT940727FP8"> 
-   <Signature xmlns="http://www.w3.org/2000/09/xmldsig#"> 
-      <SignedInfo> 
+
+
+
+
+
+19 / 29
+<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/"
+xmlns:des="http://DescargaMasivaTerceros.sat.gob.mx" xmlns:xd="http://www.w3.org/2000/09/xmldsig#">
+   <soapenv:Header/>
+   <soapenv:Body>
+   <des:SolicitaDescargaRecibidos>
+   <des:solicitud EstadoComprobante="Vigente" FechaInicial="2025-05-01T21:27:14"
+FechaFinal="2025-05-02T21:27:14" TipoSolicitud="CFDI" RfcReceptor="AXT940727FP8">
+   <Signature xmlns="http://www.w3.org/2000/09/xmldsig#">
+      <SignedInfo>
       <CanonicalizationMethod Algorithm="http://www.w3.org/TR/2001/REC-xml-
-c14n-20010315"/> 
+c14n-20010315"/>
       <SignatureMethod Algorithm="http://www.w3.org/2000/09/xmldsig#rsa-
-sha1"/> 
-      <Reference URI=""> 
-      <Transforms> 
-      <Transform 
-Algorithm="http://www.w3.org/2000/09/xmldsig#enveloped-signature"/> 
-      </Transforms> 
-      <DigestMethod 
-Algorithm="http://www.w3.org/2000/09/xmldsig#sha1"/> 
-      <DigestValue>lARf47malXkXG1F03V0qYoDTwss=</DigestValue> 
-      </Reference> 
-      </SignedInfo> 
-      
+sha1"/>
+      <Reference URI="">
+      <Transforms>
+      <Transform
+Algorithm="http://www.w3.org/2000/09/xmldsig#enveloped-signature"/>
+      </Transforms>
+      <DigestMethod
+Algorithm="http://www.w3.org/2000/09/xmldsig#sha1"/>
+      <DigestValue>lARf47malXkXG1F03V0qYoDTwss=</DigestValue>
+      </Reference>
+      </SignedInfo>
+
 <SignatureValue>KSUcJjL11MqKFSW8Jgj7fjkF/W0m0ILDdS+Y1jWVNggTljdd1NFAHQItll1iDR7HgywPhysKTJA+Z/e
 Au8TMNmlLV9dmmYvSXQkcUId09K4IxKYIqbtmnJrgyGqOeaATro34+lXKNIQ5Nw46GnnS+AUccjW6CoYTzGazJztc
 pmA4quc4/x1K5fGTmdHMvxRy+gw0EFmNl1tF1bCRsWDr/rLq5y5VCgh0Ia60KPpJ5veu3O9Ct4zeiBr/183y0b5NPR0
 K7e3VnHoBCkDSXwxLKYWMU9vEKacMiLfTy1mNXBvLio5EOGbTQuTFS3jU4+wCtAIwxMjhLj992lgYcUpLAQ==</Si
-gnatureValue> 
-      <KeyInfo> 
-      <X509Data> 
-      <X509IssuerSerial> 
-      <X509IssuerName>OID.1.2.840.113549.1.9.2=responsable: 
-ACDMA-SAT, OID.2.5.4.45=2.5.4.45, L=COYOACAN, S=CIUDAD DE MEXICO, C=MX, PostalCode=06370, 
-STREET=3ra cerrada de caliz, E=oscar.martinez@sat.gob.mx, OU=SAT-IES Authority, O=SERVICIO DE 
-ADMINISTRACION TRIBUTARIA, CN=AC UAT</X509IssuerName> 
-     
- <X509SerialNumber>292233162870206001759766198462772978647781684784</X509SerialNumber> 
-      </X509IssuerSerial> 
-      
+gnatureValue>
+      <KeyInfo>
+      <X509Data>
+      <X509IssuerSerial>
+      <X509IssuerName>OID.1.2.840.113549.1.9.2=responsable:
+ACDMA-SAT, OID.2.5.4.45=2.5.4.45, L=COYOACAN, S=CIUDAD DE MEXICO, C=MX, PostalCode=06370,
+STREET=3ra cerrada de caliz, E=oscar.martinez@sat.gob.mx, OU=SAT-IES Authority, O=SERVICIO DE
+ADMINISTRACION TRIBUTARIA, CN=AC UAT</X509IssuerName>
+
+ <X509SerialNumber>292233162870206001759766198462772978647781684784</X509SerialNumber>
+      </X509IssuerSerial>
+
 <X509Certificate>MIIHMDCCBRigAwIBAgIUMzAwMDEwMDAwMDA1MDAwMDQ1NjAwDQYJKoZIhvcNAQELBQA
 wggErMQ8wDQYDVQQDDAZBQyBVQVQxLjAsBgNVBAoMJVNFUlZJQ0lPIERFIEFETUlOSVNUUkFDSU9OIFRSSUJVV
 EFSSUExGjAYBgNVBAsMEVNBVC1JRVMgQXV0aG9yaXR5MSgwJgYJKoZIhvcNAQkBFhlvc2Nhci5tYXJ0aW5lekBzYXQ
@@ -854,11 +854,11 @@ uZ29iLm14MR0wGwYDVQQJDBQzcmEgY2VycmFkYSBkZSBjYWxpejEOMAwGA1UEEQwFMDYzNzAxCzAJBgN
 TAk1YMRkwFwYDVQQIDBBDSVVEQUQgREUgTUVYSUNPMREwDwYDVQQHDAhDT1lPQUNBTjERMA8GA1UELRMI
 Mi41LjQuNDUxJTAjBgkqhkiG9w0BCQITFnJlc3BvbnNhYmxlOiBBQ0RNQS1TQVQwHhcNMjMxMDIyMjIyMjU5Whc
 NMjcxMDIxMjIyMjU5WjCCAiQxSTBHBgNVBAMTQFNJTkRJQ0FUTyBERSBDSE9GRVJFUyBERSBUQVhJUyBZIENPTUJJ
- 
- 
- 
- 
-20 / 29 
+
+
+
+
+20 / 29
 UyBERUwgU0VSVklDSU8gUFVCTElDTyBUUkExggEYMIIBFAYDVQQpE4IBC1NJTkRJQ0FUTyBERSBDSE9GRVJFUyBE
 RSBUQVhJUyBZIENPTUJJUyBERUwgU0VSVklDSU8gUFVCTElDTyBUUkFOU1BPUlRJU1RBUyBERSBNQVRFUklBTEVT
 IFBBUkEgTEEgQ09OU1RSVUNDSU9OIFNFTUlMTEEgREVMIENBTVBPIFkgRU1QTEVBRE9TIERFIExBIENPTlNUUlVD
@@ -880,223 +880,223 @@ v8zgUQCkbj2JlhCBDjwRqjTeas2B3p03iZQoKqDA48Zq8WQR9AaP1qjkIwY1xP7MMJd07qISc9TABhgS
 Y65KhIAtzV/0peQBmXFzXT0dwcryKRlZntzT6mAbtwxpX/MV/djZ44id+r9/geEOWeIBkCFp1H6mF/0a/c6c0SMwnvRI
 3iych6Fsx2JeKelpitJMYGhQh8IH4w1b5WLmmf7OJsxe7x1DCY4of7kqgaUV3OhGNknOCCLHDhlf61mRWfXSwrg0q
 0tRBZTDGZF7FQ7Mf8SmOiibdEWsYr4MdyAdmGnAUwToS1NIsKRExLV0NgbFsGN6okNdyXx2lXULkas0LDwi8ky/V
-c0ky/P1Xucg1E=</X509Certificate> 
-      </X509Data> 
-      </KeyInfo> 
-   </Signature> 
-   </des:solicitud> 
-   </des:SolicitaDescargaRecibidos> 
-   </soapenv:Body> 
-</soapenv:Envelope> 
- 
-En el ejemplo anterior se puede visualizar que la petición va dividida en dos partes: 
- 
-• La primera es el Header, que contiene el token de autenticación, del cual se puede encontrar 
-el detalle en el tema 4 Autenticación para servicios.  
-  
-• La segunda es aquella que contiene la petición haci a el servicio con los parámetros ya 
-establecidos anteriormente, como se mencionó en el punto de la autenticación esta 
-operación del Web Services solo podrá ser usada siempre y cuando se haya autenticado de 
-manera exitosa y el token sea válido en el tiempo que se está intentando consumir. 
- 
-  
- 
- 
- 
- 
-21 / 29 
-Ejemplo de respuesta de la operación SolicitaDescargaRecibidos del servicio de Solicitud 
-Descarga Masiva 
- 
- 
- 
-HTTP/1.1 200 OK 
-Content-Type: text/xml; charset=utf-8 
-Vary: Accept-Encoding 
-Server: Microsoft-IIS/10.0 
-Date: Tue, 13 May 2025 03:18:32 GMT 
- 
-<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/"> 
-   <s:Body xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" 
-xmlns:xsd="http://www.w3.org/2001/XMLSchema"> 
-      <SolicitaDescargaRecibidosResponse xmlns="http://DescargaMasivaTerceros.sat.gob.mx"> 
-         <SolicitaDescargaRecibidosResult IdSolicitud="a8129420-4f22-42b4-9a7f-0c193d89d09a" 
-RfcSolicitante="AXT940727FP8" CodEstatus="5000" Mensaje="Solicitud Aceptada"/> 
-      </SolicitaDescargaRecibidosResponse> 
-   </s:Body> 
-</s:Envelope> 
- 
-En el ejemplo mostrado en la imagen anterior se puede ver que la respuesta contiene los parámetros 
-de salida mencionados anteriormente. 
-  
+c0ky/P1Xucg1E=</X509Certificate>
+      </X509Data>
+      </KeyInfo>
+   </Signature>
+   </des:solicitud>
+   </des:SolicitaDescargaRecibidos>
+   </soapenv:Body>
+</soapenv:Envelope>
 
- 
- 
- 
- 
-22 / 29 
-Ordenamiento de la petición. 
- 
-Como se puede observar los atributos están ordenados, de acuerdo con el siguiente ejemplo: 
-2. EstadoComprobante 
-3. FechaInicial 
-4. FechaFinal 
-8. TipoSolicitud 
-9. RfcReceptor 
- 
- 
- 
-Nota importante: Las direcciones electrónicas (URL) que se integran en esta documentación, son 
-solo referencia para la correcta interpretación de los ejemplos contenidos, por lo que las URL válidas 
-para la implementación del Web Service, están publicadas en el Portal del SAT en: Trámites y 
-Servicios/ Factura electrónica, en la sección de Documentos relacionados, apartado 3, como: URL´s 
-Web Service: Descarga masiva de CFDI y retenciones. 
- 
-Mensajes recibidos desde la operación SolicitaDescargaRecibidos del servicio Solicitud  
-descarga masiva 
-Evento Mensaje Observaciones 
-300 Usuario No Válido  
-301 XML Mal Formado Este código de error se regresa cuando el request posee 
-información invalida, ejemplo: un RFC de receptor no 
-valido 
-302 Sello Mal Formado  
-303 Sello no corresponde con RfcReceptor  
-304 Certificado Revocado o Caduco El certificado puede ser invalido por múltiples razones 
-como son el tipo, la vigencia, etc. 
-305 Certificado Inválido El certificado puede ser invalido por múltiples razones 
-como son el tipo, la vigencia, etc. 
-5000 Solicitud de descarga recibida con éxito  
-5001 Tercero no autorizado Se da cuando se trata de descargar comprobantes que 
-no son propios. 
-5002 Se han agotado las solicitudes de por vida Se ha alcanzado el límite de solicitudes, con el mismo 
-criterio 
-5005 Ya se tiene una solicitud registrada Ya existe una solicitud activa con los mismos criterios 
-404 Error no controlado  
- 
- 
+En el ejemplo anterior se puede visualizar que la petición va dividida en dos partes:
 
- 
- 
- 
- 
-23 / 29 
-5.3 SolicitaDescargaFolio 
- 
-Esta operación permite solicitar la descarga de CFDI y como resultado devuelve un id de solicitud o 
-estatus de la petición realizada. 
- 
-Los parámetros que requiere esta operación son los siguientes: 
-Parámetro Tipo de Dato Descripción Tipo de 
-Parámetro 
-Authorization Header Contiene el token de autenticación que se obtuvo en 
-el servicio correspondiente, se debe de usar el 
-nombre “Authorization” y el valor debe de ser en el 
-siguiente formato “WRAP access_token="Token"”  
- 
-Parámetro obligatorio 
- 
-Entrada 
-RfcSolicitante String Contiene el RFC del que está realizando la solicitud de 
-descarga. 
- 
-Debe corresponder con el contribuyente que está 
-realizando la solicitud de descarga.  
- 
-Entrada 
-Folio String Folio Fiscal con formato: 
-XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX 
- 
-Parámetro obligatorio.  
- 
-Entrada 
-Signature SignatureType Firma de la petición realizada con el certificado de 
-tipo E.FIRMA. 
- 
-Parámetro obligatorio. La petición debe ordenarse 
-alfabéticamente para que pueda realizarse 
-correctamente la validación de la firma. 
- 
-Atributos: 
- 
-1.  Folio 
-2.  RfcSolicitante 
- 
-Nota: Se anexa un ejemplo del ordenamiento. 
- 
-Entrada 
-IdSolicitud String Contiene el resultado de la petición con el código de 
-respuesta y los UUID de los CFDIs de los cuales se 
-solicitó la descarga, pero se encuentran en espera de 
-una confirmación por parte del receptor. 
-Salida 
-CodEstatus String Código de estatus de la solicitud Salida 
-Mensaje String Pequeña descripción del código estatus Salida 
- 
- 
- 
- 
- 
- 
-24 / 29 
-Ejemplo de petición a la operación SolicitaDescargaFolio del servicio Solicitud de Descarga 
-Masiva 
- 
- 
- 
-POST https://cu1-cfd-uat-cse-dmasiva.centralus.cloudapp.azure.com/SolicitaDescargaService.svc HTTP/1.1 
-Accept-Encoding: gzip,deflate 
-Content-Type: text/xml;charset=UTF-8 
-SOAPAction: "http://DescargaMasivaTerceros.sat.gob.mx/ISolicitaDescargaService/SolicitaDescargaFolio" 
-Authorization: WRAP 
+• La primera es el Header, que contiene el token de autenticación, del cual se puede encontrar
+el detalle en el tema 4 Autenticación para servicios.
+
+• La segunda es aquella que contiene la petición haci a el servicio con los parámetros ya
+establecidos anteriormente, como se mencionó en el punto de la autenticación esta
+operación del Web Services solo podrá ser usada siempre y cuando se haya autenticado de
+manera exitosa y el token sea válido en el tiempo que se está intentando consumir.
+
+
+
+
+
+
+21 / 29
+Ejemplo de respuesta de la operación SolicitaDescargaRecibidos del servicio de Solicitud
+Descarga Masiva
+
+
+
+HTTP/1.1 200 OK
+Content-Type: text/xml; charset=utf-8
+Vary: Accept-Encoding
+Server: Microsoft-IIS/10.0
+Date: Tue, 13 May 2025 03:18:32 GMT
+
+<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/">
+   <s:Body xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+xmlns:xsd="http://www.w3.org/2001/XMLSchema">
+      <SolicitaDescargaRecibidosResponse xmlns="http://DescargaMasivaTerceros.sat.gob.mx">
+         <SolicitaDescargaRecibidosResult IdSolicitud="a8129420-4f22-42b4-9a7f-0c193d89d09a"
+RfcSolicitante="AXT940727FP8" CodEstatus="5000" Mensaje="Solicitud Aceptada"/>
+      </SolicitaDescargaRecibidosResponse>
+   </s:Body>
+</s:Envelope>
+
+En el ejemplo mostrado en la imagen anterior se puede ver que la respuesta contiene los parámetros
+de salida mencionados anteriormente.
+
+
+
+
+
+
+22 / 29
+Ordenamiento de la petición.
+
+Como se puede observar los atributos están ordenados, de acuerdo con el siguiente ejemplo:
+2. EstadoComprobante
+3. FechaInicial
+4. FechaFinal
+8. TipoSolicitud
+9. RfcReceptor
+
+
+
+Nota importante: Las direcciones electrónicas (URL) que se integran en esta documentación, son
+solo referencia para la correcta interpretación de los ejemplos contenidos, por lo que las URL válidas
+para la implementación del Web Service, están publicadas en el Portal del SAT en: Trámites y
+Servicios/ Factura electrónica, en la sección de Documentos relacionados, apartado 3, como: URL´s
+Web Service: Descarga masiva de CFDI y retenciones.
+
+Mensajes recibidos desde la operación SolicitaDescargaRecibidos del servicio Solicitud
+descarga masiva
+Evento Mensaje Observaciones
+300 Usuario No Válido
+301 XML Mal Formado Este código de error se regresa cuando el request posee
+información invalida, ejemplo: un RFC de receptor no
+valido
+302 Sello Mal Formado
+303 Sello no corresponde con RfcReceptor
+304 Certificado Revocado o Caduco El certificado puede ser invalido por múltiples razones
+como son el tipo, la vigencia, etc.
+305 Certificado Inválido El certificado puede ser invalido por múltiples razones
+como son el tipo, la vigencia, etc.
+5000 Solicitud de descarga recibida con éxito
+5001 Tercero no autorizado Se da cuando se trata de descargar comprobantes que
+no son propios.
+5002 Se han agotado las solicitudes de por vida Se ha alcanzado el límite de solicitudes, con el mismo
+criterio
+5005 Ya se tiene una solicitud registrada Ya existe una solicitud activa con los mismos criterios
+404 Error no controlado
+
+
+
+
+
+
+
+23 / 29
+5.3 SolicitaDescargaFolio
+
+Esta operación permite solicitar la descarga de CFDI y como resultado devuelve un id de solicitud o
+estatus de la petición realizada.
+
+Los parámetros que requiere esta operación son los siguientes:
+Parámetro Tipo de Dato Descripción Tipo de
+Parámetro
+Authorization Header Contiene el token de autenticación que se obtuvo en
+el servicio correspondiente, se debe de usar el
+nombre “Authorization” y el valor debe de ser en el
+siguiente formato “WRAP access_token="Token"”
+
+Parámetro obligatorio
+
+Entrada
+RfcSolicitante String Contiene el RFC del que está realizando la solicitud de
+descarga.
+
+Debe corresponder con el contribuyente que está
+realizando la solicitud de descarga.
+
+Entrada
+Folio String Folio Fiscal con formato:
+XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX
+
+Parámetro obligatorio.
+
+Entrada
+Signature SignatureType Firma de la petición realizada con el certificado de
+tipo E.FIRMA.
+
+Parámetro obligatorio. La petición debe ordenarse
+alfabéticamente para que pueda realizarse
+correctamente la validación de la firma.
+
+Atributos:
+
+1.  Folio
+2.  RfcSolicitante
+
+Nota: Se anexa un ejemplo del ordenamiento.
+
+Entrada
+IdSolicitud String Contiene el resultado de la petición con el código de
+respuesta y los UUID de los CFDIs de los cuales se
+solicitó la descarga, pero se encuentran en espera de
+una confirmación por parte del receptor.
+Salida
+CodEstatus String Código de estatus de la solicitud Salida
+Mensaje String Pequeña descripción del código estatus Salida
+
+
+
+
+
+
+24 / 29
+Ejemplo de petición a la operación SolicitaDescargaFolio del servicio Solicitud de Descarga
+Masiva
+
+
+
+POST https://cu1-cfd-uat-cse-dmasiva.centralus.cloudapp.azure.com/SolicitaDescargaService.svc HTTP/1.1
+Accept-Encoding: gzip,deflate
+Content-Type: text/xml;charset=UTF-8
+SOAPAction: "http://DescargaMasivaTerceros.sat.gob.mx/ISolicitaDescargaService/SolicitaDescargaFolio"
+Authorization: WRAP
 access_token="eyJhbGciOiJodHRwOi8vd3d3LnczLm9yZy8yMDAxLzA0L3htbGRzaWctbW9yZSNobWFjLXNoYTI1NiI
 sInR5cCI6IkpXVCJ9.eyJuYmYiOjE3NDcxMDgxNzEsImV4cCI6MTc0NzEwODc3MSwiaWF0IjoxNzQ3MTA4MTcxLCJpc
 3MiOiJMb2FkU2VydmljaW9EZWNhcmdhTWFzaXZhVGVyY2Vyb3MiLCJhY3RvcnQiOiIzMzMwMzAzMDMxMzAzMD
 MwMzAzMDMwMzUzMDMwMzAzMDM0MzUzNjMwIn0.KIvDSRXcSWss02ewF4Xye2bZerA9AL8weXwJoC9HbRQ&
-wrap_subject=3330303031303030303030353030303034353630" 
-Content-Length: 4726 
-Host: cu1-cfd-uat-cse-dmasiva.centralus.cloudapp.azure.com 
- 
-<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" 
-xmlns:des="http://DescargaMasivaTerceros.sat.gob.mx" xmlns:xd="http://www.w3.org/2000/09/xmldsig#"> 
-   <soapenv:Header/> 
-   <soapenv:Body> 
-      <des:SolicitaDescargaFolio> 
-         <des:solicitud Folio="22dac9d9-7a29-460d-a0a7-7d9e0be450d2"> 
-            <Signature xmlns="http://www.w3.org/2000/09/xmldsig#"> 
-               <SignedInfo> 
-                  <CanonicalizationMethod Algorithm="http://www.w3.org/TR/2001/REC-xml-c14n-20010315"/> 
-                  <SignatureMethod Algorithm="http://www.w3.org/2000/09/xmldsig#rsa-sha1"/> 
-                  <Reference URI=""> 
-                     <Transforms> 
-                        <Transform Algorithm="http://www.w3.org/2000/09/xmldsig#enveloped-signature"/> 
+wrap_subject=3330303031303030303030353030303034353630"
+Content-Length: 4726
+Host: cu1-cfd-uat-cse-dmasiva.centralus.cloudapp.azure.com
 
- 
- 
- 
- 
-25 / 29 
-                     </Transforms> 
-                     <DigestMethod Algorithm="http://www.w3.org/2000/09/xmldsig#sha1"/> 
-                     <DigestValue>gVetTO4TSoM1y2d2uFihkNt7Blk=</DigestValue> 
-                  </Reference> 
-               </SignedInfo> 
-               
+<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/"
+xmlns:des="http://DescargaMasivaTerceros.sat.gob.mx" xmlns:xd="http://www.w3.org/2000/09/xmldsig#">
+   <soapenv:Header/>
+   <soapenv:Body>
+      <des:SolicitaDescargaFolio>
+         <des:solicitud Folio="22dac9d9-7a29-460d-a0a7-7d9e0be450d2">
+            <Signature xmlns="http://www.w3.org/2000/09/xmldsig#">
+               <SignedInfo>
+                  <CanonicalizationMethod Algorithm="http://www.w3.org/TR/2001/REC-xml-c14n-20010315"/>
+                  <SignatureMethod Algorithm="http://www.w3.org/2000/09/xmldsig#rsa-sha1"/>
+                  <Reference URI="">
+                     <Transforms>
+                        <Transform Algorithm="http://www.w3.org/2000/09/xmldsig#enveloped-signature"/>
+
+
+
+
+
+25 / 29
+                     </Transforms>
+                     <DigestMethod Algorithm="http://www.w3.org/2000/09/xmldsig#sha1"/>
+                     <DigestValue>gVetTO4TSoM1y2d2uFihkNt7Blk=</DigestValue>
+                  </Reference>
+               </SignedInfo>
+
 <SignatureValue>NZujWT9Cp7ZZuSIBmKMZeIrrtBu8yCaxIszhFVbwC+WRXB5MqbiX3MrC5LSqZFIGnv//ATcLuadd
 1yso4swTWk3UeK5lb8g+UqkFxYVxWDnCE/vf969mZGfpPoYvl2MqP8yoDxSm2dMXZk/vjpvo/G95//sNx+hV3gW0w
 1+6JBVaHTzII7X5+iHx3lO7cjsl769tjFAyeCeYTn49AsgpxJ1PJjSpiLMLRuk+hgANPyH0a8VpTlnFagB+552yDN75m6/t
 H55525nZcNSawRmdxSzGSRNwkbKibIwWVft0zJjX0UiUzqkwVyH/cQhactHPIslucQM8Oa5100EjPUz71g==</Signat
-ureValue> 
-               <KeyInfo> 
-                  <X509Data> 
-                     <X509IssuerSerial> 
-                        <X509IssuerName>OID.1.2.840.113549.1.9.2=responsable: ACDMA-SAT, OID.2.5.4.45=2.5.4.45, 
-L=COYOACAN, S=CIUDAD DE MEXICO, C=MX, PostalCode=06370, STREET=3ra cerrada de caliz, 
-E=oscar.martinez@sat.gob.mx, OU=SAT-IES Authority, O=SERVICIO DE ADMINISTRACION TRIBUTARIA, CN=AC 
-UAT</X509IssuerName> 
-                        
-<X509SerialNumber>292233162870206001759766198462772978647781684784</X509SerialNumber> 
-                     </X509IssuerSerial> 
-                     
+ureValue>
+               <KeyInfo>
+                  <X509Data>
+                     <X509IssuerSerial>
+                        <X509IssuerName>OID.1.2.840.113549.1.9.2=responsable: ACDMA-SAT, OID.2.5.4.45=2.5.4.45,
+L=COYOACAN, S=CIUDAD DE MEXICO, C=MX, PostalCode=06370, STREET=3ra cerrada de caliz,
+E=oscar.martinez@sat.gob.mx, OU=SAT-IES Authority, O=SERVICIO DE ADMINISTRACION TRIBUTARIA, CN=AC
+UAT</X509IssuerName>
+
+<X509SerialNumber>292233162870206001759766198462772978647781684784</X509SerialNumber>
+                     </X509IssuerSerial>
+
 <X509Certificate>MIIHMDCCBRigAwIBAgIUMzAwMDEwMDAwMDA1MDAwMDQ1NjAwDQYJKoZIhvcNAQELBQA
 wggErMQ8wDQYDVQQDDAZBQyBVQVQxLjAsBgNVBAoMJVNFUlZJQ0lPIERFIEFETUlOSVNUUkFDSU9OIFRSSUJVV
 EFSSUExGjAYBgNVBAsMEVNBVC1JRVMgQXV0aG9yaXR5MSgwJgYJKoZIhvcNAQkBFhlvc2Nhci5tYXJ0aW5lekBzYXQ
@@ -1122,121 +1122,121 @@ ceRiMEVioS2hNKfKBobbvtegvR+gzVBnTIWMryiOZQ03fF9ovWXt8iasYySFX7qQa1S+DTaECwOFaUBD
 cQ6aBk1q6eXYENT4rTgwMSVKh49i4m4HgWng4e2H8isM3+FFQ+lnSNJBpVAyQt5lMCo9G+4Ji5r3nUQWxS4NsQv/r
 Fp+CJ/l8HQ1APM2HXD8CbYYStEkvC3EKR+ny74PwcRD6dROzOaGwCwi4zYcx1vPZc9CsnjisxSTjEU3pkkx1P13Tcg5i
 v8zgUQCkbj2JlhCBDjwRqjTeas2B3p03iZQoKqDA48Zq8WQR9AaP1qjkIwY1xP7MMJd07qISc9TABhgSWwW25GPW
- 
- 
- 
- 
-26 / 29 
+
+
+
+
+26 / 29
 Y65KhIAtzV/0peQBmXFzXT0dwcryKRlZntzT6mAbtwxpX/MV/djZ44id+r9/geEOWeIBkCFp1H6mF/0a/c6c0SMwnvRI
 3iych6Fsx2JeKelpitJMYGhQh8IH4w1b5WLmmf7OJsxe7x1DCY4of7kqgaUV3OhGNknOCCLHDhlf61mRWfXSwrg0q
 0tRBZTDGZF7FQ7Mf8SmOiibdEWsYr4MdyAdmGnAUwToS1NIsKRExLV0NgbFsGN6okNdyXx2lXULkas0LDwi8ky/V
-c0ky/P1Xucg1E=</X509Certificate> 
-                  </X509Data> 
-               </KeyInfo> 
-            </Signature> 
-         </des:solicitud> 
-      </des:SolicitaDescargaFolio> 
-   </soapenv:Body> 
-</soapenv:Envelope> 
- 
-En el ejemplo anterior se puede visualizar que la petición va dividida en dos partes:  
- 
-• La primera de ellas es el Header  que contiene el token de autenticación, del cual se puede 
-encontrar el detalle en el tema 4 Autenticación para servicios.  
-  
-• La segunda es aquella que contiene la petición hacia el servicio con los parámetros ya 
-establecidos anteriormente, como se mencion ó en el punto de la autenticación esta 
-operación del Web Services solo podrá ser usada siempre y cuando se haya autenticado de 
-manera exitosa y el token sea válido en el tiempo que se está intentando consumir . 
- 
-  
- 
- 
- 
- 
-27 / 29 
-Ejemplo de respuesta de la operación SolicitaDescargaFolio del servicio de Solicitud Descarga 
-Masiva 
- 
- 
- 
-HTTP/1.1 200 OK 
-Content-Type: text/xml; charset=utf-8 
-Vary: Accept-Encoding 
-Server: Microsoft-IIS/10.0 
-Date: Tue, 13 May 2025 03:51:51 GMT 
- 
-<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/"> 
-   <s:Body xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" 
-xmlns:xsd="http://www.w3.org/2001/XMLSchema"> 
-      <SolicitaDescargaFolioResponse xmlns="http://DescargaMasivaTerceros.sat.gob.mx"> 
-         <SolicitaDescargaFolioResult IdSolicitud="ad9f0b1e-d398-45a1-8fd0-0dd5a4f66945" RfcSolicitante="AXT940727FP8" 
-CodEstatus="5000" Mensaje="Solicitud Aceptada"/> 
-      </SolicitaDescargaFolioResponse> 
-   </s:Body> 
-</s:Envelope> 
- 
-En el ejemplo mostrado en la imagen anterior se puede ver que la respuesta contiene los parámetros 
-de salida mencionados anteriormente. 
- 
-Ordenamiento de la petición. 
- 
-Como se puede observar los atributos están ordenados, de acuerdo con el siguiente ejemplo:  
-2. Folio 
- 
- 
- 
-  
+c0ky/P1Xucg1E=</X509Certificate>
+                  </X509Data>
+               </KeyInfo>
+            </Signature>
+         </des:solicitud>
+      </des:SolicitaDescargaFolio>
+   </soapenv:Body>
+</soapenv:Envelope>
 
- 
- 
- 
- 
-28 / 29 
-Nota importante: Las direcciones electrónicas (URL) que se integran en esta documentación, son 
-solo referencia para la correcta interpretación de los ejemplos contenidos, por lo que las URL válidas 
-para la implementación del Web Service, están publicadas en el Portal del SAT en: Trámites y 
-Servicios/ Factura electrónica, en la sección de Documentos relacionados, apartado 3, como: URL´s 
-Web Service: Descarga masiva de CFDI y retenciones. 
- 
-Mensajes recibidos desde la operación SolicitaDescargaFolio del servicio Solicitud descarga 
-masiva 
- 
-Evento Mensaje Observaciones 
-300 Usuario No Válido  
-301 XML Mal Formado Este código de error se regresa cuando el request posee 
-información invalida, ejemplo: un RFC de receptor no 
-valido 
-302 Sello Mal Formado  
-303 Sello no corresponde con RfcSolicitante  
-304 Certificado Revocado o Caduco El certificado puede ser invalido por múltiples razones 
-como son el tipo, la vigencia, etc. 
-305 Certificado Inválido El certificado puede ser invalido por múltiples razones 
-como son el tipo, la vigencia, etc. 
-5000 Solicitud de descarga recibida con éxito  
-5001 Tercero no autorizado Se da cuando se trata de descargar comprobantes que no 
-son propios. 
-5002 Se han agotado las solicitudes de por vida Se ha alcanzado el límite de solicitudes, con el mismo 
-criterio 
-5005 Ya se tiene una solicitud registrada Ya existe una solicitud activa con los mismos criterios 
-5012 No se permite la descarga de xml que se 
-encuentren cancelados 
- 
-404 Error no controlado  
- 
-  
- 
- 
- 
- 
-29 / 29 
-6. CONTROL DE CAMBIOS 
-A continuación, se muestra un resumen de los cambios realizados al documento.  
- 
-Cambio realizado Fecha del 
-cambio 
-Se actualizan los logotipos conforme a los lineamientos gráficos del SAT. 
-Se adicionan los complementos vigentes para la versión 4.0. de CFDI. 22/02/2024 
-Se realizaron cambios a los criterios en los parámetros de la solicitud de descarga. 10/06/2024 
-Se documenta la versión 1.5 del WS de Descarga Masiva de Terceros , la cual se 
-encontrará disponible en producción a partir del 30 de mayo del 2025. 27/05/2025 
+En el ejemplo anterior se puede visualizar que la petición va dividida en dos partes:
+
+• La primera de ellas es el Header  que contiene el token de autenticación, del cual se puede
+encontrar el detalle en el tema 4 Autenticación para servicios.
+
+• La segunda es aquella que contiene la petición hacia el servicio con los parámetros ya
+establecidos anteriormente, como se mencion ó en el punto de la autenticación esta
+operación del Web Services solo podrá ser usada siempre y cuando se haya autenticado de
+manera exitosa y el token sea válido en el tiempo que se está intentando consumir .
+
+
+
+
+
+
+27 / 29
+Ejemplo de respuesta de la operación SolicitaDescargaFolio del servicio de Solicitud Descarga
+Masiva
+
+
+
+HTTP/1.1 200 OK
+Content-Type: text/xml; charset=utf-8
+Vary: Accept-Encoding
+Server: Microsoft-IIS/10.0
+Date: Tue, 13 May 2025 03:51:51 GMT
+
+<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/">
+   <s:Body xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+xmlns:xsd="http://www.w3.org/2001/XMLSchema">
+      <SolicitaDescargaFolioResponse xmlns="http://DescargaMasivaTerceros.sat.gob.mx">
+         <SolicitaDescargaFolioResult IdSolicitud="ad9f0b1e-d398-45a1-8fd0-0dd5a4f66945" RfcSolicitante="AXT940727FP8"
+CodEstatus="5000" Mensaje="Solicitud Aceptada"/>
+      </SolicitaDescargaFolioResponse>
+   </s:Body>
+</s:Envelope>
+
+En el ejemplo mostrado en la imagen anterior se puede ver que la respuesta contiene los parámetros
+de salida mencionados anteriormente.
+
+Ordenamiento de la petición.
+
+Como se puede observar los atributos están ordenados, de acuerdo con el siguiente ejemplo:
+2. Folio
+
+
+
+
+
+
+
+
+
+28 / 29
+Nota importante: Las direcciones electrónicas (URL) que se integran en esta documentación, son
+solo referencia para la correcta interpretación de los ejemplos contenidos, por lo que las URL válidas
+para la implementación del Web Service, están publicadas en el Portal del SAT en: Trámites y
+Servicios/ Factura electrónica, en la sección de Documentos relacionados, apartado 3, como: URL´s
+Web Service: Descarga masiva de CFDI y retenciones.
+
+Mensajes recibidos desde la operación SolicitaDescargaFolio del servicio Solicitud descarga
+masiva
+
+Evento Mensaje Observaciones
+300 Usuario No Válido
+301 XML Mal Formado Este código de error se regresa cuando el request posee
+información invalida, ejemplo: un RFC de receptor no
+valido
+302 Sello Mal Formado
+303 Sello no corresponde con RfcSolicitante
+304 Certificado Revocado o Caduco El certificado puede ser invalido por múltiples razones
+como son el tipo, la vigencia, etc.
+305 Certificado Inválido El certificado puede ser invalido por múltiples razones
+como son el tipo, la vigencia, etc.
+5000 Solicitud de descarga recibida con éxito
+5001 Tercero no autorizado Se da cuando se trata de descargar comprobantes que no
+son propios.
+5002 Se han agotado las solicitudes de por vida Se ha alcanzado el límite de solicitudes, con el mismo
+criterio
+5005 Ya se tiene una solicitud registrada Ya existe una solicitud activa con los mismos criterios
+5012 No se permite la descarga de xml que se
+encuentren cancelados
+
+404 Error no controlado
+
+
+
+
+
+
+29 / 29
+6. CONTROL DE CAMBIOS
+A continuación, se muestra un resumen de los cambios realizados al documento.
+
+Cambio realizado Fecha del
+cambio
+Se actualizan los logotipos conforme a los lineamientos gráficos del SAT.
+Se adicionan los complementos vigentes para la versión 4.0. de CFDI. 22/02/2024
+Se realizaron cambios a los criterios en los parámetros de la solicitud de descarga. 10/06/2024
+Se documenta la versión 1.5 del WS de Descarga Masiva de Terceros , la cual se
+encontrará disponible en producción a partir del 30 de mayo del 2025. 27/05/2025
