@@ -5,6 +5,7 @@ import { PlatformConfigModule } from './config/platform-config.module';
 import { DatabaseModule } from './database/database.module';
 import { FiscalHealthModule } from './modules/health/fiscal-health.module';
 import { IngestionWorkerModule } from './modules/ingestion/workers/ingestion-worker.module';
+import { EfirmaWorkerModule } from './modules/efirma/efirma.module';
 
 @Module({
   imports: [
@@ -13,6 +14,7 @@ import { IngestionWorkerModule } from './modules/ingestion/workers/ingestion-wor
     ObservabilityModule,
     DatabaseModule.forRuntime('worker'),
     IngestionWorkerModule,
+    EfirmaWorkerModule,
     FiscalHealthModule.register('worker'),
   ],
 })

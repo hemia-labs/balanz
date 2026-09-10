@@ -60,6 +60,8 @@
     "src/features/cfdi/cfdi-list-query.test.ts",
     "src/features/cfdi/types.ts",
     "src/features/cfdi/types.test.ts",
-    "src/features/ingestions/zip-upload.test.ts"
+    "src/features/ingestions/zip-upload.test.ts",
+    "src/features/efirma/credential-state.test.ts",
+    "src/features/efirma/submit-custody.test.ts"
   ]
 }

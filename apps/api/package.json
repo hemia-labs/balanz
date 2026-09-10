@@ -64,6 +64,7 @@
     "@nestjs/platform-express": "^11.0.1",
     "@nestjs/throttler": "^6.5.0",
     "@nestjs/typeorm": "^11.0.2",
+    "@peculiar/x509": "2.1.0",
     "@smithy/node-http-handler": "4.11.3",
     "bcrypt": "^6.0.0",
     "busboy": "1.6.0",

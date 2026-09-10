@@ -16,6 +16,26 @@ interface HistogramValue {
 }
 
 const DEFINITIONS = {
+  efirma_ready_total: {
+    help: 'Temporary synthetic custodies prepared.',
+    kind: 'counter',
+    labels: [],
+  },
+  efirma_consumed_total: {
+    help: 'Temporary custody consumptions completed.',
+    kind: 'counter',
+    labels: [],
+  },
+  efirma_expired_total: {
+    help: 'Temporary custodies reconciled as expired.',
+    kind: 'counter',
+    labels: [],
+  },
+  efirma_cleanup_failures_total: {
+    help: 'Temporary custody cleanup failures pending retry.',
+    kind: 'counter',
+    labels: [],
+  },
   zip_admitted_total: {
     help: 'Committed ZIP upload admissions, excluding idempotent replays.',
     kind: 'counter',
