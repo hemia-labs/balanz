@@ -766,3 +766,7 @@ Uploads que nunca se confirman mantienen el cleanup durable de 24 horas.
 
 `ZIP_EMPTY` es rechazo terminal de un paquete sin archivos regulares, incluso
 si contiene carpetas; no crea items ni CFDI. Crear un ZIP con XML para continuar.
+
+## Proceso SAT y cleanup
+
+El mismo release ejecuta SatWorker y handler sat_package. claim_sat_cleanup se integra al reconciliador de objetos existente. Véase CFDI_PHASE_4_RUNBOOK.md para respuesta incierta, reautorización, presupuestos y restore.

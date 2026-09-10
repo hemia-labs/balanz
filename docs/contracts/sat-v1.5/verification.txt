@@ -1,0 +1,486 @@
+ 
+ 
+ 
+ 
+1 / 13 
+ 
+ 
+ 
+ 
+ 
+Fecha: mayo 2025 
+Versión 1.5 
+  
+ 
+ 
+ 
+ 
+2 / 13 
+ÍNDICE 
+ 
+1. INTRODUCCIÓN ................................................................................................................................................. 3 
+2. PRERREQUISITOS ............................................................................................................................................... 3 
+3. MODO DE USO PARA SERVICIOS ..................................................................................................................... 3 
+4. AUTENTICACIÓN PARA SERVICIOS .................................................................................................................. 3 
+5. SERVICIO DE VERIFICACIÓN DE DESCARGA MASIVA .................................................................................... 7 
+6. CONTROL DE CAMBIOS.................................................................................................................................. 13 
+ 
+ 
+  
+ 
+ 
+ 
+ 
+3 / 13 
+1. INTRODUCCIÓN 
+El servicio de verificación de descarga masiva se diseñó para poder consultar el estatus de las 
+peticiones realizadas a través del servicio Solicitud Descarga, este servicio devolverá la información 
+correspondiente a dicha solicitud como son el estatus, los paquetes que conforman la solicitud y 
+sus respectivos identificadores, para en su momento poder realizar la descarga de dichos 
+paquetes. Esto mediante un servicio publicado en la página del SAT desde internet, siendo que este 
+servicio solo puede ser consumido por el solicitante original que genero la solicitud de descarga 
+masiva, con lo cual se protege esta información. 
+ 
+El presente documento contiene la información necesaria para conocer y utilizar los siguientes 
+elementos que forman parte del Servicio de Verificación de Descarga Masiva . 
+ 
+2. PRERREQUISITOS 
+El contribuyente debe contar con el certificado de e.firma vigente para solicitar la información.  
+ 
+3. MODO DE USO PARA SERVICIOS 
+A fin de utilizar los servicios Web descritos en el presente documento, es necesario crear el cliente 
+de servicios Web correspondiente a partir de la URL del Servicio o la URL del WSDL, de acuerdo con 
+las instrucciones de la plataforma desde la que se vaya a consumir el servicio web.  
+  
+Para mayor información acerca de la manera en la que se genera el cliente del servicio web, se 
+debe consultar la documentación de la plataforma desde la que consumirá el servicio.  
+  
+Una vez que se creó el cliente, el siguiente paso es verificar el tipo de certificado a enviar para 
+realizar la autenticación y posterior consumo de los servicios.  
+  
+4. AUTENTICACIÓN PARA SERVICIOS 
+Para utilizar los servicios Web descritos en el presente documento, es necesario autenticarse 
+mediante el certificado de e.firma vigente y su respectiva llave privada.  
+   
+El tipo de autenticación del servicio cumple con las especificaciones de Web Services Security v1.0 
+(WS-Security 2004): 
+https://www.oasis-open.org/standards#wssv1.0    
+  
+ 
+ 
+ 
+ 
+4 / 13 
+A continuación, se muestra la parte del WSDL de cada uno de los servicios que menciona el método 
+de autenticación que se requiere para el consumo de los servicios:  
+ 
+Servicio de autenticación 
+A fin de facilitar la autenticación mediante el uso de la e.firma vigente, se recomie nda utilizar el 
+almacén local de llaves criptográficas para almacenar y recuperar una llave para utilizarla 
+posteriormente, es importante mencionar que esto se puede realizar siempre y cuando se esté 
+utilizando su propio equipo de cómputo para establecer l a comunicación con el Web Service, de 
+no ser así, se debe garantizar que la información referente a la e.firma no se almacene en el equipo 
+de un tercero. A continuación se muestra un ejemplo de código en C# de cómo obtener un 
+certificado específico.  
+  
+Ejemplo 
+  
+Una vez seleccionado el certificado a utilizar como medio de autenticación, se tiene que mandar la 
+petición hacia el servicio de autenticación para poder obtener el token que se requiere para usar 
+el Servicio de Verificación de Descarga Masiva, esto se realiza de la siguiente manera:  
+  
+Ejemplo 
+ 
+El código mostrado anteriormente es en C#, pero sirve de ejemplo para ilustrar cómo enviar estos 
+certificados a los servicios descritos y poder obtener el token de autenticación correspondiente.  
+ 
+ 
+  
+
+ 
+ 
+ 
+ 
+5 / 13 
+Ahora se muestra un ejemplo de cómo se ve una petición hacia el servicio de autenticación:  
+ 
+ 
+<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" xmlns:u="http://docs.oasis-
+open.org/wss/2004/01/oasis-200401-wss-wssecurity-utility-1.0.xsd"> 
+  <s:Header> 
+    <o:Security s:mustUnderstand="1" xmlns:o="http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-
+secext-1.0.xsd"> 
+      <u:Timestamp u:Id="_0"> 
+        <u:Created>2018-05-09T21:21:42.953Z</u:Created> 
+        <u:Expires>2018-05-09T21:26:42.953Z</u:Expires> 
+      </u:Timestamp> 
+      <o:BinarySecurityToken u:Id="uuid-572bbc7a-287d-4233-bdcb-75f92418becd-1" ValueType="http://docs.oasis-
+open.org/wss/2004/01/oasis-200401-wss-x509-token-profile-1.0#X509v3" EncodingType="http://docs.oasis-
+open.org/wss/2004/01/oasis-200401-wss-soap-message-security-
+1.0#Base64Binary">MIIGiDCCBHCgAwIBAgIUMzAwMDEwMDAwMDAzMDAwMjkwODEwDQYJKoZIhvcNAQELBQAwggF
+mMSAwHgYDVQQDDBdBLkMuIDIgZGUgcHJ1ZWJhcyg0MDk2KTEvMC0GA1UECgwmU2VydmljaW8gZGUgQWRtaW5pc3
+RyYWNpw7NuIFRyaWJ1dGFyaWExODA2BgNVBAsML0FkbWluaXN0cmFjacOzbiBkZSBTZWd1cmlkYWQgZGUgbGEgSW5
+mb3JtYWNpw7NuMSkwJwYJKoZIhvcNAQkBFhphc2lzbmV0QHBydWViYXMuc2F0LmdvYi5teDEmMCQGA1UECQwdQXYuI
+EhpZGFsZ28gNzcsIENvbC4gR3VlcnJlcm8xDjAMBgNVBBEMBTA2MzAwMQswCQYDVQQGEwJNWDEZMBcGA1UECAwQRG
+lzdHJpdG8gRmVkZXJhbDESMBAGA1UEBwwJQ295b2Fjw6FuMRUwEwYDVQQtEwxTQVQ5NzA3MDFOTjMxITAfBgkqhkiG9
+w0BCQIMElJlc3BvbnNhYmxlOiBBQ0RNQTAeFw0xNzEwMjUxNDU5NDhaFw0yMTEwMjQxNDU5NDhaMIIBQTFEMEIGA1
+UEAxM7Q09SUE9SQVRJVk8gSU5NT0JJTElBUklPIERFIENPTlRST0wgWSBBU0VTT1JJQSBTIEEgQiBERSBDIFYxRDBCBgNVBC
+kTO0NPUlBPUkFUSVZPIElOTU9CSUxJQVJJTyBERSBDT05UUk9MIFkgQVNFU09SSUEgUyBBIEIgREUgQyBWMUQwQgYDV
+QQKEztDT1JQT1JBVElWTyBJTk1PQklMSUFSSU8gREUgQ09OVFJPTCBZIEFTRVNPUklBIFMgQSBCIERFIEMgVjELMAkGA1UE
+BhMCTVgxGTAXBgkqhkiG9w0BCQEWCmFhQHNhdC5nb2IxJTAjBgNVBC0THEFYVDk0MDcyN0ZQOCAvIFZBQUU3MzEw
+
+ 
+ 
+ 
+ 
+6 / 13 
+MjExMjExHjAcBgNVBAUTFSAvIFZBQUU3MzEwMjFIREZSR1IwNTCCASIwDQYJKoZIhvcNAQEBBQADggEPADCCAQoCggEB
+AKyJR9I+BClVEKhvf2VhoucqdbnwaKAolx3x1Ce3XeLBm8mj0z7cHiRr+u8VUNZeMWMKNsJDJAzxQwqpjIzD7boCbxGoiNw
+3zEEGzkEugcCu7J4IfW7s0Bf1FWzeqwsOU6COAIfdtfa1a6nPs9GPiMO+XiuyBxPzotVhlmfcZX0Ly7GOkhLRJm5ezvSU4d7af
+BJ6BZEb/hrFamnICgTyzXVNkRlQUEJ1pcDQNMz4wAoRIlmcvujYgr1VTMfkLXmsJVJNun/ybojfQ1ALjCVBmCqQfw5uO1VMU
+Yz0wO83FjEGWFK7/JdzPnTT21dpyR0z1HSGOYXHthwNjaF0uoUegUsCAwEAAaNPME0wDAYDVR0TAQH/BAIwADALBgNV
+HQ8EBAMCA9gwEQYJYIZIAYb4QgEBBAQDAgWgMB0GA1UdJQQWMBQGCCsGAQUFBwMEBggrBgEFBQcDAjANBgkqhki
+G9w0BAQsFAAOCAgEATnZwK/g+L90DjyeSCIw420VO8HkaxpBPqUOdZsuEo23Y//bBFXXtENsm/8djRpVM39L898+Ak4Re9
+Ln3pdd/RQ3AAUZtRZtaCJnxiGVOh/NyMCQLi1lH3P0ODEE7i5RBcld+9sR7LVapQ3DnxJ8/bKr4MlY+KrChU/GKjW7KjHe+CaI
+oALUJKy83sLekF1MPVZASf+Q3XXAtleWjQta6iBCW42MRheG/VWVxbB+w4HjNPeEcrvw/WDdamCZaEwe85ZJjhcjlZOPmt6
+U7Pf+rOVCWFAaIku6S+hSynvmNs2WViqC02zl2kc757nOyU6KEFOC0U2hnsUMXIjlR0VGrU526rNS8Wprv3fofcMDv/9z+ig
+Mc01x7mNAMI8oVdfAvGrsuCoEaPUFqCBtNbVmqOVx6FQdajyf8vACMfwp3R+S3Wk3ITgOSds5j9UAAABeXrsQ1DKFzjd87
+FdWpyucLpqfURIGHOoXb6cVoL1x4mQLpB1blaMokEO1NxxaaEU1I2Latt+3hS+HMTNRzqy/6dqiBaTMxljMMWfr4PO6MC
+d4sz0ARnuEkYGCtW7NG9Bdi0ISDw4DrKCOlq6tEPCxh91EurhNR+UYCpuFsubg2Hu26CTJZuE175E2Jp+GI6I8KrsYxKZMKI
+HL1CJgZSVExllmBzBGtjbxIkdqIH4307gs=</o:BinarySecurityToken> 
+      <Signature xmlns="http://www.w3.org/2000/09/xmldsig#"> 
+        <SignedInfo> 
+          <CanonicalizationMethod Algorithm="http://www.w3.org/2001/10/xml-exc-c14n#" /> 
+          <SignatureMethod Algorithm="http://www.w3.org/2000/09/xmldsig#rsa-sha1" /> 
+          <Reference URI="#_0"> 
+            <Transforms> 
+              <Transform Algorithm="http://www.w3.org/2001/10/xml-exc-c14n#" /> 
+            </Transforms> 
+            <DigestMethod Algorithm="http://www.w3.org/2000/09/xmldsig#sha1" /> 
+            <DigestValue>Ij+Epaya2U5D/sSncI6BHkkTRWo=</DigestValue> 
+          </Reference> 
+        </SignedInfo> 
+        
+<SignatureValue>EIY2h4gE3G8+K2kkoFxVwHqeTbdlA4fCHok4lOA+0hUloAkBipza4gUt5QsTmMi5z8ZZwV2E8tFWHOiZ1
+VaD01V6GigGwAXtAhDLJRQ9VQH/26QF9Q+5SnLMBNqt0SNU2T3LYruwpGXq4jW4hbTELuuMg/+c3hxXdFyvmU5sajRYbV
+m+Vqya4IJQ+aZfR4d9ZfWgW2t7Svv9WL4ikaizyWbTGN5Llasr69AzS2g87JfHq7mbmycl+BL/Enu5EZdf/K/r/UykmDvN9sdU
+MdUCRcT3A2M66VHDcOZYnVxUkR7yV8NC8MLP2Hz3wIrKPRUQm4qjFQOi4fpqtInXwwKpMg==</SignatureValue> 
+        <KeyInfo> 
+          <o:SecurityTokenReference> 
+            <o:Reference ValueType="http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-x509-token-profile-
+1.0#X509v3" URI="#uuid-572bbc7a-287d-4233-bdcb-75f92418becd-1" /> 
+          </o:SecurityTokenReference> 
+        </KeyInfo> 
+      </Signature> 
+    </o:Security> 
+    <To s:mustUnderstand="1" xmlns="http://schemas.microsoft.com/ws/2005/05/addressing/none">https://desktop-
+3fi24u7:444/Autenticacion/Autenticacion.svc</To> 
+    <Action s:mustUnderstand="1" 
+xmlns="http://schemas.microsoft.com/ws/2005/05/addressing/none">http://DescargaMasivaTerceros.gob.mx/IAutent
+icacion/Autentica</Action> 
+  </s:Header> 
+  <s:Body> 
+    <Autentica xmlns="http://DescargaMasivaTerceros.gob.mx" /> 
+  </s:Body> 
+</s:Envelope> 
+ 
+ 
+ 
+ 
+7 / 13 
+Si existe algún error durante la autenticación y no se obtiene el token no se podrán utilizar los 
+demás servicios; otro punto a considerar es que al consumir los servicios se validará el token 
+enviado, si este es válido se puede hace r uso de los métodos expuestos de cada uno, en caso 
+contrario se mandará una excepción de autenticación y no se podrá hacer uso del Web Service.  
+  
+Nota: El servicio de autenticación descrito en esta sección es el mismo a utilizar para los servicios 
+de Solicitud de Descarga Masiva, Verificación Descarga Masiva y Descarga Masiva.  
+ 
+5. SERVICIO DE VERIFICACIÓN DE DESCARGA MASIVA 
+Es un servicio web que permite verificar el estatus de las solicitudes de descarga realizadas 
+previamente a través del Servicio de Solicitud de Descarga Masiva, en caso de que la solicitud de 
+descarga haya sido aceptada y se encuentre con estatus de terminado, este servicio de verificación 
+devolverá los identificadores de los paquetes que conforman la solicitud de descarga. Este WS está 
+compuesto por la siguiente operación: 
+ 
+VerificaSolicitudDescarga. 
+Esta operación permite verificar el estatus de la solicitud de descarga masiva realizada 
+previamente, la cual contiene los siguientes parámetros: 
+ 
+Parámetro Tipo de dato Descripción Tipo de 
+parámetro 
+Authorization Header Contiene el token de autenticación que se obtuvo en el 
+servicio correspondiente, se debe de usar el nombre 
+“Authorization” y el valor debe de ser en el siguiente 
+formato “WRAP access_token="Token"”  
+Entrada 
+IdSolicitud String Contiene el Identificador de la solicitud que se pretende 
+consultar. 
+Entrada 
+RfcSolicitante String Contiene el RFC del solicitante que generó la petición de 
+solicitud de descarga masiva. 
+Entrada 
+Signature SignatureType Firma de la petición realizada con el certificado de 
+e.firma. 
+Entrada 
+IdsPaquetes Lista o 
+secuencia con 
+datos de tipo 
+String 
+Contiene los identificadores de los paquetes que 
+componen la solicitud de descarga masiva. Solo se 
+devuelve cuando la solicitud po see un estatus de 
+finalizado.  
+ 
+Salida 
+EstadoSolicitud Int Contiene el número correspondiente al estado de la 
+solicitud de descarga. 
+ 
+Estados de la solicitud: 
+ 
+• Aceptada=1 
+• En Proceso=2 
+Salida 
+ 
+ 
+ 
+ 
+8 / 13 
+• Terminada=3 
+• Error=4 
+• Rechazada=5 
+• Vencida= 6 
+ 
+*Esta sucede 72 horas después de que se generó el 
+paquete de descarga. 
+CodigoEstadoSolicitud String Contiene el código de estado de la solicitud de descarga, 
+el cual puede ser 5000, 5001, 5002 o 5005, para más 
+información referente a estos códigos, favor de 
+consultar el documento Documentación WS Solicitud 
+Descarga Masiva.docx. 
+Salida 
+NumeroCFDIs Int Número de CFDI que conforman la solicitud de descarga 
+consultada. 
+Salida 
+CodEstatus String Código de estatus de la petición de verificación. Salida 
+Mensaje String Pequeña descripción del código correspondiente a la 
+petición de verificación. 
+Salida 
+ 
+ 
+Ejemplo de petición a la operación “VerificaSolicitudDescarga” del Servicio de 
+Verificación Descarga Masiva 
+ 
+ 
+ 
+POST https://srvsolicituddescargamaster.cloudapp.net/VerificaSolicitudDescargaService.svc HTTP/1.1 
+Accept-Encoding: gzip,deflate 
+Content-Type: text/xml;charset=UTF-8 
+SOAPAction: "http://DescargaMasivaTerceros.sat.gob.mx/IVerificaSolicitudDescargaService/VerificaSolicitudDescarga" 
+Authorization: WRAP 
+access_token="eyJhbGciOiJodHRwOi8vd3d3LnczLm9yZy8yMDAxLzA0L3htbGRzaWctbW9yZSNobWFjLXNoYTI1NiIsInR5cC
+I6IkpXVCJ9.eyJuYmYiOjE1MjU5NzAyNzEsImV4cCI6MTUyNTk3MDg3MSwiaWF0IjoxNTI1OTcwMjcxLCJpc3MiOiJMb2FkU2V
+
+ 
+ 
+ 
+ 
+9 / 13 
+ydmljaW9EZWNhcmdhTWFzaXZhVGVyY2Vyb3MiLCJhY3RvcnQiOiIzMzMwMzAzMDMxMzAzMDMwMzAzMDMwMzMzMD
+MwMzAzMjM5MzAzODMxIn0.yJrEarIKf0WdQpGd1J125G7namg33Exm-yzsy1f7-
+Nc&wrap_subject=3330303031303030303030333030303239303831" 
+Content-Length: 4641 
+Host: srvsolicituddescargamaster.cloudapp.net 
+Connection: Keep-Alive 
+User-Agent: Apache-HttpClient/4.1.1 (java 1.5) 
+ 
+ 
+<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" 
+xmlns:des="http://DescargaMasivaTerceros.sat.gob.mx" xmlns:xd="http://www.w3.org/2000/09/xmldsig#"> 
+   <soapenv:Header/> 
+   <soapenv:Body> 
+      <des:VerificaSolicitudDescarga> 
+         <!--Optional:--> 
+         <des:solicitud IdSolicitud="4E80345D-917F-40BB-A98F-4A73939343C5" RfcSolicitante="AXT940727FP8"> 
+            <!--Optional:--> 
+            <Signature xmlns="http://www.w3.org/2000/09/xmldsig#"> 
+               <SignedInfo> 
+                  <CanonicalizationMethod Algorithm="http://www.w3.org/TR/2001/REC-xml-c14n-20010315"/> 
+                  <SignatureMethod Algorithm="http://www.w3.org/2000/09/xmldsig#rsa-sha1"/> 
+                  <Reference URI=""> 
+                     <Transforms> 
+                        <Transform Algorithm="http://www.w3.org/2000/09/xmldsig#enveloped-signature"/> 
+                     </Transforms> 
+                     <DigestMethod Algorithm="http://www.w3.org/2000/09/xmldsig#sha1"/> 
+                     <DigestValue>leZ4dK/Q/RNbckYkY7WOOnCjK5Q=</DigestValue> 
+                  </Reference> 
+               </SignedInfo> 
+               
+<SignatureValue>BuuRjPmgk4Qwl2ER7vjL7+57WiqNZMRD12Hjfh65irEI1Cu8biQSqeHHiaZ7NnmB/LsjyGaHQmZMW50mf
+nDtNzowAdytB6FS0RNUNLoajAZAdii8bYHYoW0BqrLaXSImwbZYaHgi4TlPch1OpXZHmUOqfS1qnEEsRXVBN2DvEh1RbAY
+upmQxBMW75eo4HZZm/lRug44mb47Evm9428ejTzTnu6LDPEAZEmHV4jOwRzqmM4GgiW7aEptqHOhdSxV+QzPSQ2/H5s
+8AZZ41LCK+3gSdCq3Kmf9S2H5R3BRS6VSam5J9xa0I2CvzJf/REwrxHsc7Xk9uXwXWOofjeTI1Bw==</SignatureValue> 
+               <KeyInfo> 
+                  <X509Data> 
+                     <X509IssuerSerial> 
+                        <X509IssuerName>OID.1.2.840.113549.1.9.2=Responsable: ACDMA, OID.2.5.4.45=SAT970701NN3, 
+L=Coyoacán, S=Distrito Federal, C=MX, PostalCode=06300, STREET="Av. Hidalgo 77, Col. Guerrero", 
+E=asisnet@pruebas.sat.gob.mx, OU=Administración de Seguridad de la Información, O=Servicio de Administración 
+Tributaria, CN=A.C. 2 de pruebas(4096)</X509IssuerName> 
+                        <X509SerialNumber>292233162870206001759766198425879490509036075057</X509SerialNumber> 
+                     </X509IssuerSerial> 
+                     
+<X509Certificate>MIIGiDCCBHCgAwIBAgIUMzAwMDEwMDAwMDAzMDAwMjkwODEwDQYJKoZIhvcNAQELBQAwggFmM
+SAwHgYDVQQDDBdBLkMuIDIgZGUgcHJ1ZWJhcyg0MDk2KTEvMC0GA1UECgwmU2VydmljaW8gZGUgQWRtaW5pc3RyYW
+Npw7NuIFRyaWJ1dGFyaWExODA2BgNVBAsML0FkbWluaXN0cmFjacOzbiBkZSBTZWd1cmlkYWQgZGUgbGEgSW5mb3JtY
+WNpw7NuMSkwJwYJKoZIhvcNAQkBFhphc2lzbmV0QHBydWViYXMuc2F0LmdvYi5teDEmMCQGA1UECQwdQXYuIEhpZGFs
+ 
+ 
+ 
+ 
+10 / 13 
+Z28gNzcsIENvbC4gR3VlcnJlcm8xDjAMBgNVBBEMBTA2MzAwMQswCQYDVQQGEwJNWDEZMBcGA1UECAwQRGlzdHJpdG
+8gRmVkZXJhbDESMBAGA1UEBwwJQ295b2Fjw6FuMRUwEwYDVQQtEwxTQVQ5NzA3MDFOTjMxITAfBgkqhkiG9w0BCQIM
+ElJlc3BvbnNhYmxlOiBBQ0RNQTAeFw0xNzEwMjUxNDU5NDhaFw0yMTEwMjQxNDU5NDhaMIIBQTFEMEIGA1UEAxM7Q0
+9SUE9SQVRJVk8gSU5NT0JJTElBUklPIERFIENPTlRST0wgWSBBU0VTT1JJQSBTIEEgQiBERSBDIFYxRDBCBgNVBCkTO0NPUlBP
+UkFUSVZPIElOTU9CSUxJQVJJTyBERSBDT05UUk9MIFkgQVNFU09SSUEgUyBBIEIgREUgQyBWMUQwQgYDVQQKEztDT1JQT
+1JBVElWTyBJTk1PQklMSUFSSU8gREUgQ09OVFJPTCBZIEFTRVNPUklBIFMgQSBCIERFIEMgVjELMAkGA1UEBhMCTVgxGTAX
+BgkqhkiG9w0BCQEWCmFhQHNhdC5nb2IxJTAjBgNVBC0THEFYVDk0MDcyN0ZQOCAvIFZBQUU3MzEwMjExMjExHjAcBgN
+VBAUTFSAvIFZBQUU3MzEwMjFIREZSR1IwNTCCASIwDQYJKoZIhvcNAQEBBQADggEPADCCAQoCggEBAKyJR9I+BClVEKhvf
+2VhoucqdbnwaKAolx3x1Ce3XeLBm8mj0z7cHiRr+u8VUNZeMWMKNsJDJAzxQwqpjIzD7boCbxGoiNw3zEEGzkEugcCu7J4If
+W7s0Bf1FWzeqwsOU6COAIfdtfa1a6nPs9GPiMO+XiuyBxPzotVhlmfcZX0Ly7GOkhLRJm5ezvSU4d7afBJ6BZEb/hrFamnICgT
+yzXVNkRlQUEJ1pcDQNMz4wAoRIlmcvujYgr1VTMfkLXmsJVJNun/ybojfQ1ALjCVBmCqQfw5uO1VMUYz0wO83FjEGWFK7/Jd
+zPnTT21dpyR0z1HSGOYXHthwNjaF0uoUegUsCAwEAAaNPME0wDAYDVR0TAQH/BAIwADALBgNVHQ8EBAMCA9gwEQYJY
+IZIAYb4QgEBBAQDAgWgMB0GA1UdJQQWMBQGCCsGAQUFBwMEBggrBgEFBQcDAjANBgkqhkiG9w0BAQsFAAOCAgEAT
+nZwK/g+L90DjyeSCIw420VO8HkaxpBPqUOdZsuEo23Y//bBFXXtENsm/8djRpVM39L898+Ak4Re9Ln3pdd/RQ3AAUZtRZtaCJ
+nxiGVOh/NyMCQLi1lH3P0ODEE7i5RBcld+9sR7LVapQ3DnxJ8/bKr4MlY+KrChU/GKjW7KjHe+CaIoALUJKy83sLekF1MPVZASf
++Q3XXAtleWjQta6iBCW42MRheG/VWVxbB+w4HjNPeEcrvw/WDdamCZaEwe85ZJjhcjlZOPmt6U7Pf+rOVCWFAaIku6S+hSyn
+vmNs2WViqC02zl2kc757nOyU6KEFOC0U2hnsUMXIjlR0VGrU526rNS8Wprv3fofcMDv/9z+igMc01x7mNAMI8oVdfAvGrsuC
+oEaPUFqCBtNbVmqOVx6FQdajyf8vACMfwp3R+S3Wk3ITgOSds5j9UAAABeXrsQ1DKFzjd87FdWpyucLpqfURIGHOoXb6cVo
+L1x4mQLpB1blaMokEO1NxxaaEU1I2Latt+3hS+HMTNRzqy/6dqiBaTMxljMMWfr4PO6MCd4sz0ARnuEkYGCtW7NG9Bdi0IS
+Dw4DrKCOlq6tEPCxh91EurhNR+UYCpuFsubg2Hu26CTJZuE175E2Jp+GI6I8KrsYxKZMKIHL1CJgZSVExllmBzBGtjbxIkdqIH4
+307gs=</X509Certificate> 
+                  </X509Data> 
+               </KeyInfo> 
+            </Signature> 
+ 
+         </des:solicitud> 
+      </des:VerificaSolicitudDescarga> 
+   </soapenv:Body> 
+</soapenv:Envelope> 
+ 
+ 
+En el ejemplo anterior se puede visualizar que la petición va dividida en dos partes:  
+ 
+• La primera es el Header, que contiene el token de autenticación, del cual se puede encontrar 
+el detalle en el tema 4 Autenticación para servicios.  
+  
+• La segunda es aquella que contiene la petición hacia el servicio con los parámetros ya 
+establecidos anteriormente, como se mencionó en el punto de la autenticación esta 
+operación del Web Service solo puede ser usada siempre y cuando se haya autenticado de 
+manera exitosa y el token sea válido en el momento en que se intenta consumir.  
+ 
+  
+ 
+ 
+ 
+ 
+11 / 13 
+Ejemplo de respuesta de la operación VerificaSolicitudDescarga del servicio de 
+Verificación Descarga Masiva 
+ 
+ 
+ 
+HTTP/1.1 200 OK 
+Content-Type: text/xml; charset=utf-8 
+Content-Encoding: gzip 
+Vary: Accept-Encoding 
+Server: Microsoft-IIS/10.0 
+X-Powered-By: ASP.NET 
+Date: Thu, 10 May 2018 16:38:15 GMT 
+Content-Length: 430 
+ 
+<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/"> 
+   <s:Body xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" 
+xmlns:xsd="http://www.w3.org/2001/XMLSchema"> 
+      <VerificaSolicitudDescargaResponse xmlns="http://DescargaMasivaTerceros.sat.gob.mx"> 
+         <VerificaSolicitudDescargaResult CodEstatus="5000" EstadoSolicitud="3" CodigoEstadoSolicitud="5000" 
+NumeroCFDIs="0" Mensaje="Solicitud Aceptada"> 
+            <IdsPaquetes>4e80345d-917f-40bb-a98f-4a73939343c5_01</IdsPaquetes> 
+            <IdsPaquetes>4e80345d-917f-40bb-a98f-4a73939343c5_02</IdsPaquetes> 
+            <IdsPaquetes>4e80345d-917f-40bb-a98f-4a73939343c5_03</IdsPaquetes> 
+            <IdsPaquetes>4e80345d-917f-40bb-a98f-4a73939343c5_04</IdsPaquetes> 
+            <IdsPaquetes>4e80345d-917f-40bb-a98f-4a73939343c5_05</IdsPaquetes> 
+            <IdsPaquetes>4e80345d-917f-40bb-a98f-4a73939343c5_06</IdsPaquetes> 
+         </VerificaSolicitudDescargaResult> 
+      </VerificaSolicitudDescargaResponse> 
+   </s:Body> 
+</s:Envelope> 
+ 
+En el ejemplo mostrado en la imagen anterior se puede ver que la respuesta contiene los 
+parámetros de salida mencionados anteriormente. 
+
+ 
+ 
+ 
+ 
+12 / 13 
+ 
+Nota importante: Las direcciones electrónicas (URL) que se integran en esta documentación, son 
+solo referencia para la correcta interpretación de los ejemplos contenidos, por lo que las URL 
+válidas para la implementación del Web Service, están publicadas en el Portal del SAT en: Trámites 
+y Servicios/ Factura electrónica, en la sección de Documentos relacionados, apartado 3, como: URL´s 
+Web Service: Descarga masiva de CFDI y retenciones. 
+ 
+Mensajes recibidos desde la operación “VerificaSolicitudDescarga” del Servicio de 
+Verificación Descarga Masiva 
+ 
+Evento Mensaje Observaciones 
+300 Usuario No Válido  
+301 XML Mal Formado Este código de error se regresa cuando el request posee 
+información invalida, ejemplo: un RFC de receptor no valido 
+302 Sello Mal Formado  
+303 Sello no corresponde con 
+RfcSolicitante 
+ 
+304 Certificado Revocado o Caduco El certificado puede ser invalido por múltiples razones como son el 
+tipo, la vigencia, etc. 
+305 Certificado Inválido El certificado puede ser invalido por múltiples razones como son el 
+tipo, la vigencia, etc. 
+5000 Solicitud recibida con éxito  
+5003 Tope máximo de elementos de 
+la consulta" 
+La solicitud sobrepasa el máximo de resultados por tipo de solicitud 
+(Metadata y CFDI)  
+5004 No se encontró la información No se encontró la información de la solicitud de descarga que se 
+pretende verificar. 
+5011 Límite de descargas por folio 
+por día 
+Se ha alcanzado o sobrepasado el límite de descargas diarias por 
+folio. 
+ 
+ 
+  
+ 
+ 
+ 
+ 
+13 / 13 
+6. CONTROL DE CAMBIOS 
+A continuación, se muestra un resumen de los cambios realizados al documento.  
+ 
+Cambio realizado Fecha del 
+cambio 
+Introducción: Se precisa que la documentación contiene recomendaciones que 
+pueden aplicarse siempre y cuando se utilice un equipo propio que no comprometa 
+la información. 
+14/08/2018 
+Autenticación para Servicios. Servicio de autenticación: Se precisa que la e.firma  no 
+debe almacenarse en el repositorio de llaves criptográficas si no se está utilizando un 
+equipo propio, a fin de no comprometer la información. 
+14/08/2018 
+Se incorpora la descripción referente a los códigos de evento 5003 y 5011 del Servicio 
+de Verificación de Descarga Masiva. 
+29/11/2023 
+Se documenta la versión 1.5 del WS de Descarga Masiva de Terceros , la cual se 
+encontrará disponible en producción a partir del 30 de mayo del 2025. 27/05/2025 

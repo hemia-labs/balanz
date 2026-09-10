@@ -555,3 +555,7 @@ desde localStorage y polling, incluso confirmación pendiente sin retransmitir.
 Si faltan bytes debe seleccionarse otra vez el mismo archivo. Cambiar tenant
 aborta requests y limpia recuperación. No se persisten URLs, keys, ZIP, XML ni
 secretos. La descarga posterior conserva los permisos y MFA de Fase 1.
+
+## Extensión Fase 4
+
+sat_package usa ingestion_jobs/upload_id NULL, raíz privada real y items ordinales; resultados SAT disponibles en CFDI_PHASE_4_API.md. XML/ZIP manual conservan rutas y perfiles.
