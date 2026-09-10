@@ -149,3 +149,7 @@ test de regresión. Fase 0 entrega catálogo y grants base, pero no debe simular
 consumo de permisos mediante rutas ficticias. Fase 1 es el primer consumidor
 público de permisos `ingestion.*`, `cfdi.*` e `incidents.view`; las capacidades
 de fases posteriores siguen reservadas.
+
+## Fase 4 SAT
+
+sat.download + credentials.manage para proceso/autorización; cfdi.view para links/detalle y cfdi.download/MFA existente para descargar XML. TOTP fresco para grant contextual; titular real tenant-wide y otros roles con asignación activa. Sin permiso nuevo ZIP/SAT ni endpoint público de clave.

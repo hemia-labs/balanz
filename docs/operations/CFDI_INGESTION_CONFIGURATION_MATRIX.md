@@ -316,3 +316,7 @@ Los reportes de Fase 0 y Fase 1 deben registrar configuración efectiva
 **redactada** por ambiente, casos negativos de startup, `.env.example` sin
 secretos y las pruebas reales que correspondan a su alcance. No deben copiar
 valores secretos, DSN ni URLs/tokens temporales.
+
+## Configuración Fase 4
+
+SAT_ENABLED=false por defecto. QA aislado explícito SAT_QA_ISOLATED y EFIRMA_QA_ISOLATED; SAT_CONTROLLED_ENDPOINT loopback. EFIRMA_CERTIFICATE_PROFILE seleccionado en servidor; EFIRMA_SAT_TRUST_FILE sólo para registro real versionado todavía no suministrado. Requisitos y gates en CFDI_PHASE_4_DEPLOYMENT_NOTE.md.

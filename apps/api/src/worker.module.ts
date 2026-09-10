@@ -1,3 +1,4 @@
+import { SatWorkerModule } from './modules/sat-download/sat.module';
 import { Module } from '@nestjs/common';
 import { CorrelationModule } from './common/correlation/correlation.module';
 import { ObservabilityModule } from './common/observability/observability.module';
@@ -9,6 +10,7 @@ import { EfirmaWorkerModule } from './modules/efirma/efirma.module';
 
 @Module({
   imports: [
+    SatWorkerModule,
     PlatformConfigModule.forRuntime('worker'),
     CorrelationModule,
     ObservabilityModule,

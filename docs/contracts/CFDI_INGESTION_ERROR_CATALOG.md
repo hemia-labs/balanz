@@ -207,3 +207,7 @@ recuperación; conserva el código como detalle secundario. `ZIP_HASH_FAILED` es
 un error local de preparación: no llegó a init y permite volver a seleccionar
 el archivo. El hash nativo se calcula en un Web Worker desechable y cancelable;
 su buffer está limitado a 50 MiB y no reside en el hilo principal.
+
+## Incidencias SAT
+
+Ver CFDI_PHASE_4_API.md: envío incierto, respuesta contradictoria, presupuesto agotado, caducidad, metadata no soportada y nueva autorización. Códigos externos SAT separados de estado interno; ningún 5004 se transforma automáticamente en vacío.

@@ -765,3 +765,7 @@ cancelación/recuperación, procedencia tipada, consultas paginadas, UI y cleanu
 durable. La evidencia y el SHA del código probado se encuentran en
 `docs/qa/CFDI_PHASE_2_VALIDATION_REPORT.md`. El siguiente paso es revisión de la
 PR en borrador; no se autoriza Fase 3 ni se realiza merge en esta entrega.
+
+## Estado Fase 4 — 2026-09-10
+
+Implementación SAT on-demand en rama codex/cfdi-phase4-sat, basada en develop con PR24 integrada. Desarrollo y validación local controlada; release bloqueado, sin habilitación real. Véanse ADR-CFDI-007, CFDI_PHASE_4_API, CFDI_SAT_CERTIFICATE_PROFILE y CFDI_PHASE_4_VALIDATION_REPORT. No se cierran gates históricos ni se inicia Fase 5.
