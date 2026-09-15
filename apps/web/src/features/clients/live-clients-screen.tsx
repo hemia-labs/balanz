@@ -1,15 +1,20 @@
 "use client";
 
+import { FilterBar } from "@/components/filter-bar";
+import { CollectionPagination } from "@/components/collection-pagination";
+import { ClientRowActions } from "./client-row-actions";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { type FormEvent, useEffect, useRef, useState } from "react";
 import { Plus } from "lucide-react";
 import { useAccountingContext } from "@/components/accounting-context";
 import { ControlledDialog } from "@/components/overlay-dialog";
-import { Field, FilterBar, Surface } from "@/components/product-patterns";
-import { ProductTable } from "@/components/product-table";
+import { PageHeader } from "@/components/page-header";
+import { Field, Surface } from "@/components/product-patterns";
+import { DataTable } from "@/components/data-table";
 import { StatusBadge } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
+
 import { Input } from "@/components/ui/input";
 import { ApiError, isAbortError } from "@/lib/api-client";
 import { createClient, getClients, getPrimaryCandidates } from "./api";
@@ -38,9 +43,7 @@ import {
   releaseSubmissionLock,
 } from "./submission-guard";
 import {
-  CollectionPagination,
   ErrorNotice,
-  LoadingState,
   roleLabels,
   selectClass,
 } from "./live-screen-primitives";
@@ -313,6 +316,7 @@ export function LiveClientsScreen() {
   const debouncedSearch = useDebouncedValue(search);
   const requestSequence = useRef(0);
   const [loadState, setLoadState] = useState(initialClientListLoadState);
+  const [refreshCount, setRefreshCount] = useState(0);
   const { page, loading, error } = selectClientListLoad(
     loadState,
     organization.id,
@@ -398,7 +402,7 @@ export function LiveClientsScreen() {
       globalThis.clearTimeout(timer);
       controller.abort();
     };
-  }, [organization.id, queryKey]);
+  }, [organization.id, queryKey, refreshCount]);
 
   function setQuery(
     key: "page" | "status" | "sort" | "direction",
@@ -409,186 +413,151 @@ export function LiveClientsScreen() {
   }
 
   function clearFilters() {
-    const cleared = clearClientListState(routeSearch);
+    const cleared = clearClientListState(routeSearch, queryKey);
     setSearchDraft(cleared.searchDraft);
-    router.replace(pathname);
+    router.replace(cleared.query ? `${pathname}?${cleared.query}` : pathname);
   }
 
   return (
     <div className="space-y-6">
-      <header className="flex flex-col gap-4 border-l-2 border-brand-mark pl-4 sm:flex-row sm:items-start sm:justify-between">
-        <div>
-          <p className="text-caption font-semibold text-accent-foreground">
-            Cartera
-          </p>
-          <h1 className="text-heading-lg font-bold">Clientes</h1>
-          <p className="mt-1 text-body text-muted-foreground">
-            Consulta cuentas, entidades fiscales, responsables y el ejercicio
-            más reciente.
-          </p>
-        </div>
-        {canCreate ? (
+      <PageHeader
+        title="Clientes"
+        description="Consulta cuentas, entidades fiscales, responsables y el ejercicio más reciente."
+        actions={canCreate ? (
           <Button onClick={() => setCreating(true)}>
             <Plus />
             Nuevo cliente
           </Button>
         ) : null}
-      </header>
+      />
       <Surface>
-        <FilterBar>
-          <Field label="Buscar">
-            <Input
-              value={search}
-              maxLength={DOMAIN_SEARCH_MAX_LENGTH}
-              onChange={(event) =>
-                setSearchDraft(
-                  editClientSearchDraft(routeSearch, event.target.value),
-                )
-              }
-              placeholder="Nombre o código"
-              className="w-64"
-            />
-          </Field>
-          <Field label="Estado">
-            <select
-              className={selectClass}
-              value={searchParams.get("status") ?? ""}
-              onChange={(event) => setQuery("status", event.target.value)}
-            >
-              <option value="">Activos y suspendidos</option>
-              <option value="active">Activo</option>
-              <option value="suspended">Suspendido</option>
-            </select>
-          </Field>
-          <Field label="Orden">
-            <select
-              className={selectClass}
-              value={searchParams.get("sort") ?? "name"}
-              onChange={(event) => setQuery("sort", event.target.value)}
-            >
-              <option value="name">Nombre</option>
-              <option value="status">Estado</option>
-              <option value="updatedAt">Actualización</option>
-            </select>
-          </Field>
-          <Button variant="outline" onClick={clearFilters}>
-            Limpiar filtros
-          </Button>
-        </FilterBar>
-        {loading ? (
-          <LoadingState />
-        ) : error ? (
-          <div className="p-5">
-            <ErrorNotice
-              error={error}
-              fallback="No se pudo cargar la cartera."
-            />
-          </div>
-        ) : (
-          <ProductTable
-            caption="Directorio de clientes"
-            rows={page?.items ?? []}
-            rowKey={(row) => row.account.id}
-            columns={[
-              {
-                id: "client",
-                header: "Cliente",
-                render: (row) => (
-                  <div>
-                    <Link
-                      href={`${base}/clients/${row.account.id}/overview`}
-                      className="font-semibold text-primary hover:underline"
-                    >
-                      {row.account.name}
-                    </Link>
-                    <p className="identifier text-caption text-muted-foreground">
-                      {row.primaryLegalEntity?.rfc ?? "Sin RFC activo"}
-                    </p>
-                  </div>
-                ),
-              },
-              {
-                id: "responsible",
-                header: "Responsable",
-                render: (row) =>
-                  row.primaryAssignment?.displayName ?? "Sin responsable",
-              },
-              {
-                id: "year",
-                header: "Ejercicio reciente",
-                render: (row) => row.latestFiscalYear?.year ?? "—",
-              },
-              {
-                id: "period",
-                header: "Mes actual",
-                render: (row) =>
-                  row.currentPeriod ? (
-                    <StatusBadge
-                      status={row.currentPeriod.status}
-                      locale={locale}
-                    />
-                  ) : (
-                    "Sin período"
-                  ),
-              },
-              {
-                id: "status",
-                header: "Estado",
-                render: (row) => (
-                  <StatusBadge status={row.account.status} locale={locale} />
-                ),
-              },
-              {
-                id: "updated",
-                header: "Actualización",
-                render: (row) =>
-                  new Date(row.account.updatedAt).toLocaleDateString("es-MX"),
-              },
-              {
-                id: "action",
-                header: "Acción",
-                render: (row) => (
-                  <Button
-                    render={
-                      <Link
-                        href={`${base}/clients/${row.account.id}/overview`}
-                      />
-                    }
-                    variant="outline"
-                    size="sm"
+        <FilterBar
+          search={{
+            label: "Buscar clientes por nombre o código",
+            placeholder: "Buscar por nombre o código",
+            value: search,
+            maxLength: DOMAIN_SEARCH_MAX_LENGTH,
+            onChange: (value) => setSearchDraft(editClientSearchDraft(routeSearch, value)),
+          }}
+          filters={[{
+            id: "status",
+            label: "Estado",
+            value: searchParams.get("status") ?? "",
+            defaultValue: "",
+            options: [
+              { value: "", label: "Activos y suspendidos" },
+              { value: "active", label: "Activo" },
+              { value: "suspended", label: "Suspendido" },
+            ],
+            onChange: (value) => setQuery("status", value),
+          }]}
+          canClear={Boolean(search || routeSearch || searchParams.get("status"))}
+          onClear={clearFilters}
+        />
+        <DataTable
+          sorting={{
+            key: searchParams.get("sort") ?? "name",
+            direction: searchParams.get("direction") === "desc" ? "desc" : "asc",
+            onChange: (key, direction) => {
+              const next = new URLSearchParams(queryKey);
+              next.set("sort", key);
+              next.set("direction", direction);
+              next.set("page", "1");
+              router.replace(`${pathname}?${next}`);
+            },
+          }}
+          loading={loading}
+          loadingMessage="Cargando clientes…"
+          error={error ? <ErrorNotice error={error} fallback="No se pudo cargar la cartera." /> : undefined}
+          emptyMessage={routeSearch || searchParams.get("status") ? "No hay clientes que coincidan con los filtros." : "Todavía no hay clientes registrados."}
+          caption="Directorio de clientes"
+          rows={page?.items ?? []}
+          rowKey={(row) => row.account.id}
+          columns={[
+            {
+              id: "client",
+              header: "Cliente",
+              sortKey: "name",
+              wrap: true,
+              render: (row) => (
+                <div>
+                  <Link
+                    href={`${base}/clients/${row.account.id}/overview`}
+                    className="font-semibold text-primary hover:underline"
                   >
-                    Abrir cliente
-                  </Button>
-                ),
-              },
-            ]}
+                    {row.account.name}
+                  </Link>
+                  <p className="identifier text-caption text-muted-foreground">
+                    {row.primaryLegalEntity ? `RFC principal: ${row.primaryLegalEntity.rfc}` : "Sin RFC activo"}
+                  </p>
+                </div>
+              ),
+            },
+            {
+              id: "responsible",
+              header: "Responsable",
+              wrap: true,
+              render: (row) =>
+                row.primaryAssignment?.displayName ?? "Sin responsable",
+            },
+            {
+              id: "year",
+              header: "Ejercicio reciente",
+              render: (row) => <span className="tabular-nums">{row.latestFiscalYear?.year ?? "Sin ejercicio"}</span>,
+            },
+            {
+              id: "period",
+              header: "Estado del período",
+              render: (row) => (
+                <StatusBadge
+                  status={row.currentPeriod?.status ?? "Sin período"}
+                  locale={locale}
+                />
+              ),
+            },
+            {
+              id: "status",
+              header: "Estado de cuenta",
+              sortKey: "status",
+              render: (row) => (
+                <StatusBadge status={row.account.status} locale={locale} />
+              ),
+            },
+            {
+              id: "updated",
+              header: "Actualización",
+              sortKey: "updatedAt",
+              render: (row) => (
+                <time dateTime={row.account.updatedAt} className="tabular-nums">
+                  {new Date(row.account.updatedAt).toLocaleDateString("es-MX", { day: "2-digit", month: "2-digit", year: "numeric" })}
+                </time>
+              ),
+            },
+            {
+              id: "action",
+              header: "Acciones",
+              align: "end",
+              render: (row) => (
+                <ClientRowActions
+                  key={`${organization.id}:${row.account.id}`}
+                  account={row.account}
+                  base={base}
+                  canManage={capabilities.includes("clients.manage")}
+                  canAssign={capabilities.includes("clients.assign")}
+                  onArchived={() => {
+                    setRefreshCount((value) => value + 1);
+                  }}
+                />
+              ),
+            },
+          ]}
+        />
+        {!loading && !error && page ? (
+          <CollectionPagination
+            meta={page.meta}
+            itemLabel="clientes"
+            onPageChange={(page) => setQuery("page", String(page))}
           />
-        )}
-        {page && page.meta.totalPages > 1 ? (
-          <div className="flex items-center justify-between border-t border-border p-4">
-            <p className="text-body-sm text-muted-foreground">
-              Página {page.meta.page} de {page.meta.totalPages} ·{" "}
-              {page.meta.total} clientes
-            </p>
-            <div className="flex gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={page.meta.page <= 1}
-                onClick={() => setQuery("page", String(page.meta.page - 1))}
-              >
-                Anterior
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={page.meta.page >= page.meta.totalPages}
-                onClick={() => setQuery("page", String(page.meta.page + 1))}
-              >
-                Siguiente
-              </Button>
-            </div>
-          </div>
         ) : null}
       </Surface>
       <NewClientDialog

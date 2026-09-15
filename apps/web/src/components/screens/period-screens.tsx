@@ -1,10 +1,11 @@
+import { LegacyFilterBar } from "@/components/legacy-filter-bar";
 import Link from "next/link";
 import { CheckCircle2, FileArchive } from "lucide-react";
 import { CfdiActions } from "@/components/cfdi-actions";
 import { ActionDialog, DetailDrawer } from "@/components/overlay-dialog";
 import { PermissionGate } from "@/components/permission-gate";
-import { DefinitionGrid, FeaturePendingNotice, Field, FilterBar, ProgressValue, SectionTabs, Surface, SurfaceHeader, WarningNotice } from "@/components/product-patterns";
-import { ProductTable } from "@/components/product-table";
+import { DefinitionGrid, FeaturePendingNotice, Field, ProgressValue, SectionTabs, Surface, SurfaceHeader, WarningNotice } from "@/components/product-patterns";
+import { DataTable } from "@/components/data-table";
 import { StatusBadge } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -119,7 +120,7 @@ function renderPeriodTab(tab: string, organizationId: string, clientId: string, 
   if (tab === "cfdi")
     return (
       <div className="space-y-4">
-        <FilterBar>
+        <LegacyFilterBar>
           <Field label="Vista">
             <select className={selectClass}>
               <option>Todos</option>
@@ -144,8 +145,8 @@ function renderPeriodTab(tab: string, organizationId: string, clientId: string, 
               </select>
             </Field>
           </ActionDialog>
-        </FilterBar>
-        <ProductTable
+        </LegacyFilterBar>
+        <DataTable
           caption="CFDI del período"
           rows={cfdiRows}
           rowKey={(row) => row.uuid}
@@ -214,7 +215,7 @@ function renderPeriodTab(tab: string, organizationId: string, clientId: string, 
   if (tab === "payments") {
     const rows = cfdiRows.filter((item) => item.method === "PPD");
     return (
-      <ProductTable
+      <DataTable
         caption="Complementos y relaciones de pago"
         rows={rows}
         rowKey={(row) => row.uuid}
@@ -264,7 +265,7 @@ function renderPeriodTab(tab: string, organizationId: string, clientId: string, 
         <FeaturePendingNotice>
           La pestaña está protegida por <span className="identifier">payroll.view</span>. No realiza cálculo de nómina.
         </FeaturePendingNotice>
-        <ProductTable
+        <DataTable
           caption="CFDI de nómina"
           rows={cfdiRows.filter((item) => item.type === "Nómina")}
           rowKey={(row) => row.uuid}
@@ -313,7 +314,7 @@ function renderPeriodTab(tab: string, organizationId: string, clientId: string, 
       },
     ];
     return (
-      <ProductTable
+      <DataTable
         caption="Incidencias del período"
         rows={rows}
         rowKey={(row) => row.id}
@@ -448,7 +449,7 @@ function renderPeriodTab(tab: string, organizationId: string, clientId: string, 
           </Field>
         </ActionDialog>
       </PermissionGate>
-      <ProductTable
+      <DataTable
         caption="Historial de exportaciones"
         rows={exports}
         rowKey={(row) => row.id}

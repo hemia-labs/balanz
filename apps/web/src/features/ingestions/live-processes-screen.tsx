@@ -1,5 +1,7 @@
 "use client";
 
+import { LegacyFilterBar } from "@/components/legacy-filter-bar";
+import { CollectionPagination } from "@/components/collection-pagination";
 import { useEffect, useMemo, useState } from "react";
 import { RefreshCw } from "lucide-react";
 import { useAccountingContext } from "@/components/accounting-context";
@@ -7,15 +9,13 @@ import { PageHeader } from "@/components/page-header";
 import {
   FeaturePendingNotice,
   Field,
-  FilterBar,
   Surface,
   SurfaceHeader,
 } from "@/components/product-patterns";
-import { ProductTable } from "@/components/product-table";
+import { DataTable } from "@/components/data-table";
 import { StatusBadge } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
 import {
-  CollectionPagination,
   ErrorNotice,
   LoadingState,
   selectClass,
@@ -80,7 +80,6 @@ export function LiveProcessesScreen() {
   return (
     <div className="space-y-6">
       <PageHeader
-        eyebrow="Operación"
         title="Procesos"
         description="Seguimiento real de cargas XML durables. Los procesos continúan aunque cierres o recargues el navegador."
       />
@@ -103,7 +102,7 @@ export function LiveProcessesScreen() {
             </Button>
           }
         />
-        <FilterBar>
+        <LegacyFilterBar>
           <Field label="Estado">
             <select
               className={selectClass}
@@ -123,7 +122,7 @@ export function LiveProcessesScreen() {
               <option value="cancelled">Cancelado</option>
             </select>
           </Field>
-        </FilterBar>
+        </LegacyFilterBar>
         {!current || state.loading ? (
           <div className="p-5">
             <LoadingState label="Cargando procesos…" />
@@ -173,7 +172,7 @@ function ProcessTable({
   onSelect: (id: string) => void;
 }) {
   return (
-    <ProductTable
+    <DataTable
       caption="Procesos XML de la organización"
       rows={rows}
       rowKey={(process) => process.id}

@@ -1,5 +1,7 @@
 "use client";
 
+import { LegacyFilterBar } from "@/components/legacy-filter-bar";
+import { CollectionPagination } from "@/components/collection-pagination";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -9,16 +11,16 @@ import {
   useRef,
   useState,
 } from "react";
-import { Archive, Plus, RefreshCw, Save, UserRoundPlus } from "lucide-react";
+import { Archive, ArrowUpRight, Plus, RefreshCw, Save, UserRoundPlus } from "lucide-react";
 import { useAccountingContext } from "@/components/accounting-context";
 import {
   DefinitionGrid,
   Field,
-  FilterBar,
   Surface,
   SurfaceHeader,
 } from "@/components/product-patterns";
-import { ProductTable } from "@/components/product-table";
+import { DataTable } from "@/components/data-table";
+import { PageHeader } from "@/components/page-header";
 import { StatusBadge } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -42,7 +44,6 @@ import {
   normalizeDomainSearch,
 } from "./entity-context";
 import {
-  CollectionPagination,
   ErrorNotice,
   LoadingState,
   roleLabels,
@@ -449,7 +450,7 @@ function AssignmentManager({
   }
   return (
     <div>
-      <FilterBar>
+      <LegacyFilterBar>
         <Field label="Buscar asignación">
           <Input
             type="search"
@@ -460,8 +461,8 @@ function AssignmentManager({
             className="w-72"
           />
         </Field>
-      </FilterBar>
-      <ProductTable
+      </LegacyFilterBar>
+      <DataTable
         caption="Asignaciones activas"
         rows={assignmentPage.items}
         rowKey={(row) => row.id}
@@ -766,7 +767,7 @@ function LiveAccessSection({
               </Button>
             }
           />
-          <FilterBar>
+          <LegacyFilterBar>
             <Field label="Buscar acceso">
               <Input
                 type="search"
@@ -782,8 +783,8 @@ function LiveAccessSection({
                 className="w-72"
               />
             </Field>
-          </FilterBar>
-          <ProductTable
+          </LegacyFilterBar>
+          <DataTable
             caption="Miembros con acceso al cliente"
             rows={assignments?.items ?? []}
             rowKey={(row) => row.id}
@@ -874,86 +875,62 @@ function LiveClientDetailContent({
   if (section === "overview") {
     return (
       <div className="space-y-6">
-        <header className="border-l-2 border-brand-mark pl-4">
-          <p className="text-caption font-semibold text-accent-foreground">
-            Resumen del cliente
-          </p>
-          <h1 className="text-heading-lg font-bold">{account.name}</h1>
-          <p className="mt-1 text-body text-muted-foreground">
-            Consulta el estado general de la cuenta, sus RFC, responsables y
-            ejercicios fiscales.
-          </p>
-        </header>
-        <DefinitionGrid
-          items={[
-            {
-              label: "Estado de cuenta",
-              value: <StatusBadge status={account.status} locale={locale} />,
-            },
-            {
-              label: "Entidades fiscales",
-              value: detail.legalEntities.meta.total,
-            },
-            {
-              label: "Responsable principal",
-              value: detail.primaryAssignment?.displayName ?? "Sin responsable",
-            },
-            ...(canViewFiscalYears
-              ? [
-                  {
-                    label: "Ejercicios en esta página",
-                    value: detail.legalEntities.items.reduce(
-                      (total, entity) => total + (entity.fiscalYearCount ?? 0),
-                      0,
-                    ),
-                  },
-                ]
-              : []),
-          ]}
+        <PageHeader
+          title={`Resumen de ${account.name}`}
+          description="Consulta el estado general de la cuenta, sus RFC, responsables y ejercicios fiscales."
         />
-        {canManage || canAssign || canViewFiscalYears ? (
-          <Surface>
-            <SurfaceHeader
-              title="Accesos rápidos"
-              description="Abre directamente una sección disponible para tu membresía."
-            />
-            <div className="grid gap-3 p-5 md:grid-cols-3">
+        <Surface className="overflow-hidden lg:flex">
+          <DefinitionGrid
+            className="min-w-0 flex-1 rounded-none border-0 lg:grid-flow-col lg:auto-cols-fr lg:grid-cols-none xl:grid-cols-none [&>div]:min-w-0 [&>div]:px-4 [&>div]:py-2 [&_dd]:mt-0 [&_dd]:break-words [&_dd]:text-body-sm"
+            items={[
+              {
+                label: "Estado de cuenta",
+                value: <StatusBadge status={account.status} locale={locale} />,
+              },
+              {
+                label: "Entidades fiscales",
+                value: detail.legalEntities.meta.total,
+              },
+              {
+                label: "Responsable principal",
+                value: detail.primaryAssignment?.displayName ?? "Sin responsable",
+              },
+              ...(canViewFiscalYears
+                ? [
+                    {
+                      label: "Ejercicios en esta página",
+                      value: detail.legalEntities.items.reduce(
+                        (total, entity) => total + (entity.fiscalYearCount ?? 0),
+                        0,
+                      ),
+                    },
+                  ]
+                : []),
+            ]}
+          />
+          {canManage || canAssign || canViewFiscalYears ? (
+            <nav aria-label="Accesos rápidos del cliente" className="flex shrink-0 flex-col gap-0 border-t border-border p-2 lg:w-48 lg:border-t-0 lg:border-l">
               {canManage ? (
-                <Link
-                  href={`${base}/settings/data`}
-                  className="rounded-md border border-border p-4 transition-colors hover:bg-muted"
-                >
-                  <p className="font-semibold">Datos del cliente</p>
-                  <p className="mt-1 text-body-sm text-muted-foreground">
-                    Nombre de cuenta y entidades fiscales.
-                  </p>
-                </Link>
+                <Button render={<Link href={`${base}/settings/data`} />} variant="ghost" size="xs" className="w-full justify-between font-medium">
+                  Datos del cliente
+                  <ArrowUpRight className="size-4 text-muted-foreground" aria-hidden="true" />
+                </Button>
               ) : null}
               {canAssign ? (
-                <Link
-                  href={`${base}/settings/responsibles`}
-                  className="rounded-md border border-border p-4 transition-colors hover:bg-muted"
-                >
-                  <p className="font-semibold">Responsables</p>
-                  <p className="mt-1 text-body-sm text-muted-foreground">
-                    Responsable principal, colaboradores y revisores.
-                  </p>
-                </Link>
+                <Button render={<Link href={`${base}/settings/responsibles`} />} variant="ghost" size="xs" className="w-full justify-between font-medium">
+                  Responsables
+                  <ArrowUpRight className="size-4 text-muted-foreground" aria-hidden="true" />
+                </Button>
               ) : null}
               {canViewFiscalYears ? (
-                <Link
-                  href={`${base}/fiscal-years${entityContextSuffix(entityPageNumber, debouncedEntitySearch)}`}
-                  className="rounded-md border border-border p-4 transition-colors hover:bg-muted"
-                >
-                  <p className="font-semibold">Ejercicios</p>
-                  <p className="mt-1 text-body-sm text-muted-foreground">
-                    Ejercicios y períodos por entidad fiscal.
-                  </p>
-                </Link>
+                <Button render={<Link href={`${base}/fiscal-years${entityContextSuffix(entityPageNumber, debouncedEntitySearch)}`} />} variant="ghost" size="xs" className="w-full justify-between font-medium">
+                  Ejercicios
+                  <ArrowUpRight className="size-4 text-muted-foreground" aria-hidden="true" />
+                </Button>
               ) : null}
-            </div>
-          </Surface>
-        ) : null}
+            </nav>
+          ) : null}
+        </Surface>
         <Surface>
           <SurfaceHeader
             title="Entidades fiscales"
@@ -974,7 +951,7 @@ function LiveClientDetailContent({
               ) : undefined
             }
           />
-          <FilterBar>
+          <LegacyFilterBar>
             <Field label="Buscar entidad fiscal">
               <Input
                 type="search"
@@ -988,8 +965,8 @@ function LiveClientDetailContent({
                 className="w-72"
               />
             </Field>
-          </FilterBar>
-          <ProductTable
+          </LegacyFilterBar>
+          <DataTable
             caption="Resumen de entidades fiscales"
             rows={detail.legalEntities.items}
             rowKey={(entity) => entity.id}
@@ -1078,7 +1055,7 @@ function LiveClientDetailContent({
           title="Entidades fiscales"
           description="Cada RFC conserva razón social, versión y ejercicios propios."
         />
-        <FilterBar>
+        <LegacyFilterBar>
           <Field label="Buscar entidad fiscal">
             <Input
               type="search"
@@ -1092,8 +1069,8 @@ function LiveClientDetailContent({
               className="w-72"
             />
           </Field>
-        </FilterBar>
-        <ProductTable
+        </LegacyFilterBar>
+        <DataTable
           caption="Entidades fiscales"
           rows={detail.legalEntities.items}
           rowKey={(entity) => entity.id}

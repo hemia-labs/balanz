@@ -9,13 +9,14 @@ import {
   KeyRound,
   LogOut,
   Moon,
+  PanelLeft,
+  PanelRight,
   Settings2,
   ShieldCheck,
   Sun,
   Workflow,
 } from "lucide-react";
 import { useAccountingContext } from "@/components/accounting-context";
-import { ContextSearch } from "@/components/context-search";
 import { ContextBreadcrumbs } from "@/components/context-breadcrumbs";
 import { MobileNavigation } from "@/components/mobile-navigation";
 import { NotificationsDrawer } from "@/components/notifications-drawer";
@@ -131,7 +132,13 @@ function ConfirmLogout({
   );
 }
 
-export function AppTopbar() {
+export function AppTopbar({
+  sidebarCollapsed,
+  onToggleSidebar,
+}: {
+  sidebarCollapsed: boolean;
+  onToggleSidebar: () => void;
+}) {
   const router = useRouter();
   const context = useAccountingContext();
   const { account, client, organization, membership, isDemo } = context;
@@ -160,7 +167,23 @@ export function AppTopbar() {
 
   const processesHref = `/${locale}/organizations/${organization.slug}/processes`;
   return (
-    <header className="sticky top-0 z-10 flex h-topbar shrink-0 items-center gap-2 border-b border-border bg-card px-3 sm:px-4 lg:px-6">
+    <header className="sticky top-0 z-10 flex h-topbar shrink-0 items-center gap-2 border-b border-border bg-card px-3 sm:px-4 md:pl-6 lg:px-6">
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon-xs"
+        className="absolute top-1/2 left-0 hidden -translate-x-1/2 -translate-y-1/2 hover:bg-transparent aria-expanded:bg-transparent md:inline-flex"
+        onClick={onToggleSidebar}
+        aria-label={sidebarCollapsed ? "Expandir navegación" : "Colapsar navegación"}
+        aria-expanded={!sidebarCollapsed}
+        title={sidebarCollapsed ? "Expandir navegación" : "Colapsar navegación"}
+      >
+        {sidebarCollapsed ? (
+          <PanelRight className="size-4" aria-hidden="true" />
+        ) : (
+          <PanelLeft className="size-4" aria-hidden="true" />
+        )}
+      </Button>
       <MobileNavigation />
       <div className="min-w-0 lg:hidden">
         <p className="truncate text-body-sm font-semibold">
@@ -179,7 +202,6 @@ export function AppTopbar() {
         </Badge>
       ) : null}
       <div className="ml-auto flex items-center gap-1">
-        <ContextSearch />
         <Button
           render={<Link href={processesHref} />}
           variant="ghost"

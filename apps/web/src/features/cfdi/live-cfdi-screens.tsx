@@ -1,8 +1,10 @@
 "use client";
 
+import { LegacyFilterBar } from "@/components/legacy-filter-bar";
+import { CollectionPagination } from "@/components/collection-pagination";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { Download, RefreshCw } from "lucide-react";
 import { useAccountingContext } from "@/components/accounting-context";
 import { PageHeader } from "@/components/page-header";
@@ -14,17 +16,15 @@ import {
   DefinitionGrid,
   FeaturePendingNotice,
   Field,
-  FilterBar,
   Surface,
   SurfaceHeader,
   WarningNotice,
 } from "@/components/product-patterns";
-import { ProductTable } from "@/components/product-table";
+import { DataTable } from "@/components/data-table";
 import { StatusBadge } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
-  CollectionPagination,
   ErrorNotice,
   LoadingState,
   selectClass,
@@ -124,12 +124,11 @@ function LegalEntityCfdiSelector({ clientId }: { clientId: string }) {
   return (
     <div className="space-y-6">
       <PageHeader
-        eyebrow="CFDI"
         title="Selecciona un RFC"
         description="Elige la entidad fiscal que deseas consultar. La aplicación no asumirá un RFC arbitrario."
       />
       <Surface>
-        <FilterBar>
+        <LegacyFilterBar>
           <Field label="Buscar entidad fiscal">
             <Input
               type="search"
@@ -143,8 +142,8 @@ function LegalEntityCfdiSelector({ clientId }: { clientId: string }) {
               className="w-72"
             />
           </Field>
-        </FilterBar>
-        <ProductTable
+        </LegacyFilterBar>
+        <DataTable
           caption="Entidades fiscales disponibles para consultar CFDI"
           rows={detail.legalEntities.items}
           rowKey={(entity) => entity.id}
@@ -274,7 +273,6 @@ function CfdiListScreen({
   return (
     <div className="space-y-6">
       <PageHeader
-        eyebrow="CFDI 4.0"
         title={`CFDI de ${entity.legalName}`}
         description={`${detail.account.name} · RFC ${entity.rfc}. Los resultados corresponden al RFC, no al mes desde el que se inició la carga.`}
         actions={
@@ -330,7 +328,7 @@ function CfdiListScreen({
             </Button>
           }
         />
-        <FilterBar>
+        <LegacyFilterBar>
           <Field label="UUID">
             <Input
               type="search"
@@ -380,35 +378,23 @@ function CfdiListScreen({
               ))}
             </select>
           </Field>
-        </FilterBar>
-        {loading ? (
-          <div className="p-5">
-            <LoadingState label="Cargando CFDI…" />
-          </div>
-        ) : error || !data ? (
-          <div className="space-y-3 p-5">
-            <ErrorNotice
-              error={error}
-              fallback="No se pudieron cargar los CFDI."
-            />
-            <Button type="button" variant="outline" onClick={reload}>
-              Reintentar
-            </Button>
-          </div>
-        ) : (
-          <>
-            <CfdiListTable
-              rows={data.items}
-              base={base}
-              entityRfc={entity.rfc}
-            />
-            <CollectionPagination
-              meta={data.meta}
-              itemLabel="CFDI"
-              onPageChange={setPage}
-            />
-          </>
-        )}
+        </LegacyFilterBar>
+        <CfdiListTable
+          rows={data?.items ?? []}
+          base={base}
+          entityRfc={entity.rfc}
+          loading={loading}
+          error={!loading && (error || !data) ? (
+            <div className="space-y-3">
+              <ErrorNotice error={error ?? new Error("No data")} fallback="No se pudieron cargar los CFDI." />
+              <Button type="button" variant="outline" onClick={reload}>Reintentar</Button>
+            </div>
+          ) : undefined}
+          emptyMessage={query.uuid || query.counterpartyRfc || query.documentType ? "No hay CFDI que coincidan con los filtros." : "Todavía no hay CFDI incorporados para este RFC."}
+        />
+        {!loading && !error && data ? (
+          <CollectionPagination meta={data.meta} itemLabel="CFDI" onPageChange={setPage} />
+        ) : null}
       </Surface>
     </div>
   );
@@ -418,17 +404,26 @@ function CfdiListTable({
   rows,
   base,
   entityRfc,
+  loading,
+  error,
+  emptyMessage,
 }: {
   rows: CfdiListItem[];
   base: string;
   entityRfc: string;
+  loading: boolean;
+  error?: ReactNode;
+  emptyMessage: string;
 }) {
   return (
-    <ProductTable
+    <DataTable
       caption="CFDI persistidos para la entidad fiscal"
       rows={rows}
       rowKey={(cfdi) => cfdi.id}
-      emptyMessage="Todavía no hay CFDI incorporados para este RFC."
+      loading={loading}
+      loadingMessage="Cargando CFDI…"
+      error={error}
+      emptyMessage={emptyMessage}
       columns={[
         {
           id: "uuid",
@@ -565,7 +560,6 @@ export function LiveCfdiDetailScreen({
   return (
     <div className="space-y-6">
       <PageHeader
-        eyebrow={`${typeLabels[data.type]} · CFDI ${data.version}`}
         title={data.uuid}
         description={`${dateTime(data.issuedAt)} · ${formatExactMoney(data.total, data.currency)}`}
         actions={
@@ -668,7 +662,7 @@ function DetailTabContent({ tab, cfdi }: { tab: DetailTab; cfdi: CfdiDetail }) {
   if (tab === "concepts")
     return (
       <Surface>
-        <ProductTable
+        <DataTable
           caption="Conceptos del CFDI"
           rows={cfdi.concepts}
           rowKey={(concept) => concept.id}
@@ -708,7 +702,7 @@ function DetailTabContent({ tab, cfdi }: { tab: DetailTab; cfdi: CfdiDetail }) {
   if (tab === "taxes")
     return (
       <Surface>
-        <ProductTable
+        <DataTable
           caption="Impuestos del CFDI"
           rows={cfdi.taxes}
           rowKey={(tax) => tax.id}
@@ -751,7 +745,7 @@ function DetailTabContent({ tab, cfdi }: { tab: DetailTab; cfdi: CfdiDetail }) {
   if (tab === "relations")
     return (
       <Surface>
-        <ProductTable
+        <DataTable
           caption="Relaciones del CFDI"
           rows={cfdi.relations}
           rowKey={(relation) => relation.id}
@@ -833,7 +827,7 @@ function Payments({ payments }: { payments: CfdiPayment[] }) {
                   },
                 ]}
               />
-              <ProductTable
+              <DataTable
                 caption={`Documentos relacionados del pago ${index + 1}`}
                 rows={payment.documents}
                 rowKey={(document) =>
@@ -966,7 +960,7 @@ function Payroll({ cfdi }: { cfdi: CfdiDetail }) {
               },
             ]}
           />
-          <ProductTable
+          <DataTable
             caption="Percepciones de nómina"
             rows={cfdi.payroll.perceptions}
             rowKey={(item) => `perception-${item.ordinal}`}
@@ -995,7 +989,7 @@ function Payroll({ cfdi }: { cfdi: CfdiDetail }) {
               },
             ]}
           />
-          <ProductTable
+          <DataTable
             caption="Deducciones de nómina"
             rows={cfdi.payroll.deductions}
             rowKey={(item) => `deduction-${item.ordinal}`}
@@ -1016,7 +1010,7 @@ function Payroll({ cfdi }: { cfdi: CfdiDetail }) {
               },
             ]}
           />
-          <ProductTable
+          <DataTable
             caption="Otros pagos de nómina"
             rows={cfdi.payroll.otherPayments}
             rowKey={(item) => `other-payment-${item.ordinal}`}
@@ -1037,7 +1031,7 @@ function Payroll({ cfdi }: { cfdi: CfdiDetail }) {
               },
             ]}
           />
-          <ProductTable
+          <DataTable
             caption="Incapacidades de nómina"
             rows={cfdi.payroll.incapacities}
             rowKey={(item) => `incapacity-${item.ordinal}`}
@@ -1076,7 +1070,7 @@ function Traceability({ cfdi }: { cfdi: CfdiDetail }) {
           title="Origen"
           description="Procedencia durable y versiones de interpretación."
         />
-        <ProductTable
+        <DataTable
           caption="Observaciones de procedencia del CFDI"
           rows={cfdi.provenance}
           rowKey={(item) => item.id}
@@ -1119,7 +1113,7 @@ function Traceability({ cfdi }: { cfdi: CfdiDetail }) {
           title="Participación en períodos"
           description="Asignación versionada por fecha fuente y zona horaria."
         />
-        <ProductTable
+        <DataTable
           caption="Períodos fiscales en los que participa el CFDI"
           rows={cfdi.periods}
           rowKey={(period) =>
@@ -1163,7 +1157,7 @@ function Traceability({ cfdi }: { cfdi: CfdiDetail }) {
             title="Incidencias"
             description="Alertas generadas durante la incorporación y clasificación."
           />
-          <ProductTable
+          <DataTable
             caption="Incidencias relacionadas con el CFDI"
             rows={cfdi.incidents}
             rowKey={(incident) => incident.id}

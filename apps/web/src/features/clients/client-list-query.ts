@@ -120,9 +120,14 @@ export function clientListQueryValue(
 
 export function clearClientListState(
   currentRouteSearch: string,
+  currentQuery: string,
 ): ClearedClientListState {
+  const next = new URLSearchParams(currentQuery);
+  next.delete("search");
+  next.delete("status");
+  next.delete("page");
   return {
-    query: "",
+    query: next.toString(),
     // Keep the current route as the draft base until navigation completes.
     // This prevents the old URL search from briefly reappearing in the input.
     searchDraft: { base: currentRouteSearch, value: "" },

@@ -1,5 +1,7 @@
 "use client";
 
+import { LegacyFilterBar } from "@/components/legacy-filter-bar";
+import { CollectionPagination } from "@/components/collection-pagination";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
@@ -15,12 +17,11 @@ import { useAccountingContext } from "@/components/accounting-context";
 import {
   DefinitionGrid,
   Field,
-  FilterBar,
   Surface,
   SurfaceHeader,
   WarningNotice,
 } from "@/components/product-patterns";
-import { ProductTable } from "@/components/product-table";
+import { DataTable } from "@/components/data-table";
 import { StatusBadge } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -53,7 +54,6 @@ import {
   resolveEntitySearchDraft,
 } from "./entity-context";
 import {
-  CollectionPagination,
   ErrorNotice,
   LoadingState,
   selectClass,
@@ -273,7 +273,7 @@ function LegalEntitySelector({
         </p>
       </header>
       <Surface>
-        <FilterBar>
+        <LegacyFilterBar>
           <Field label="Buscar entidad fiscal">
             <Input
               type="search"
@@ -284,7 +284,7 @@ function LegalEntitySelector({
               className="w-72"
             />
           </Field>
-        </FilterBar>
+        </LegacyFilterBar>
         <div className="grid gap-3 p-5 sm:grid-cols-2">
           {available.length === 0 ? (
             <p className="text-body-sm text-muted-foreground sm:col-span-2">
@@ -509,7 +509,7 @@ export function LiveFiscalYearsScreen({
               }}
             />
           ) : null}
-          <ProductTable
+          <DataTable
             caption={`Ejercicios de ${entity.rfc}`}
             rows={years}
             rowKey={(year) => year.id}
@@ -870,7 +870,7 @@ export function LiveFiscalYearScreen({
         </WarningNotice>
       ) : null}
       <Surface>
-        <ProductTable
+        <DataTable
           caption={`Períodos ${year} de ${entity.rfc}`}
           rows={data.periods}
           rowKey={(period) => period.id}

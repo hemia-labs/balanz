@@ -1,70 +1,118 @@
 "use client";
 
-import { Building2, Check, ChevronsUpDown } from "lucide-react";
-import { usePathname, useRouter } from "next/navigation";
+import { Check, ChevronsUpDown } from "lucide-react";
 import { useState } from "react";
 import { useAccountingContext } from "@/components/accounting-context";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem,
-  DropdownMenuSeparator, DropdownMenuTrigger,
+  DropdownMenuGroup, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { roleLabels } from "@/lib/permissions";
+import { cn } from "@/lib/utils";
+
+const mockWorkspaces = [
+  { name: "Estudio Contable Norte", description: "Equipo contable · Ejemplo" },
+  { name: "Finanzas y Asociados", description: "Administración · Ejemplo" },
+];
+
+function WorkspaceAvatar({ name }: { name: string }) {
+  return (
+    <Avatar className="size-8 rounded-md border border-border" aria-hidden="true">
+      <AvatarFallback className="rounded-none bg-primary text-primary-foreground">
+        {name.trim().split(/\s+/).slice(0, 2).map((part) => part[0]).join("").toUpperCase() || "E"}
+      </AvatarFallback>
+    </Avatar>
+  );
+}
 
 export function WorkspaceSwitcher({ compact = false }: { compact?: boolean }) {
-  const router = useRouter();
-  const pathname = usePathname();
-  const { organization, membership, organizations, changeOrganization } = useAccountingContext();
+  const { organization, organizations, changeOrganization } = useAccountingContext();
   const [error, setError] = useState<string | null>(null);
-  const locale = pathname.split("/").filter(Boolean)[0] ?? "es";
-
-  if (compact) {
-    return (
-      <div className="grid size-10 place-items-center rounded-md bg-sidebar-accent text-sidebar-accent-foreground" title={organization.name}>
-        <Building2 className="size-5" aria-hidden="true" />
-      </div>
-    );
-  }
+  const [pending, setPending] = useState(false);
+  const [open, setOpen] = useState(false);
 
   return (
-    <DropdownMenu>
+    <DropdownMenu open={open} onOpenChange={setOpen}>
       <DropdownMenuTrigger
         render={
-          <Button variant="sidebar" className="h-auto w-full justify-between px-3 py-2 text-left" />
+          <Button
+            variant="outline"
+            aria-label={`Cambiar espacio de trabajo: ${organization.name}`}
+            title={compact ? organization.name : undefined}
+            className={cn(
+              "gap-2 text-left",
+              compact ? "size-10 p-1" : "h-12 w-full min-w-0 justify-between px-2",
+            )}
+          />
         }
       >
-        <span className="min-w-0">
-          <span className="block text-caption font-semibold text-sidebar-foreground/55">Despacho activo</span>
-          <span className="block truncate text-body-sm text-sidebar-foreground">{organization.name}</span>
-          <span className="block text-caption font-normal text-sidebar-foreground/65">{roleLabels[membership.role]}</span>
-        </span>
-        <ChevronsUpDown className="size-4" aria-hidden="true" />
+        <WorkspaceAvatar name={organization.name} />
+        {!compact ? (
+          <>
+            <span className="min-w-0 flex-1">
+              <span className="block text-caption font-normal text-muted-foreground">Espacio de trabajo</span>
+              <span className="block truncate text-body-sm font-medium text-sidebar-foreground">{organization.name}</span>
+            </span>
+            <ChevronsUpDown className="size-4 text-muted-foreground" aria-hidden="true" />
+          </>
+        ) : null}
       </DropdownMenuTrigger>
-      <DropdownMenuContent side="right" align="start" className="w-72">
-        <div className="px-2 py-1.5 text-caption font-semibold text-muted-foreground">Cambiar despacho</div>
-        {error ? <p role="alert" aria-live="polite" className="px-2 py-1.5 text-caption text-destructive">{error}</p> : null}
+      <DropdownMenuContent side={compact ? "right" : "bottom"} align="start" className="w-72">
+        {error ? <p role="alert" className="px-2 py-2 text-caption text-destructive">{error}</p> : null}
+        {pending ? <p role="status" className="px-2 py-2 text-caption text-muted-foreground">Cambiando espacio de trabajo…</p> : null}
+        <DropdownMenuGroup>
+          <DropdownMenuLabel>Espacios de trabajo</DropdownMenuLabel>
+        {organizations.map((option) => (
+          <DropdownMenuItem
+            key={option.id}
+            className="gap-3 py-2"
+            disabled={pending}
+            closeOnClick={false}
+            onClick={() => {
+              if (pending) return;
+              if (option.id === organization.id) {
+                setOpen(false);
+                return;
+              }
+              setError(null);
+              setPending(true);
+              void changeOrganization(option.id)
+                .then(() => setOpen(false))
+                .catch(() => {
+                  setError("No se pudo cambiar de espacio de trabajo. Intenta de nuevo.");
+                  setOpen(true);
+                })
+                .finally(() => setPending(false));
+            }}
+          >
+            <WorkspaceAvatar name={option.name} />
+            <span className="min-w-0 flex-1">
+              <span className="block truncate font-semibold">{option.name}</span>
+              <span className="block truncate text-caption text-muted-foreground">{option.slug}</span>
+            </span>
+            {option.id === organization.id ? (
+              <>
+                <Check className="size-4 text-primary" aria-hidden="true" />
+                <span className="sr-only">Espacio actual</span>
+              </>
+            ) : null}
+          </DropdownMenuItem>
+        ))}
+        </DropdownMenuGroup>
         <DropdownMenuSeparator />
-        {organizations.map((option) => {
-          return (
-            <DropdownMenuItem
-              key={option.id}
-              onClick={() => {
-                if (option.id === organization.id) return;
-                setError(null);
-                void changeOrganization(option.id)
-                  .then(() => router.push(`/${locale}/organizations/${option.slug}/home`))
-                  .catch((cause) => setError(cause instanceof Error ? cause.message : "No se pudo cambiar de organización."));
-              }}
-            >
-              <Building2 className="size-4" />
+        <DropdownMenuGroup>
+          <DropdownMenuLabel>Ejemplos · No disponibles para acceso</DropdownMenuLabel>
+          {mockWorkspaces.map((option) => (
+            <DropdownMenuItem key={option.name} className="gap-3 py-2" disabled>
+              <WorkspaceAvatar name={option.name} />
               <span className="min-w-0 flex-1">
-                <span className="block truncate font-semibold">{option.name}</span>
-                <span className="block text-caption text-muted-foreground">{option.role}</span>
+                <span className="block truncate font-medium">{option.name}</span>
+                <span className="block truncate text-caption text-muted-foreground">{option.description}</span>
               </span>
-              {option.id === organization.id ? <Check className="size-4" aria-label="Despacho actual" /> : null}
             </DropdownMenuItem>
-          );
-        })}
+          ))}
+        </DropdownMenuGroup>
       </DropdownMenuContent>
     </DropdownMenu>
   );
