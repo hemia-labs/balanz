@@ -630,7 +630,13 @@ export function LiveCfdiDetailScreen({
   );
 }
 
-function DetailTabContent({ tab, cfdi }: { tab: DetailTab; cfdi: CfdiDetail }) {
+export function DetailTabContent({
+  tab,
+  cfdi,
+}: {
+  tab: DetailTab;
+  cfdi: CfdiDetail;
+}) {
   if (tab === "data")
     return (
       <DefinitionGrid

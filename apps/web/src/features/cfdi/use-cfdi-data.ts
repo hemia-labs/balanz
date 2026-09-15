@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { isAbortError } from "@/lib/api-client";
+import { apiClient, isAbortError } from "@/lib/api-client";
 import { getCfdi, getCfdis, type CfdiListQuery } from "./api";
 import type { CfdiDetail, CfdiPage } from "./types";
 
@@ -31,7 +31,10 @@ export function useCfdiPage({
       setState({ identity, data: null, loading: true, error: null });
       void getCfdis(legalEntityId, query, controller.signal)
         .then((data) => {
-          if (!controller.signal.aborted && currentRequest === requestId.current)
+          if (
+            !controller.signal.aborted &&
+            currentRequest === requestId.current
+          )
             setState({ identity, data, loading: false, error: null });
         })
         .catch((cause) => {
@@ -60,9 +63,11 @@ export function useCfdiPage({
 export function useCfdiDetail({
   organizationId,
   cfdiId,
+  resourcePath,
 }: {
   organizationId: string;
   cfdiId: string;
+  resourcePath?: string;
 }) {
   const [revision, setRevision] = useState(0);
   const requestId = useRef(0);
@@ -79,9 +84,16 @@ export function useCfdiDetail({
     const controller = new AbortController();
     const timer = globalThis.setTimeout(() => {
       setState({ identity, data: null, loading: true, error: null });
-      void getCfdi(cfdiId, controller.signal)
+      void (
+        resourcePath
+          ? apiClient<CfdiDetail>(resourcePath, { signal: controller.signal })
+          : getCfdi(cfdiId, controller.signal)
+      )
         .then((data) => {
-          if (!controller.signal.aborted && currentRequest === requestId.current)
+          if (
+            !controller.signal.aborted &&
+            currentRequest === requestId.current
+          )
             setState({ identity, data, loading: false, error: null });
         })
         .catch((cause) => {
@@ -97,7 +109,7 @@ export function useCfdiDetail({
       globalThis.clearTimeout(timer);
       controller.abort();
     };
-  }, [cfdiId, identity]);
+  }, [cfdiId, identity, resourcePath]);
   const current = state.identity === identity;
   return {
     data: current ? state.data : null,

@@ -11,8 +11,6 @@ import {
 import { CurrentRequestContext } from '../../common/decorators/request-context.decorator';
 import type { RequestContext } from '../../common/decorators/request-context.decorator';
 import { CurrentTenant } from '../../common/decorators/current-session.decorator';
-import { CurrentSession } from '../../common/decorators/current-session.decorator';
-import type { AuthSession } from '../sessions/entities/auth-session.entity';
 import { Permissions } from '../../common/decorators/permissions.decorator';
 import { PermissionsGuard } from '../../common/guards/permissions.guard';
 import { SessionGuard } from '../../common/guards/session.guard';
@@ -22,7 +20,6 @@ import {
   CreateFiscalYearDto,
   ListFiscalYearsDto,
 } from './dtos/fiscal-year.dtos';
-import { ReopenPeriodDto } from './dtos/period-action.dtos';
 import { FiscalYearsService } from './fiscal-years.service';
 
 @Controller()
@@ -58,32 +55,5 @@ export class FiscalYearsController {
     @CurrentTenant() tenant: SessionAuthorizationContext,
   ) {
     return this.service.listPeriods(fiscalYearId, tenant);
-  }
-
-  @Post('periods/:periodId/close')
-  closePeriod(
-    @Param('periodId', ParseUUIDPipe) periodId: string,
-    @CurrentSession() session: AuthSession,
-    @CurrentTenant() tenant: SessionAuthorizationContext,
-    @CurrentRequestContext() request: RequestContext,
-  ) {
-    return this.service.closePeriod(periodId, session, tenant, request);
-  }
-
-  @Post('periods/:periodId/reopen')
-  reopenPeriod(
-    @Param('periodId', ParseUUIDPipe) periodId: string,
-    @Body() dto: ReopenPeriodDto,
-    @CurrentSession() session: AuthSession,
-    @CurrentTenant() tenant: SessionAuthorizationContext,
-    @CurrentRequestContext() request: RequestContext,
-  ) {
-    return this.service.reopenPeriod(
-      periodId,
-      dto.reason,
-      session,
-      tenant,
-      request,
-    );
   }
 }
