@@ -15,8 +15,16 @@ Cada intento de descarga se registra antes de red. Máximo dos por paquete; una 
 ## Consecuencias y límites
 SOAP/base64 se decodifica incrementalmente hacia storage con backpressure; la marca de integridad se publica sólo después de validar el SOAP completo. RSA-SHA1/SHA1 se limita a XMLDSig SAT; SHA-256 de objetos y AES-GCM no cambian. El perfil manual ZIP no se amplía.
 
-Los endpoints reales están implementados con allowlist exacta HTTPS. La composición runtime permite únicamente SAT controlado en QA aislado en esta entrega. La capacidad permanece desactivada por defecto y en ambientes administrados. No se ha utilizado ninguna e.firma real.
+Los endpoints reales están implementados con allowlist exacta HTTPS. El cierre del 2026-09-15 prepara dos composiciones separadas: controlled en QA y real_pilot para futuro piloto XML autorizado. real_pilot exige configuración administrada, perfil sat_efirma_v1 y artefacto externo acotado; no se suministra ni activa ese artefacto en esta entrega. La capacidad permanece desactivada por defecto y en ambientes administrados. No se ha utilizado ninguna e.firma real.
 
 La extensión sat_efirma_v1 implementa comprobación offline y preflight PKCS8, pero no incluye una generación SAT real aprobada ni trust bundle operativo. Véase CFDI_SAT_CERTIFICATE_PROFILE.md. No se declara compatibilidad con credenciales SAT arbitrarias.
 
 Persistencia cifrada temporal, WAL, backups, versiones de storage y snapshots Vault conservan las limitaciones del ADR-CFDI-006. Expirar acceso no equivale a borrar físicamente copias. Restore exige rotar generación externa antes de habilitar consumidores. Las aprobaciones sobre custodia, retención/versionado, backups y restore siguen pendientes.
+
+
+## Cierre de revisión PR25 — 2026-09-15
+Al liberar un lease vigente se adelanta next_attempt_at al menos cinco segundos (sin reducir un backoff mayor); los primeros veinte procesos no monopolizan el siguiente lote. Una entrada fallida no se reprocesa automáticamente: sólo stored entra a ingesta local; retry explícito consume local_retry_count y la devuelve a stored. Auditoría de acciones usa al usuario/membresía de la sesión que actúa, conservando creador y objeto durable por separado. DTO técnico comunica elegibilidad y fecha del próximo intento; la UI no ofrece retry agotado.
+
+El primer piloto real sólo admite XML. Metadata sigue implementada pero pendiente como alcance global de Fase 4. Nómina encontrada en paquete/folio SAT se escanea/parsea y se registra unsupported con SAT_PAYROLL_UNSUPPORTED antes de crear CFDI o datos de nómina. No se amplía el flujo manual; los enlaces heredados de tipo N requieren además payroll.view. No se permite descargar paquetes SAT ni extraídos mediante esta API.
+
+Al entrar en waiting_sat termina la operación y se limpia la autorización consumida. No hay polling SAT remoto autónomo después de ese punto aunque restara tiempo de los diez minutos. El usuario debe autorizar la consulta siguiente sobre el mismo proceso. Los paquetes íntegros ya recuperados siguen localmente sin nueva llave.

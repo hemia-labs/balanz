@@ -1,5 +1,7 @@
 # CFDI Phase 4 — validación local y límites de entrega
 
+La evidencia inicial del 2026-09-10 se conserva debajo. El estado vigente del cierre PR25 está en la sección final del 2026-09-15; su integración adicional está BLOCKED y no hereda un PASS por la ejecución histórica.
+
 Fecha: 2026-09-10. Alcance autorizado: implementación y certificados sintéticos en infraestructura aislada con servidor SAT controlado. No se utilizaron e.firmas reales ni solicitudes autenticadas al SAT; no hubo despliegue, merge o habilitación administrada.
 
 ## Identidad de la entrega
@@ -68,3 +70,65 @@ Revisión del código y cierre del bundle/perfiles y encabezado metadata con fue
 Siguiente acción: revisar esta PR en borrador y aportar/verificar los artefactos oficiales faltantes; después, una autorización explícita separada y configuración restringida para una primera prueba SAT real. Esta rama no se fusiona ni despliega como parte de la tarea. No hay defecto reproducible conocido en el recorrido controlado final; las lagunas del perfil real/metadata impiden declarar la fase completa.
 
 Documentos: ADR-CFDI-007-SAT-ON-DEMAND.md; CFDI_PHASE_4_API.md; sat-v1.5/sources.json y README.md; CFDI_SAT_PACKAGE_PROFILE.md; CFDI_SAT_CERTIFICATE_PROFILE.md; CFDI_PHASE_4_DEPLOYMENT_NOTE.md; CFDI_PHASE_4_RUNBOOK.md; roadmap, matrices y contratos de ingesta actualizados. Reportes históricos sin cambios.
+
+## Cierre técnico acotado PR25 — 2026-09-15
+
+- INITIAL_SHA: 35945e4171e18ab006fd23a51433609c0083f2c4.
+- PREVIOUS_VALIDATED_CODE_SHA: e11b13b439dff0b60e20315bf60e1fb666f8a94f. Hasta INITIAL_SHA sólo había documentación, sin commits posteriores al empezar.
+- VALIDATED_CODE_SHA: 8f1f58fd8ea39832fb755f64ab82fbd7286abdf5. El commit siguiente registra documentos de este cierre.
+- BASE_SHA / origin/develop inspeccionado: 0d5f0db1c2108fe3c9149660c3f7ed192414338f. PR25 abierta, borrador, base develop. Worktree Fase4 conservado; workspace principal y rama Fase3 intactos.
+- PHASE_4_IMPLEMENTATION: PARTIAL. REAL_RUNTIME: PREPARED_AND_DISABLED. REAL_SAT_ACCEPTANCE: NOT_RUN. REAL_CREDENTIALS_ENABLED: NO. RELEASE_STATUS: BLOCKED.
+- CI_YML_CHANGED: NO. DEPLOY_DEV_YML_CHANGED: NO. MIGRATIONS_CREATED_IN_CLOSURE: 0. HISTORICAL_MIGRATIONS_MODIFIED: NO. DEPENDENCIES_ADDED_IN_CLOSURE: NONE.
+
+### Cambios y comentarios de revisión
+
+1. El worker libera el lease con próximo turno al menos cinco segundos después, conservando un backoff mayor. Evita que los mismos veinte procesos locales acaparen el batch; el UPDATE conserva token/fence.
+2. Sólo paquetes stored con objeto íntegro y sin ingesta entran al procesamiento local. Un failed requiere retry explícito con presupuesto; la reconciliación de downloading se conserva.
+3. Cancelación/retry/admisión auditan el usuario y membresía que actúan, no el creador original del proceso.
+4. technicalRetry expone elegibilidad, disponibilidad, fecha y presupuesto coherentes con la API. La UI oculta fallos terminales y deshabilita durante backoff.
+5. Un XML N recibido mediante sat_package produce unsupported/SAT_PAYROLL_UNSUPPORTED antes de publicar datos fiscales; el flujo manual conserva su comportamiento. Los enlaces heredados N requieren payroll.view además de cfdi.view. Excluir N del filtro no se considera protección suficiente.
+6. real_pilot compone transporte oficial HTTPS, perfil sat_efirma_v1 y autorización operativa externa acotada a entidad, generación y hash del bundle. Rechaza excepciones QA, custodias sintéticas y metadata; ninguna capacidad se habilitó. El artefacto operativo no equivale a una aprobación legal creada por software.
+
+La custodia termina al entrar en espera SAT. Consultar otra vez requiere nueva autorización del mismo proceso; no hay renovación silenciosa ni polling remoto ilimitado. Envío incierto, presupuesto de descarga, folios y paquetes completos conservan su semántica.
+
+### Evidencia de este cierre
+
+| Verificación | Resultado |
+|---|---|
+| sat-ca-evidence, sat-review, sat-runtime, efirma-configuration, sat-contract, manual-xml-job.handler, sat-security, efirma-reauth, cfdi-access-grant | 98 pruebas / 9 suites PASS |
+| sat-state y sat-client frontend | 8 pruebas PASS |
+| ESLint API/frontend modificados | PASS |
+| TypeScript API --noEmit / tests frontend | PASS |
+| Build API | PASS |
+| Build frontend (Next/TypeScript) | PASS, 15 páginas |
+| diff --check | PASS |
+| Integración actual sat.external.ts | BLOCKED antes de setup: no existe pipe dockerDesktopLinuxEngine; Docker no conecta al motor Linux |
+| Browser smoke | NOT_RUN; ambiente no disponible, sin reconstrucción |
+| SAT autenticado real / credenciales reales | NOT_RUN / NO |
+
+Comando backend: bun x jest --runInBand test/sat-ca-evidence.spec.ts test/sat-review.spec.ts test/sat-runtime.spec.ts test/efirma-configuration.spec.ts test/sat-contract.spec.ts test/manual-xml-job.handler.spec.ts test/sat-security.spec.ts test/efirma-reauth.spec.ts test/cfdi-access-grant.spec.ts. ESLint sobre los archivos TS modificados; bun x tsc --noEmit y bun run build en API; compilación de tsconfig.tests.json, node --test para sat-state/sat-client y bun run build en web.
+
+sat.external.ts añade escenarios PostgreSQL de más de veinte procesos, paquete fallido junto a otro pendiente, retry explícito y auditoría de otro usuario asignado, además de estados del DTO. Su intento compila pero falla antes de crear fixtures: failed to connect to Docker API at npipe:////./pipe/dockerDesktopLinuxEngine, system cannot find the file. Esos escenarios NO tienen evidencia de ejecución actual. Las pruebas unitarias de actor/DTO no sustituyen esa evidencia. Diagnóstico externo terminado; no se repitieron suites históricas ni se modificó infraestructura compartida.
+
+### Perfil y contratos: evidencia disponible y pendiente
+
+Se recuperó el ZIP oficial de CA SAT (22 certificados públicos, 37,863 bytes), con URL/fecha/SHA256 e inventario DER. AC5→ARC5 y AC6/AC7→ARC6 verifican criptográficamente; esto sustenta admitir SHA512/RSA exclusivamente para CA, manteniendo SHA256/RSA para titular. CA históricas MD5/SHA1, expiradas y tamaños no permitidos siguen rechazadas. El ZIP es evidencia pública, no trust bundle runtime ni prueba positiva e.firma/CSD.
+
+Todavía no hay una generación de titular SAT plenamente acreditada. Falta especificación primaria con discriminador positivo e.firma/CSD, atributos/variantes RFC y formato PKCS8 Certifica de esa generación. El modelo actual exige CertificatePolicies.policyOid; si la fuente oficial establece otro mecanismo, falta implementar esa regla concreta. No se aceptará cualquier certificado que abra ni se sustituirá la evidencia con fixtures sintéticos. Perfil DOF general no acredita por sí solo un perfil fiscal SAT.
+
+Descarga XML: el PDF SAT v1.5 versionado basta para implementar acción, estructura, campos, token y firma; WSDL vivo HTTP400 previo no se reintentó ni fabricó. La implementación añade transformación C14N inclusiva explícita al digest frente al ejemplo documental con enveloped/normalización implícita de nodeset; contrato/firma estándar probado localmente, aceptación SAT todavía NOT_RUN.
+
+Metadata: fuente primaria confirma TXT delimitado por tilde y campos semánticos, no encabezado literal/orden/capitalización de las doce columnas implementadas, incluido FechaCertificacionSat. Parser y límites conservados. Excluida expresamente del primer piloto XML; continúa pendiente global de Fase4, no se elimina del alcance.
+
+### Pendientes exactos y responsables
+
+| Pendiente | Responsable que debe aportar evidencia/decisión |
+|---|---|
+| Motor Docker Linux/servicios QA existentes y ejecución de sat.external.ts actualizado | Equipo de desarrollo/QA local; no requiere credenciales SAT reales |
+| Política/especificación oficial de una generación, RFC y discriminador positivo e.firma/CSD; certificado público representativo con procedencia autorizada; formato PKCS8 Certifica | Arquitectura/seguridad con fuente SAT primaria; sin solicitar .key o contraseña reales |
+| Regla concreta si difiere de policyOid; bundle reducido versionado, fingerprints y validación offline | Desarrollo y arquitectura/seguridad después de recibir evidencia |
+| Encabezado literal metadata oficial o muestra pública legítima acreditada | Responsable de contrato SAT; no bloquea piloto XML, sí cierre completo de Fase4 |
+| Egress/reloj, AppRoles separados, SSE-KMS, retención/versiones y restore con generación externa | Operaciones/integraciones, sin provisionamiento en esta PR |
+| Decisión humana sobre custodia cifrada, backups/borrado/restore y autorización separada de piloto pequeño | Responsables legal/operativo y titular autorizado; PENDING, sin dictamen supuesto |
+
+Siguiente acción: reactivar únicamente QA existente y ejecutar la integración focalizada pendiente; revisar los cuatro comentarios de PR25 con esa evidencia. En paralelo obtener una política de titular concreta y cerrar regla/bundle. Sólo después de configuración verificada y aprobación humana separada podrá autorizarse una primera prueba XML real; esta tarea no la ejecuta. No se declara la fase completa ni se cierran gates heredados.

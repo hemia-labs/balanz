@@ -320,3 +320,6 @@ valores secretos, DSN ni URLs/tokens temporales.
 ## Configuración Fase 4
 
 SAT_ENABLED=false por defecto. QA aislado explícito SAT_QA_ISOLATED y EFIRMA_QA_ISOLATED; SAT_CONTROLLED_ENDPOINT loopback. EFIRMA_CERTIFICATE_PROFILE seleccionado en servidor; EFIRMA_SAT_TRUST_FILE sólo para registro real versionado todavía no suministrado. Requisitos y gates en CFDI_PHASE_4_DEPLOYMENT_NOTE.md.
+
+
+Cierre PR25 (2026-09-15): EFIRMA_RUNTIME_MODE=real_pilot prepara la vía real XML, distinta de controlled. Requiere EFIRMA_REAL_PILOT_AUTHORIZATION_FILE externo, acotado a entidad/generación/hash/plazo y perfil sat_efirma_v1; rechaza flags/endpoints sintéticos. Por defecto ambas capacidades siguen desactivadas. Contrato exacto y responsabilidades en CFDI_PHASE_4_DEPLOYMENT_NOTE.md. No hay cambio de CI, esquema o aprovisionamiento.
