@@ -5,12 +5,40 @@ export interface CustodyContext {
   organizationId: string;
   legalEntityId: string;
   intentionId: string;
-  purpose: 'efirma.prepare';
+  purpose: 'efirma.prepare' | 'sat.submit' | 'sat.recover';
+  sat?: {
+    jobId: string;
+    filterVersion: 1;
+    userId: string;
+    sessionId: string;
+    membershipId: string;
+  };
   expiresAt: string;
   generation: string;
 }
 
 export function custodyAad(context: CustodyContext): Buffer {
+  if (context.purpose !== 'efirma.prepare') {
+    if (!context.sat || context.sat.filterVersion !== 1)
+      throw new Error('EFIRMA_ENVELOPE_INVALID');
+    return Buffer.from(
+      JSON.stringify([
+        2,
+        context.organizationId,
+        context.legalEntityId,
+        context.intentionId,
+        context.purpose,
+        context.expiresAt,
+        context.generation,
+        context.sat.jobId,
+        context.sat.filterVersion,
+        context.sat.userId,
+        context.sat.sessionId,
+        context.sat.membershipId,
+      ]),
+    );
+  }
+  if (context.sat) throw new Error('EFIRMA_ENVELOPE_INVALID');
   return Buffer.from(
     JSON.stringify([
       1,
@@ -35,7 +63,7 @@ export function encryptPrivateKey(
   cipher.setAAD(custodyAad(context));
   const ciphertext = Buffer.concat([cipher.update(key), cipher.final()]);
   return Buffer.concat([
-    Buffer.from([1]),
+    Buffer.from([context.purpose === 'efirma.prepare' ? 1 : 2]),
     nonce,
     cipher.getAuthTag(),
     ciphertext,
@@ -53,7 +81,7 @@ export function decryptPrivateKey(
       dek.length !== 32 ||
       envelope.length < 30 ||
       envelope.length > 32768 ||
-      envelope[0] !== 1
+      envelope[0] !== (context.purpose === 'efirma.prepare' ? 1 : 2)
     )
       throw new Error();
     const decipher = createDecipheriv(

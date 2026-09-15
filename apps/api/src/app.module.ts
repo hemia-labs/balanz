@@ -1,3 +1,4 @@
+import { SatApiModule } from './modules/sat-download/sat.module';
 import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { APP_GUARD } from '@nestjs/core';
@@ -24,6 +25,7 @@ import { EfirmaApiModule } from './modules/efirma/efirma.module';
 
 @Module({
   imports: [
+    SatApiModule,
     PlatformConfigModule.forRuntime('api'),
     ThrottlerModule.forRootAsync({
       imports: [ConfigModule],

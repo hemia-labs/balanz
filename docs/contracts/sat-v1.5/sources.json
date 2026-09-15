@@ -1,0 +1,112 @@
+[
+  {
+    "file": "overview.pdf",
+    "url": "https://ampocdevbuk01a.s3.us-east-1.amazonaws.com/0_UR_Ls_WS_Descarga_Masiva_V1_5_VF_33e2cca681.pdf",
+    "consultedAt": "2026-09-10T13:07:35.974Z",
+    "version": "1.5",
+    "sha256": "9bcc731344cc31dbc2cd2e0ac83a0de660793680f3894aee5e7641c44342a8cc",
+    "bytes": 196849,
+    "status": "recovered",
+    "operations": [
+      "overview"
+    ]
+  },
+  {
+    "file": "verification.pdf",
+    "url": "https://ampocdevbuk01a.s3.us-east-1.amazonaws.com/2_WS_Verificacion_de_Descarga_Masiva_V1_5_VF_5e53cc2bb5.pdf",
+    "consultedAt": "2026-09-10T13:07:35.990Z",
+    "version": "1.5",
+    "sha256": "e471bfce68a566abfaeb00368f80af69555eb430b065306b1d7139de66737b3e",
+    "bytes": 456205,
+    "status": "recovered",
+    "operations": [
+      "verification"
+    ]
+  },
+  {
+    "file": "request.wsdl",
+    "url": "https://cfdidescargamasivasolicitud.clouda.sat.gob.mx/SolicitaDescargaService.svc?singleWsdl",
+    "consultedAt": "2026-09-10T13:07:35.696Z",
+    "version": "live WSDL; consulted 2026-09-10",
+    "sha256": "f48bb36dc0d95e730f1ecaffe320f173b04f012d1732e5963e8a081f21d8c668",
+    "bytes": 14079,
+    "status": "recovered",
+    "operations": [
+      "issued",
+      "received",
+      "folio"
+    ]
+  },
+  {
+    "file": "verification.wsdl",
+    "url": "https://cfdidescargamasivasolicitud.clouda.sat.gob.mx/VerificaSolicitudDescargaService.svc?singleWsdl",
+    "consultedAt": "2026-09-10T13:07:35.748Z",
+    "version": "live WSDL; consulted 2026-09-10",
+    "sha256": "a2eee875f33efa5c8d783a37b91ed5bae7f648cd9147518a024fbe00c2325973",
+    "bytes": 9194,
+    "status": "recovered",
+    "operations": [
+      "verification"
+    ]
+  },
+  {
+    "file": "authentication.wsdl",
+    "url": "https://cfdidescargamasiva.clouda.sat.gob.mx/Autenticacion/Autenticacion.svc?singleWsdl",
+    "status": "unavailable",
+    "error": "HTTP 400",
+    "operations": [
+      "authentication"
+    ],
+    "consultedDate": "2026-09-10",
+    "version": "live WSDL; consulted 2026-09-10"
+  },
+  {
+    "file": "download.wsdl",
+    "url": "https://cfdidescargamasiva.clouda.sat.gob.mx/DescargaMasivaService.svc?singleWsdl",
+    "status": "unavailable",
+    "error": "HTTP 400",
+    "operations": [
+      "download"
+    ],
+    "consultedDate": "2026-09-10",
+    "version": "live WSDL; consulted 2026-09-10"
+  },
+  {
+    "file": "request.pdf",
+    "url": "https://ampocdevbuk01a.s3.us-east-1.amazonaws.com/1_WS_Solicitud_Descarga_Masiva_V1_5_VF_89183c42e9.pdf",
+    "consultedAt": "2026-09-10T13:09:22.055Z",
+    "version": "1.5",
+    "sha256": "b55f44f4b52f2a3ff709addf3faebb341afa1fa2548fc015eb040c7756e81336",
+    "bytes": 707366,
+    "status": "recovered",
+    "operations": [
+      "issued",
+      "received",
+      "folio"
+    ]
+  },
+  {
+    "file": "download.pdf",
+    "url": "https://ampocdevbuk01a.s3.us-east-1.amazonaws.com/3_WS_Descarga_de_Solicitudes_Exitosas_V1_5_VF_74f66e46ec.pdf",
+    "consultedAt": "2026-09-10T13:09:22.723Z",
+    "version": "1.5",
+    "sha256": "8e9de4220d90f91ded80a84d891f9088ec64262e722891b1ef50190c5ccc81f1",
+    "bytes": 448342,
+    "status": "recovered",
+    "operations": [
+      "download"
+    ]
+  },
+  {
+    "file": "authentication.wsdl",
+    "url": "https://cfdidescargamasivasolicitud.clouda.sat.gob.mx/Autenticacion/Autenticacion.svc?singleWsdl",
+    "consultedAt": "2026-09-10T13:09:23.157Z",
+    "version": "live WSDL; consulted 2026-09-10",
+    "sha256": "fc279f4266a6e22b9d67ffb2b7778467f02fae5810610b044dbb4d2d148d1bfb",
+    "bytes": 6218,
+    "status": "recovered",
+    "operations": [
+      "authentication"
+    ]
+  }
+]

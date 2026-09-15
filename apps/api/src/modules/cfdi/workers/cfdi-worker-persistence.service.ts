@@ -104,7 +104,7 @@ export class CfdiWorkerPersistenceService {
              ON object.organization_id = job.organization_id
             AND object.client_account_id = job.client_account_id
             AND object.legal_entity_id = job.legal_entity_id
-            AND ((job.source_type = 'manual_xml' AND object.id = job.root_object_id) OR (job.source_type = 'manual_zip' AND object.kind = 'extracted_xml'))
+            AND ((job.source_type = 'manual_xml' AND object.id = job.root_object_id) OR (job.source_type IN ('manual_zip','sat_package') AND object.kind = 'extracted_xml'))
             AND object.id = item.object_id
            INNER JOIN legal_entities entity
              ON entity.organization_id = job.organization_id
@@ -115,7 +115,7 @@ export class CfdiWorkerPersistenceService {
             AND job.locked_by = $3
             AND job.status = 'processing'
             AND job.lease_expires_at > clock_timestamp()
-            AND job.source_type IN ('manual_xml','manual_zip')
+            AND job.source_type IN ('manual_xml','manual_zip','sat_package')
             AND entity.status = 'active'`,
         [job.organizationId, job.jobId, job.leaseToken, itemId ?? null],
       );

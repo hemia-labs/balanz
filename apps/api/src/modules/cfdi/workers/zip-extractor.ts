@@ -31,6 +31,7 @@ export interface ArchiveEntry {
   compressionMethod: number;
   directoryDepth: number;
   xml: boolean;
+  metadataText?: boolean;
   entry: Entry;
 }
 export interface InspectedArchive {
@@ -41,18 +42,18 @@ export interface InspectedArchive {
 
 /** Does not materialize the archive or use entry names as filesystem paths. */
 export class ZipExtractor {
-  constructor(private readonly storage: ObjectStoragePort) {}
+  constructor(
+    private readonly storage: ObjectStoragePort,
+    private readonly limits: typeof ZIP_LIMITS = ZIP_LIMITS,
+  ) {}
 
   async inspect(
     key: string,
     size: number,
     signal: AbortSignal,
   ): Promise<InspectedArchive> {
-    if (
-      !Number.isSafeInteger(size) ||
-      size < 22 ||
-      size > ZIP_LIMITS.compressed
-    )
+    const limits = this.limits;
+    if (!Number.isSafeInteger(size) || size < 22 || size > limits.compressed)
       throw zipError('ZIP_LIMIT_EXCEEDED');
     if (!this.storage.openReadRange)
       throw new DurableWorkerError('CONFIGURATION_INVALID', {
@@ -109,7 +110,7 @@ export class ZipExtractor {
           entry.extraFieldLength +
           entry.fileCommentLength;
         if (observedCentralSize > centralSize) throw zipError();
-        const name = validateZipPath(entry.fileName);
+        const name = validateZipPath(entry.fileName, limits);
         // Unicode aliases, Windows case aliases and duplicate names are ambiguous.
         const identity = name.path.toLowerCase().replace(/\/$/, '');
         if (names.has(identity)) throw zipError('ZIP_UNSAFE_ENTRY');
@@ -137,9 +138,9 @@ export class ZipExtractor {
         if (name.directory && (entry.uncompressedSize || entry.compressedSize))
           throw zipError('ZIP_UNSAFE_ENTRY');
         if (
-          entry.uncompressedSize > ZIP_LIMITS.uncompressed ||
+          entry.uncompressedSize > limits.uncompressed ||
           entry.uncompressedSize >
-            Math.max(1, entry.compressedSize) * ZIP_LIMITS.ratio
+            Math.max(1, entry.compressedSize) * limits.ratio
         )
           throw zipError('ZIP_LIMIT_EXCEEDED');
         const local = await zip.readLocalFileHeaderPromise(entry);
@@ -166,13 +167,10 @@ export class ZipExtractor {
           dataStart: local.fileDataStart,
         });
         if (name.directory) continue;
-        if (entries.length >= ZIP_LIMITS.entries)
+        if (entries.length >= limits.entries)
           throw zipError('ZIP_LIMIT_EXCEEDED');
         declared += entry.uncompressedSize;
-        if (
-          declared > ZIP_LIMITS.uncompressed ||
-          declared > size * ZIP_LIMITS.ratio
-        )
+        if (declared > limits.uncompressed || declared > size * limits.ratio)
           throw zipError('ZIP_LIMIT_EXCEEDED');
         const xml = /\.xml$/i.test(name.path);
         entries.push({
@@ -184,6 +182,7 @@ export class ZipExtractor {
           compressionMethod: entry.compressionMethod,
           directoryDepth: name.depth,
           xml,
+          metadataText: /\.txt$/i.test(name.path),
           entry,
         });
       }
@@ -239,7 +238,9 @@ export class ZipExtractor {
     signal: AbortSignal,
     consume: (entry: ArchiveEntry, stream: Readable) => Promise<void>,
     boundary: () => Promise<void>,
+    keepOpen = false,
   ): Promise<number> {
+    const limits = this.limits;
     let total = 0;
     try {
       for (const entry of archive.entries) {
@@ -273,9 +274,9 @@ export class ZipExtractor {
               total += bytes.length;
               if (actual > entry.uncompressedSize) throw zipError();
               if (
-                total > ZIP_LIMITS.uncompressed ||
-                actual > Math.max(1, entry.compressedSize) * ZIP_LIMITS.ratio ||
-                total > archive.compressedSize * ZIP_LIMITS.ratio
+                total > limits.uncompressed ||
+                actual > Math.max(1, entry.compressedSize) * limits.ratio ||
+                total > archive.compressedSize * limits.ratio
               )
                 throw zipError('ZIP_LIMIT_EXCEEDED');
               crc = zipCrc32(bytes, crc);
@@ -328,12 +329,15 @@ export class ZipExtractor {
         throw new DurableWorkerError('WORKER_SHUTDOWN', { retryable: true });
       throw error;
     } finally {
-      archive.zip.close();
+      if (!keepOpen) archive.zip.close();
     }
   }
 }
 
-export function validateZipPath(raw: string): {
+export function validateZipPath(
+  raw: string,
+  limits: typeof ZIP_LIMITS = ZIP_LIMITS,
+): {
   path: string;
   directory: boolean;
   depth: number;
@@ -341,7 +345,7 @@ export function validateZipPath(raw: string): {
   const path = raw.replace(/\\/g, '/').normalize('NFC');
   if (
     !path ||
-    path.length > ZIP_LIMITS.path ||
+    path.length > limits.path ||
     path.startsWith('/') ||
     // eslint-disable-next-line no-control-regex -- Security boundary rejects control bytes.
     /[:\x00-\x1f\x7f]/.test(path)
@@ -364,7 +368,7 @@ export function validateZipPath(raw: string): {
   )
     throw zipError('ZIP_UNSAFE_ENTRY');
   const depth = parts.length - (directory ? 0 : 1);
-  if (depth > ZIP_LIMITS.depth) throw zipError('ZIP_LIMIT_EXCEEDED');
+  if (depth > limits.depth) throw zipError('ZIP_LIMIT_EXCEEDED');
   return { path, directory, depth };
 }
 

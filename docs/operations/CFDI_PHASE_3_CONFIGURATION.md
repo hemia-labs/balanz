@@ -29,3 +29,6 @@ Perfiles API/worker se cargan mediante `PlatformConfigModule`; con capacidad des
 `credentials.manage` se reutiliza sin seed nuevo. Titular real: tenant-wide; otros roles: asignación activa y permiso efectivo, con overrides vigentes. La clave de e.firma no sustituye contraseña de aplicación ni TOTP. `cfdi.download`/grants XML no conceden acceso a estos objetos.
 
 Configuración de mounts, identidades, políticas, backups y permisos de archivos corresponde a Terraform/Ansible/operadores fuera de este repositorio; la migración no aprovisiona secretos.
+
+
+Nota de evolución Fase4, 2026-09-15: la vía real_pilot se prepara separada del perfil QA de este documento, bajo el contrato de CFDI_PHASE_4_DEPLOYMENT_NOTE.md. No se relajan las excepciones sintéticas ni se habilita efirma.prepare para credenciales reales. Las aprobaciones humanas y el perfil positivo del titular siguen pendientes.

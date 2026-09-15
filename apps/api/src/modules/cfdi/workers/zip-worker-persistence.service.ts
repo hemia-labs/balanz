@@ -16,6 +16,7 @@ export interface ZipRoot {
   sha256: string;
   sizeBytes: number;
   scanStatus: string;
+  contentType?: 'xml' | 'metadata';
 }
 export interface ReservedZipEntry {
   itemId: string;
@@ -67,15 +68,19 @@ export class ZipWorkerPersistenceService {
           sha256: string;
           size_bytes: string;
           malware_scan_status: string;
+          content_type: 'xml' | 'metadata';
         }>
       >(
         `
-        SELECT object.id, object.object_key, object.sha256, object.size_bytes, object.malware_scan_status FROM stored_objects object
-        JOIN ingestion_uploads upload ON upload.object_id=object.id AND upload.organization_id=object.organization_id
+        SELECT object.id, object.object_key, object.sha256, object.size_bytes, object.malware_scan_status, coalesce(sat_job.content_type,'xml') AS content_type FROM stored_objects object
+        LEFT JOIN ingestion_uploads upload ON upload.object_id=object.id AND upload.organization_id=object.organization_id
           AND upload.client_account_id=object.client_account_id AND upload.legal_entity_id=object.legal_entity_id
+        LEFT JOIN sat_packages package ON package.object_id=object.id AND package.ingestion_job_id=$6 AND package.organization_id=object.organization_id
+        LEFT JOIN sat_requests request ON request.id=package.request_id AND request.organization_id=object.organization_id
+        LEFT JOIN sat_download_jobs sat_job ON sat_job.id=request.job_id AND sat_job.organization_id=object.organization_id
         JOIN legal_entities entity ON entity.id=object.legal_entity_id AND entity.organization_id=object.organization_id AND entity.status='active'
         WHERE object.id=$1 AND object.organization_id=$2 AND object.client_account_id=$3 AND object.legal_entity_id=$4
-          AND upload.id=$5 AND upload.state='confirmed' AND upload.upload_type='manual_zip' AND object.kind='manual_zip'
+          AND ((upload.id=$5 AND upload.state='confirmed' AND upload.upload_type='manual_zip' AND object.kind='manual_zip') OR ($5::uuid IS NULL AND package.id IS NOT NULL AND package.downloaded_at IS NOT NULL AND object.kind='sat_package'))
           AND object.lifecycle_state IN ('uploaded','quarantined','available') AND object.cleanup_requested_at IS NULL`,
         [
           job.rootObjectId,
@@ -83,6 +88,7 @@ export class ZipWorkerPersistenceService {
           job.clientAccountId,
           job.legalEntityId,
           job.uploadId,
+          job.jobId,
         ],
       );
       if (!rows[0]?.sha256)
@@ -97,6 +103,7 @@ export class ZipWorkerPersistenceService {
         sha256: row.sha256,
         sizeBytes: Number(row.size_bytes),
         scanStatus: row.malware_scan_status,
+        contentType: row.content_type,
       };
     });
   }
@@ -236,6 +243,7 @@ export class ZipWorkerPersistenceService {
     item: ReservedZipEntry,
     entry: ArchiveEntry,
     result: Pick<ObjectStorageWriteResult, 'sha256' | 'sizeBytes'>,
+    processableWithoutObject = false,
   ) {
     await this.run(job, async (manager) => {
       await this.fence(manager, job, true);
@@ -255,7 +263,7 @@ export class ZipWorkerPersistenceService {
           job.organizationId,
           item.itemId,
           result.sha256,
-          Boolean(item.objectId),
+          Boolean(item.objectId) || processableWithoutObject,
           entry.xml ? 'invalid' : 'unsupported',
           entry.xml ? 'INGESTION_FILE_TOO_LARGE' : 'ZIP_ENTRY_UNSUPPORTED',
         ],

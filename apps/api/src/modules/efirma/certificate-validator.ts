@@ -1,3 +1,4 @@
+import { boundedDer, openProtectedKey } from './pkcs8-preflight';
 import 'reflect-metadata';
 import { createPrivateKey, X509Certificate, type KeyObject } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
@@ -45,6 +46,7 @@ export class CertificateValidator {
         !trust.encryptedKeys.includes(digest(encryptedKey))
       )
         throw new Error();
+      boundedDer(certificate);
       const leaf = new X509Certificate(certificate);
       const root = new X509Certificate(trust.rootCertificate);
       const parseOptions = {
@@ -132,12 +134,7 @@ export class CertificateValidator {
         /* Expected for protected PKCS8. */
       }
       if (unprotected) throw new Error();
-      const key = createPrivateKey({
-        key: encryptedKey,
-        format: 'der',
-        type: 'pkcs8',
-        passphrase: password,
-      });
+      const key = await openProtectedKey(encryptedKey, password);
       code = 'EFIRMA_KEY_MISMATCH';
       if (!leaf.checkPrivateKey(key)) throw new Error();
       return { key, certificate: leaf };

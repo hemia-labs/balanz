@@ -1,0 +1,10 @@
+# Perfil sat_package_v1
+Límites Hemia iniciales, no garantías sobre todos los paquetes SAT: 50 MiB ZIP decodificado, 250 MiB extraídos acumulados, 2,000 archivos regulares, ratio 50:1 por entrada y global, carpetas internas de profundidad 2, ruta 240, XML 5 MiB, ZIP32 STORE/DEFLATE y máximo 6,000 headers. No se amplía el perfil manual, ni se particionan solicitudes automáticamente.
+
+Rechazo de DTD/entidades, SOAP inesperado, base64 no canónico/truncado, ZIP cifrado, ZIP64, nesting, traversal, nombres absolutos/Windows/UNC, enlaces, especiales, CRC/tamaños inconsistentes y bombas. SAX consume fragmentos acotados y entrega bytes con backpressure; hash/tamaño proceden del storage stream. Se reserva un stored_object antes de descargar. El objeto no se marca íntegro hasta finalizar todo el SOAP.
+
+ClamAV escanea raíz antes de inspección/extracción; XML antes del parser. Se comprueban bytes descomprimidos reales antes de incorporar. Cada archivo regular tiene ingestion_item; carpetas no. XML inválido/foreign/duplicado/no soportado es individual. CFDI 3.3 sigue unsupported. Un límite de paquete produce incidencia, nunca éxito silencioso.
+
+Metadata: TXT UTF-8, delimitador ~, cabecera exacta versionada en METADATA_HEADER (12 campos), máximo 100,000 filas, línea 8 KiB, campo 1,024 caracteres. Procesamiento incremental, UUID/RFC/fechas/importes tipados, sólo metadata mínima; nombres no se conservan. Clave (paquete, UUID) y hash de fila impiden modificar observaciones anteriores. Una fila inválida no revierte lotes previos; el archivo conserva incidencia. No se reemplaza XML, hash original ni se fabrica CFDI. Los counters SAT separan observaciones de CFDI incorporados.
+
+Laguna contractual: ~ está documentado oficialmente; la compatibilidad exhaustiva de cabeceras/variantes y codificación de metadata CFDI aún debe acreditarse con especificación primaria representativa. La cabecera implementada es un perfil Hemia explícito y probado sintéticamente; otra cabecera se rechaza. No equivale a validación real SAT.
