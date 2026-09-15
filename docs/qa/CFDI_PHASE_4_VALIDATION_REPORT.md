@@ -1,6 +1,6 @@
 # CFDI Phase 4 — validación local y límites de entrega
 
-La evidencia inicial del 2026-09-10 se conserva debajo. El estado vigente del cierre PR25 está en la sección final del 2026-09-15; su integración adicional está BLOCKED y no hereda un PASS por la ejecución histórica.
+La evidencia inicial del 2026-09-10 se conserva debajo. El cierre técnico y su intento inicialmente bloqueado se conservan debajo. La sección final «Integración local pendiente ejecutada» registra el PASS vigente del 2026-09-15 sobre el SHA indicado, sin heredar evidencia de la ejecución inicial.
 
 Fecha: 2026-09-10. Alcance autorizado: implementación y certificados sintéticos en infraestructura aislada con servidor SAT controlado. No se utilizaron e.firmas reales ni solicitudes autenticadas al SAT; no hubo despliegue, merge o habilitación administrada.
 
@@ -132,3 +132,35 @@ Metadata: fuente primaria confirma TXT delimitado por tilde y campos semánticos
 | Decisión humana sobre custodia cifrada, backups/borrado/restore y autorización separada de piloto pequeño | Responsables legal/operativo y titular autorizado; PENDING, sin dictamen supuesto |
 
 Siguiente acción: reactivar únicamente QA existente y ejecutar la integración focalizada pendiente; revisar los cuatro comentarios de PR25 con esa evidencia. En paralelo obtener una política de titular concreta y cerrar regla/bundle. Sólo después de configuración verificada y aprobación humana separada podrá autorizarse una primera prueba XML real; esta tarea no la ejecuta. No se declara la fase completa ni se cierran gates heredados.
+
+## Integración local pendiente ejecutada — 2026-09-15
+
+- EXECUTED_SHA: 51e896ab8e6d305b024f0041c538e0bbf920d4e9, HEAD local/remoto verificado, sin cambios posteriores ni trabajo local pendiente al iniciar.
+- CODE_SHA: 8f1f58fd8ea39832fb755f64ab82fbd7286abdf5; su diferencia con EXECUTED_SHA es exclusivamente documental.
+- LOCAL_CONTRACT_INTEGRATION: PASS. Una suite / un test, 61 comprobaciones, 24 firmas verificadas, 4 envíos y 5 intentos de descarga al servidor controlado. Jest: 17.297 segundos, exit 0.
+- CODE_CORRECTIONS: NONE. Sólo se actualiza este reporte; el commit de esta actualización es documental y no cambia el código ejecutado.
+- PHASE_4: PARTIAL. REAL_CREDENTIALS_ENABLED: NO. REAL_SAT_ACCEPTANCE: NOT_RUN. RELEASE_STATUS: BLOCKED.
+
+Comando exacto en PowerShell desde apps/api, usando el Node/Bun existente:
+
+~~~powershell
+$env:PATH='C:\Users\lofor\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin;'+$env:PATH
+$env:RUN_EFIRMA_INTEGRATION='true'
+bun x jest --testRegex='test/external/sat\.external\.ts$' --runInBand --detectOpenHandles
+~~~
+
+El motor Docker Linux ya estaba disponible y PostgreSQL, MinIO y ClamAV del QA existente estaban saludables. No fue necesario iniciar/reinstalar/restablecer Docker ni modificar infraestructura. El runner creó su base desechable test_sat_*, roles aislados, Vault temporal y servidor SAT loopback, con certificados sintéticos; aplicó el historial existente únicamente en esa base y ejecutó su cleanup al terminar. Los servicios QA existentes permanecieron activos y el contenedor Vault temporal dejó de existir.
+
+| Escenario pendiente | Evidencia ejecutada |
+|---|---|
+| Más de veinte procesos | PASS: veinte processing_local ocupan el primer batch; el siguiente atiende la cancelación del proceso 21 mientras los veinte anteriores siguen activos |
+| Paquete fallido junto a otro pendiente | PASS: A sólo se consulta una vez al fallar; un segundo turno no lo reintenta mientras B permanece processing; local_retry_count sigue en cero |
+| Retry explícito y presupuesto | PASS: acción explícita restaura stored y cobra una vez; escenario de descarga incierta llega a dos intentos y rechaza un tercero; retry técnico no cobra dos veces el fallo |
+| Actor de auditoría | PASS: consultas PostgreSQL comprueban creador en admisión y otro usuario/membresía asignado en retry y cancelación |
+| Elegibilidad API | PASS: DTO elegible pero no disponible durante backoff, disponible al vencerlo y no elegible con presupuesto agotado/fallo terminal |
+
+PostgreSQL, Vault wrapping/Transit, MinIO privado, ClamAV y parser fueron reales. El fallo puntual de lectura del escenario A usa la inyección de fallo ya existente del runner (un head devuelve ausente); no sustituye el adaptador/servicio MinIO del recorrido ni convierte mocks de los servicios en evidencia real. El servidor SAT controlado verifica firmas y devuelve respuestas de prueba; ningún envío autenticado fue al SAT real.
+
+El bloqueo anterior dockerDesktopLinuxEngine y los escenarios entonces pendientes quedan cerrados por esta ejecución. No se repitieron las 98 pruebas backend, las 8 frontend ni builds porque no cambió código. Sin modificaciones de CI, migraciones, dependencias, perfiles o configuración real; navegador no ejecutado.
+
+Siguiente acción: revisión humana de PR25 con esta evidencia local ya completa. El perfil positivo de titular y su bundle, encabezado metadata y aprobaciones operativas/legales continúan pendientes por separado; este PASS no habilita credenciales reales ni autoriza merge, despliegue o piloto SAT.
