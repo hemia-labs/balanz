@@ -10,7 +10,8 @@ Fecha: 2026-09-15. Evidencia técnica ejecutada por el agente; no atribuye revis
 | PHASE_5_AUTOMATED_VALIDATION | PASS, con límites indicados abajo |
 | PHASE_5_LOCAL_POSTGRES_INTEGRATION | PASS |
 | PHASE_5_INTEGRATION_STATUS | NOT_MERGED; revisión en PR borrador |
-| BROWSER_SMOKE | NOT_RUN |
+| BROWSER_SMOKE | NOT_RUN; herramienta de navegador bloqueada en la revisión acotada posterior |
+| LEGACY_STORAGE_RECOVERY | PASS; 33 comprobaciones PostgreSQL/MinIO/ClamAV, ver revisión posterior |
 | PHASE_4 | PARTIAL |
 | REAL_CREDENTIALS_ENABLED | NO |
 | REAL_SAT_ACCEPTANCE | NOT_RUN |
@@ -90,3 +91,46 @@ Fallos encontrados durante desarrollo y corregidos antes del SHA validado: ACL m
 - Siguiente acción: revisar PR F5 contra develop y realizar el recorrido visual cuando el entorno esté disponible; mantener gates de liberación separados. No iniciar Fase6 ni fusionar/desplegar por esta entrega.
 
 Documentos: [ADR-CFDI-008](../architecture/decisions/ADR-CFDI-008-MONTHLY-WORKSPACE-CLOSE.md), [API](../contracts/CFDI_MONTHLY_WORKSPACE_API.md), [runbook/nota de despliegue](../operations/CFDI_PHASE_5_RUNBOOK.md), [contrato detallado mensual](../architecture/CONTROL_MENSUAL_CFDI_V3_3.md) y [roadmap](../roadmaps/CFDI_P0_MASTER_IMPLEMENTATION_PLAN.md).
+
+
+## Revisión funcional/visual acotada posterior — 2026-09-15
+
+PR: https://github.com/hemia-labs/balanz/pull/26, abierta y en borrador, base develop. HEAD inicial verificado: cc14159997c0591ec20d2707d9fc55e2ab0ba12f; no había cambios posteriores ni locales en el worktree F5. El delta desde el código validado 1e6d893ef2c3df4630738905cbbc9fcc73fe5089 era exclusivamente documental. El cambio ajeno de apps/web/AGENTS.md en el workspace principal se conservó.
+
+### Navegador: NOT_RUN, bloqueo de herramienta
+
+La inicialización de cua.getState() falló antes de seleccionar o abrir una página: "failed to write kernel assets: El sistema no puede encontrar la ruta especificada. (os error 3)". Un reset del kernel y un nuevo intento devolvieron el mismo error; la alternativa node_repl también falló al inicializar. Se detuvo el diagnóstico dentro del máximo de 20 minutos, sin reinstalar herramientas ni reconstruir infraestructura.
+
+Se comprobó que Docker QA estaba disponible: PostgreSQL 55432, MinIO 59000, ClamAV 53310 y Redis 56379. Los procesos existentes en 3021/5181 no se usaron como evidencia de F5. No se inició otra API/frontend al quedar bloqueado el control del navegador. No se alteraron cuentas, autenticación ni MFA para sortearlo.
+
+SHA recorrido en navegador: **NONE**. Quedan sin comprobar por UI filtros/indicadores, panel/Anterior/Siguiente, guardado/reload, lote, aclaración y relevo, takeover, cierre/novedades/reapertura y cambio de tenant. No hay capturas reales de esos estados y no se adjuntan imágenes simuladas. La aceptación visual/funcional del recorrido sigue pendiente.
+
+Intervención mínima propuesta: reiniciar la aplicación Codex y restablecer su herramienta de navegador; comprobar que cua.getState() puede inicializarse. Si persiste el error, soporte de la herramienta debe corregir la ruta de assets del kernel. Esto no exige cambios en Balanz, Docker ni su base. Después se debe iniciar API/frontend de este worktree con cuentas sintéticas aisladas y completar únicamente el recorrido pendiente.
+
+### Recuperación legacy desde storage: PASS
+
+SHA exacto ejecutado: **7851cb86015ab7e8395ba5a64dd15cdaa0a58e97**. Este commit añade únicamente apps/api/test/external/monthly-legacy.external.ts; no modifica el código de producto. Resultado: **1 test / 1 suite PASS, 33 comprobaciones, 4.121 s, exit 0**.
+
+Comando desde la raíz del worktree, con Node y Docker existentes en PATH:
+
+~~~powershell
+$env:RUN_MONTHLY_LEGACY_INTEGRATION='true'
+node apps/api/node_modules/jest/bin/jest.js --config apps/api/package.json --testRegex='test/external/monthly-legacy\.external\.ts$' --runInBand
+~~~
+
+Evidencia específica:
+
+- Base efímera test_monthly_<12 hex>, esquema existente sin cambios, roles API/worker NOINHERIT/NOSUPERUSER/NOBYPASSRLS; cada operación de recuperación usa el servicio real y su contexto RLS/claim.
+- Objetos sintéticos desechables en MinIO privado existente, adaptador S3 real con SSE AES256 y prefijo aleatorio propio. Se escanean exactamente sus bytes mediante ClamAV y se usa el parser SAX/XSD real, sin mocks.
+- Original íntegro sin intención ni participación: reconstruye fecha literal 2026-08-15T12:30:00 y conserva el instante histórico 2026-08-15T18:30:00Z, política 1.0.0 y timezone historical-unrecorded; vincula una sola participación al período agosto y resuelve el registro durable. No altera el incidente original.
+- Original ausente: no crea intención ni participación, conserva incidente abierto, estado failed y PARTICIPATION_RECONCILIATION_FAILED, libera lease y programa retry. Su estado/incidente es legible mediante el rol API bajo RLS. Esta es evidencia de persistencia/lectura autorizada; no acredita su presentación en navegador.
+- Restituyendo exclusivamente los bytes del objeto de prueba y adelantando sólo su reloj de retry en el fixture, recupera el mismo CFDI. Reejecuciones no duplican participaciones. No se añade un endpoint ni comportamiento nuevo.
+- Al terminar se borran únicamente esos objetos, la base efímera y sus logins; no se alteran datos compartidos ni políticas del bucket. Borrado lógico de objetos de prueba no acredita purga de versiones o backups.
+
+El fixture representa CFDI ya incorporados mediante inserciones de prueba: **no es evidencia de upload XML**. En la primera corrida el fixture sustituyó el UUID con una comparación sensible a mayúsculas aunque el parser normaliza a minúsculas; se corrigió el fixture y se verificó explícitamente la identidad del XML generado. No se encontró un defecto del código de producto en este camino. Las corridas intermedias no se suman al conteo final.
+
+ESLint del nuevo test y git diff --check: PASS. Jest compiló y ejecutó el test TypeScript. No se repitieron los 74 tests backend, 22 frontend, 65 comprobaciones anteriores ni builds: sólo cambió la comprobación externa, sin cambios en fuentes API/frontend. CI, deploy, migraciones, dependencias, custodia y SAT permanecieron intactos.
+
+El commit posterior a 7851cb8 actualiza exclusivamente este reporte. Su SHA final se registra en la PR y en la entrega, evitando una referencia circular dentro del propio commit. No merge ni despliegue.
+
+**PHASE_4: PARTIAL · REAL_CREDENTIALS_ENABLED: NO · REAL_SAT_ACCEPTANCE: NOT_RUN · RELEASE_STATUS: BLOCKED.** La recuperación legacy queda acreditada localmente; falta el recorrido visual solicitado. Esta evidencia no resuelve aceptación SAT real, perfil de titular, metadata ni aprobaciones operativas del MVP.
