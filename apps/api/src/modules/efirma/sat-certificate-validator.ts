@@ -33,6 +33,40 @@ export interface SatTrustBundle {
   intermediates: TrustCertificate[];
   generations: GenerationRule[];
 }
+const official = (url: string) => {
+  const u = new URL(url);
+  return (
+    u.protocol === 'https:' &&
+    !u.username &&
+    !u.password &&
+    (u.hostname === 'sat.gob.mx' ||
+      u.hostname.endsWith('.sat.gob.mx') ||
+      u.hostname === 'dof.gob.mx')
+  );
+};
+export const loadSatAuthority = (entry: TrustCertificate) => {
+  const bytes = Buffer.from(entry.derBase64, 'base64');
+  if (
+    createHash('sha256').update(bytes).digest('hex') !== entry.sha256 ||
+    !official(entry.sourceUrl)
+  )
+    throw new Error();
+  const cert = new Certificate({ schema: boundedDer(bytes) });
+  const native = new X509Certificate(bytes);
+  if (
+    !native.ca ||
+    native.publicKey.asymmetricKeyType !== 'rsa' ||
+    ![2048, 3072, 4096].includes(
+      native.publicKey.asymmetricKeyDetails?.modulusLength ?? 0,
+    ) ||
+    !['1.2.840.113549.1.1.11', '1.2.840.113549.1.1.13'].includes(
+      cert.signatureAlgorithm.algorithmId,
+    )
+  )
+    throw new Error();
+  return { cert, native, hash: entry.sha256 };
+};
+
 /** Offline validation implementation. No SAT generation is bundled or implicitly trusted. */
 export class SatCertificateValidator {
   constructor(private readonly bundlePath: string) {}
@@ -63,39 +97,8 @@ export class SatCertificateValidator {
         bundle.generations.length > 16
       )
         throw new Error();
-      const official = (url: string) => {
-        const u = new URL(url);
-        return (
-          u.protocol === 'https:' &&
-          !u.username &&
-          !u.password &&
-          (u.hostname === 'sat.gob.mx' ||
-            u.hostname.endsWith('.sat.gob.mx') ||
-            u.hostname === 'dof.gob.mx')
-        );
-      };
-      const load = (entry: TrustCertificate) => {
-        const bytes = Buffer.from(entry.derBase64, 'base64');
-        if (
-          createHash('sha256').update(bytes).digest('hex') !== entry.sha256 ||
-          !official(entry.sourceUrl)
-        )
-          throw new Error();
-        const cert = new Certificate({ schema: boundedDer(bytes) });
-        const native = new X509Certificate(bytes);
-        if (
-          !native.ca ||
-          native.publicKey.asymmetricKeyType !== 'rsa' ||
-          ![2048, 3072, 4096].includes(
-            native.publicKey.asymmetricKeyDetails?.modulusLength ?? 0,
-          ) ||
-          cert.signatureAlgorithm.algorithmId !== '1.2.840.113549.1.1.11'
-        )
-          throw new Error();
-        return { cert, native, hash: entry.sha256 };
-      };
-      const roots = bundle.roots.map(load),
-        intermediates = bundle.intermediates.map(load);
+      const roots = bundle.roots.map(loadSatAuthority),
+        intermediates = bundle.intermediates.map(loadSatAuthority);
       const leaf = new X509Certificate(certificate),
         parsed = new StructuredCertificate(Uint8Array.from(certificate), {
           berOptions: { maxDepth: 16, maxNodes: 512, maxContentLength: 16384 },

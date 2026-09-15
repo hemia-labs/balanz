@@ -51,7 +51,12 @@ export class EfirmaConsumerService {
         [intentionId],
       );
       const current = rows[0];
-      if (!current || current.generation !== generation)
+      if (
+        !current ||
+        current.generation !== generation ||
+        (this.repository.config.runtimeMode === 'real_pilot' &&
+          current.certificate_profile !== 'sat_efirma_v1')
+      )
         throw efirmaError('EFIRMA_NOT_CONSUMABLE');
       if (
         (current.purpose ?? 'efirma.prepare') !==

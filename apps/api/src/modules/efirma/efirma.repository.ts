@@ -1,3 +1,4 @@
+import { assertRealPilot } from '../../config/efirma-real-pilot';
 import { Injectable, Optional } from '@nestjs/common';
 import { FiscalMetricsService } from '../../common/observability/fiscal-metrics.service';
 import { ConfigService } from '@nestjs/config';
@@ -16,6 +17,7 @@ export interface SatCustodyBinding {
   filterVersion: 1;
 }
 export interface CustodyRow {
+  certificate_profile?: 'synthetic_v1' | 'sat_efirma_v1';
   purpose?: 'efirma.prepare' | 'sat.submit' | 'sat.recover';
   sat_job_id?: string | null;
   filter_version?: 1 | null;
@@ -96,6 +98,7 @@ export class EfirmaRepository {
 
   async generation(): Promise<string> {
     if (!this.config.enabled) throw efirmaError('EFIRMA_DISABLED', 503);
+    assertRealPilot(this.config);
     try {
       return await readCustodyGeneration(this.config.generationFile);
     } catch {
@@ -131,6 +134,7 @@ export class EfirmaRepository {
     > &
       Partial<Pick<CustodyRow, 'purpose' | 'sat_job_id' | 'filter_version'>>,
   ): Promise<void> {
+    if (row.purpose !== undefined) assertRealPilot(this.config, row);
     const rows: { allowed: boolean }[] = await manager.query(
       'SELECT efirma_authorized($1,$2,$3,$4,$5,$6,$7) AS allowed',
       [
@@ -232,6 +236,8 @@ export class EfirmaRepository {
     correlationId: string,
     binding?: SatCustodyBinding,
   ) {
+    if (this.config.runtimeMode === 'real_pilot' && !binding)
+      throw efirmaError('EFIRMA_SCOPE_DENIED', 403);
     const generation = await this.generation();
     const token = randomBytes(32).toString('hex');
     const id = randomUUID();

@@ -149,6 +149,13 @@ export class SatWorker implements OnModuleInit, OnModuleDestroy {
         await this.reconcileResults(run, fence, job, request.id);
         return;
       }
+      if (
+        this.custody.config.runtimeMode === 'real_pilot' &&
+        job.content_type !== 'xml'
+      ) {
+        await state('failed', 'SAT_PILOT_XML_ONLY', true);
+        return;
+      }
       if (!job.custody_id) {
         await state('requires_user_authorization');
         return;
@@ -570,7 +577,7 @@ export class SatWorker implements OnModuleInit, OnModuleDestroy {
     } finally {
       await run((m) =>
         m.query(
-          'UPDATE sat_download_jobs SET lease_token=NULL,lease_until=NULL WHERE id=$1 AND lease_token=$2 AND fence=$3',
+          "UPDATE sat_download_jobs SET lease_token=NULL,lease_until=NULL,next_attempt_at=greatest(next_attempt_at,clock_timestamp()+interval '5 seconds') WHERE id=$1 AND lease_token=$2 AND fence=$3",
           [id, token, job.fence],
         ),
       );
@@ -599,7 +606,8 @@ export class SatWorker implements OnModuleInit, OnModuleDestroy {
         });
         continue;
       }
-      if (!p.downloaded_at || p.ingestion_job_id) continue;
+      if (p.status !== 'stored' || !p.downloaded_at || p.ingestion_job_id)
+        continue;
       const objects = await run((m) =>
         m.query<{ object_key: string; sha256: string; size_bytes: string }[]>(
           "SELECT object_key,sha256,size_bytes FROM stored_objects WHERE id=$1 AND lifecycle_state IN('uploaded','available','quarantined')",

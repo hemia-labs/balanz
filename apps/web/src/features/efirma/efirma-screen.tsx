@@ -39,8 +39,7 @@ export function EfirmaScreen({ clientId }: { clientId: string }) {
     <div className="space-y-5">
       <h1 className="text-page-title">e.firma temporal</h1>
       <p>
-        La custodia y descarga SAT admiten únicamente certificados sintéticos en
-        QA aislado.
+        El uso de e.firma real requiere habilitación y autorización expresa de un piloto. La preparación independiente conserva su alcance de pruebas sintéticas.
       </p>
       {loading ? (
         <p role="status">Consultando entidad fiscal…</p>

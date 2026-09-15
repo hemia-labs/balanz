@@ -34,6 +34,7 @@ export interface SatProcess {
   legalEntityId: string;
   status: string;
   errorCode: string | null;
+  technicalRetry?: { eligible: boolean; allowed: boolean; availableAt: string | null; remainingAttempts: number };
   contentType: "xml" | "metadata";
   counters?: {
     total: number;
@@ -54,4 +55,9 @@ export interface SatPackage {
   download_attempts: number;
   uncertain_attempts: number;
   ingestion_job_id: string | null;
+}
+
+export function technicalRetryAction(process: SatProcess): 'hidden' | 'waiting' | 'ready' {
+  if (!process.technicalRetry?.eligible || process.technicalRetry.remainingAttempts <= 0) return 'hidden';
+  return process.technicalRetry.allowed ? 'ready' : 'waiting';
 }

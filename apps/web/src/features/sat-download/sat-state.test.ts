@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { pollSat, canAuthorizeSat, satRecovery, satLabels } from "./sat-state";
+import { pollSat, canAuthorizeSat, satRecovery, satLabels, technicalRetryAction, type SatProcess } from "./sat-state";
 test("only active execution polls, waiting SAT requires explicit authorization", () => {
   for (const s of ["submitting", "recovering", "processing_local"])
     assert.equal(pollSat(s), true);
@@ -45,4 +45,12 @@ test("browser recovery accepts only durable UUID, never credentials or keys", ()
 test("wait and user action have different product messages", () => {
   assert.notEqual(satLabels.waiting_sat, satLabels.requires_user_authorization);
   assert.ok(satLabels.completed_with_issues);
+});
+
+test('technical retry follows server eligibility, backoff and exhausted budget', () => {
+  const process = { status: 'requires_user_authorization', errorCode: 'SAT_TECHNICAL_FAILURE', technicalRetry: { eligible: true, allowed: false, availableAt: '2026-09-15T12:00:00Z', remainingAttempts: 2 } } as SatProcess;
+  assert.equal(technicalRetryAction(process), 'waiting');
+  assert.equal(technicalRetryAction({ ...process, technicalRetry: { ...process.technicalRetry!, allowed: true } }), 'ready');
+  assert.equal(technicalRetryAction({ ...process, status: 'failed', technicalRetry: { eligible: false, allowed: false, availableAt: null, remainingAttempts: 0 } }), 'hidden');
+  assert.equal(technicalRetryAction({ ...process, technicalRetry: undefined }), 'hidden');
 });

@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { credentialFileError } from "@/features/efirma/credential-state";
 import {
   satLabels,
+  technicalRetryAction,
   pollSat,
   canAuthorizeSat,
   type SatProcess,
@@ -106,6 +107,8 @@ export function SatPanel({
         setError(
           e instanceof ApiError && e.code === "SAT_DISABLED"
             ? "La descarga SAT está desactivada en este ambiente."
+            : e instanceof ApiError && e.code === "SAT_PILOT_XML_ONLY"
+              ? "El piloto admite sólo XML. La validación del contrato real de metadata sigue pendiente."
             : "No se pudo completar la operación. Revisa los datos y vuelve a consultar el proceso.",
         );
     } finally {
@@ -204,7 +207,7 @@ export function SatPanel({
         Descarga SAT a solicitud
       </h2>
       <p>
-        Disponible únicamente para pruebas aisladas con certificados sintéticos.
+        El uso real requiere un piloto habilitado y autorización expresa. El primer piloto admite sólo XML; metadata permanece en pruebas.
         No ingreses una e.firma real.
       </p>
       {error ? <p role="alert">{error}</p> : null}
@@ -359,10 +362,13 @@ export function SatPanel({
             >
               Cancelar en Hemia
             </Button>
-            {process.status === "failed" ? (
-              <Button disabled={busy} onClick={() => void command("retry")}>
-                Solicitar reintento
-              </Button>
+            {technicalRetryAction(process) !== "hidden" ? (
+              <div>
+                <Button disabled={busy || technicalRetryAction(process) !== "ready"} onClick={() => void command("retry")}>
+                  Solicitar reintento
+                </Button>
+                {technicalRetryAction(process) === "waiting" ? <p>Reintento disponible desde {process.technicalRetry?.availableAt}. Consulta el estado después de esa hora.</p> : null}
+              </div>
             ) : null}
           </div>
           <div className="overflow-x-auto">

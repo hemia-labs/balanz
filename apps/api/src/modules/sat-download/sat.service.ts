@@ -1,3 +1,4 @@
+import { assertRealPilot } from '../../config/efirma-real-pilot';
 import { Injectable, HttpException } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import type { EntityManager } from 'typeorm';
@@ -19,7 +20,19 @@ export function satHttp(code: string, status = 409): never {
 }
 export function satEnabled() {
   if (process.env.SAT_ENABLED !== 'true') satHttp('SAT_DISABLED', 503);
+  const real = process.env.EFIRMA_RUNTIME_MODE === 'real_pilot';
   if (
+    real &&
+    process.env.NODE_ENV === 'production' &&
+    process.env.EFIRMA_ENABLED === 'true' &&
+    process.env.EFIRMA_CERTIFICATE_PROFILE === 'sat_efirma_v1' &&
+    process.env.SAT_QA_ISOLATED !== 'true' &&
+    process.env.EFIRMA_QA_ISOLATED !== 'true' &&
+    !process.env.SAT_CONTROLLED_ENDPOINT
+  )
+    return;
+  if (
+    real ||
     process.env.NODE_ENV !== 'test' ||
     process.env.SAT_QA_ISOLATED !== 'true' ||
     process.env.EFIRMA_ENABLED !== 'true'
@@ -48,6 +61,15 @@ export class SatService {
     correlation: string,
   ) {
     satEnabled();
+    assertRealPilot(this.custody.config, {
+      organization_id: tenant.organizationId ?? '',
+      legal_entity_id: input.legalEntityId,
+    });
+    if (
+      this.custody.config.runtimeMode === 'real_pilot' &&
+      input.contentType !== 'xml'
+    )
+      satHttp('SAT_PILOT_XML_ONLY', 422);
     if (!/^[a-zA-Z0-9._:-]{8,128}$/.test(key))
       satHttp('SAT_IDEMPOTENCY_REQUIRED', 400);
     if (
@@ -135,7 +157,7 @@ export class SatService {
           row.id,
         ],
       );
-      await this.audit(m, row, 'sat.created', correlation);
+      await this.audit(m, tenant, row, 'sat.created', correlation);
       return this.dto(row);
     });
   }
@@ -270,8 +292,15 @@ export class SatService {
         result: string | null;
         cfdiId: string | null;
       }[] = await m.query(
-        `SELECT i.id,i.ordinal,i.safe_filename AS "filename",i.product_result AS result,i.error_code AS "errorCode",CASE WHEN $5::boolean THEN i.cfdi_id ELSE NULL END AS "cfdiId" FROM ingestion_items i JOIN sat_packages p ON p.ingestion_job_id=i.ingestion_job_id JOIN sat_requests r ON r.id=p.request_id WHERE r.job_id=$1 AND p.id=$2 AND i.ordinal>$3 ORDER BY i.ordinal LIMIT $4`,
-        [id, packageId, after, limit, tenant.permissions.includes('cfdi.view')],
+        `SELECT i.id,i.ordinal,i.safe_filename AS "filename",i.product_result AS result,i.error_code AS "errorCode",CASE WHEN $5::boolean AND (i.document_type IS DISTINCT FROM 'N' OR $6::boolean) THEN i.cfdi_id ELSE NULL END AS "cfdiId" FROM ingestion_items i JOIN sat_packages p ON p.ingestion_job_id=i.ingestion_job_id JOIN sat_requests r ON r.id=p.request_id WHERE r.job_id=$1 AND p.id=$2 AND i.ordinal>$3 ORDER BY i.ordinal LIMIT $4`,
+        [
+          id,
+          packageId,
+          after,
+          limit,
+          tenant.permissions.includes('cfdi.view'),
+          tenant.permissions.includes('payroll.view'),
+        ],
       );
       return {
         items: rows,
@@ -286,6 +315,11 @@ export class SatService {
     satEnabled();
     return this.custody.run(tenant, async (m) => {
       const row = await this.load(m, tenant, id, true);
+      if (
+        this.custody.config.runtimeMode === 'real_pilot' &&
+        row.content_type !== 'xml'
+      )
+        satHttp('SAT_PILOT_XML_ONLY', 422);
       if (
         row.user_id !== tenant.userId ||
         row.membership_id !== tenant.membershipId ||
@@ -396,7 +430,7 @@ export class SatService {
           'UPDATE sat_download_jobs SET cancel_requested_at=coalesce(cancel_requested_at,clock_timestamp()),next_attempt_at=clock_timestamp() WHERE id=$1',
           [id],
         );
-        await this.audit(m, row, 'sat.cancel_requested', correlation);
+        await this.audit(m, tenant, row, 'sat.cancel_requested', correlation);
       }
       return { id, cancelRequested: true };
     });
@@ -455,12 +489,23 @@ export class SatService {
           [id],
         );
       }
-      await this.audit(m, row, 'sat.retry_requested', correlation);
+      await this.audit(m, tenant, row, 'sat.retry_requested', correlation);
       return { id };
     });
   }
   dto(row: SatJobRow) {
+    const retryEligible =
+      !row.cancel_requested_at &&
+      row.status === 'requires_user_authorization' &&
+      row.error_code === 'SAT_TECHNICAL_FAILURE' &&
+      row.technical_retries < 3;
     return {
+      technicalRetry: {
+        eligible: retryEligible,
+        allowed: retryEligible && row.next_attempt_at.getTime() <= Date.now(),
+        availableAt: retryEligible ? row.next_attempt_at.toISOString() : null,
+        remainingAttempts: Math.max(0, 3 - row.technical_retries),
+      },
       id: row.id,
       legalEntityId: row.legal_entity_id,
       status: row.status,
@@ -486,6 +531,7 @@ export class SatService {
   }
   async audit(
     m: EntityManager,
+    tenant: SessionAuthorizationContext,
     row: SatJobRow,
     action: string,
     correlation: string,
@@ -494,8 +540,8 @@ export class SatService {
       `INSERT INTO audit_events(organization_id,actor_type,actor_user_id,actor_membership_id,client_account_id,legal_entity_id,action,permission_key,decision,object_type,object_id,correlation_id,metadata) VALUES($1,'user',$2,$3,$4,$5,$6,'sat.download','ALLOW','sat_download_job',$7,$8,'{}'::jsonb)`,
       [
         row.organization_id,
-        row.user_id,
-        row.membership_id,
+        tenant.userId,
+        tenant.membershipId,
         row.client_account_id,
         row.legal_entity_id,
         action,

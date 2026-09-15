@@ -1,3 +1,6 @@
+import { ConfigService } from '@nestjs/config';
+import type { EfirmaConfig } from '../../config/efirma.config';
+import { assertRealPilot } from '../../config/efirma-real-pilot';
 import { FiscalMetricsService } from '../../common/observability/fiscal-metrics.service';
 import { Module } from '@nestjs/common';
 import { AuthModule } from '../auth/auth.module';
@@ -27,10 +30,21 @@ export class SatApiModule {}
   providers: [
     {
       provide: 'SAT_ADAPTER',
-      inject: [FiscalMetricsService],
-      useFactory: (metrics: FiscalMetricsService) => {
+      inject: [FiscalMetricsService, ConfigService],
+      useFactory: (
+        metrics: FiscalMetricsService,
+        configuration: ConfigService,
+      ) => {
         if (process.env.SAT_ENABLED !== 'true') return null;
         satEnabled();
+        const custody = configuration.getOrThrow<EfirmaConfig>('efirma');
+        if (custody.runtimeMode === 'real_pilot') {
+          assertRealPilot(custody);
+          return new SatAdapter(
+            { ...PRODUCTION_ENDPOINTS, isolated: false },
+            metrics,
+          );
+        }
         const local = process.env.SAT_CONTROLLED_ENDPOINT;
         if (!local) throw new Error('SAT_CONTROLLED_ENDPOINT_REQUIRED');
         return new SatAdapter(

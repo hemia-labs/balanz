@@ -1,0 +1,381 @@
+{
+  "sourceUrl": "https://wwwmat.sat.gob.mx/cs/Satellite?blobcol=urldata&blobkey=id&blobtable=MungoBlobs&blobwhere=1461175745719&ssbinary=true",
+  "consultedAt": "2026-09-15",
+  "zipSha256": "c58f3fe92e23d1c82cee46e8b2356b69b0e216b23bbec86eefdc280822ad6af7",
+  "classification": "public evidence only; not a runtime trust bundle",
+  "certificates": [
+    {
+      "file": "Cert_Prod/AC0_SAT.cer",
+      "fileSha256": "dea351137799ea3841217710308eca5f37fd2f4ae3dfca7f7580fcbc1e5fe6a4",
+      "derSha256": "dea351137799ea3841217710308eca5f37fd2f4ae3dfca7f7580fcbc1e5fe6a4",
+      "subject": "O=Servicio de Administración Tributaria",
+      "issuer": "C=MX",
+      "validFrom": "Oct 27 05:00:00 2004 GMT",
+      "validTo": "Oct 27 06:00:00 2008 GMT",
+      "ca": true,
+      "bits": 2048,
+      "algorithm": "1.2.840.113549.1.1.4",
+      "selfSignature": false,
+      "verifiedIssuers": [
+        "Cert_Prod/ARC0_IES.cer"
+      ]
+    },
+    {
+      "file": "Cert_Prod/AC1_SAT.cer",
+      "fileSha256": "94bda1051d48706b73c427e0c5c990771cece1d3b061c8bca278be686908a2e6",
+      "derSha256": "c56a29f41377062c4686c9af0cf00cd48176f22f356239a4616c8c3bf669c6d8",
+      "subject": "CN=A.C. del Servicio de Administración Tributaria",
+      "issuer": "CN=A.C. del Servicio de Administración Tributaria",
+      "validFrom": "Oct 16 18:29:40 2008 GMT",
+      "validTo": "Oct 14 18:29:40 2016 GMT",
+      "ca": true,
+      "bits": 2048,
+      "algorithm": "1.2.840.113549.1.1.5",
+      "selfSignature": true,
+      "verifiedIssuers": [
+        "Cert_Prod/AC1_SAT.cer"
+      ]
+    },
+    {
+      "file": "Cert_Prod/AC2_SAT.cer",
+      "fileSha256": "4e166a2a5d88ada1f24dfe1a85b56fcc905322f805ef6a6b67472de5f6a20869",
+      "derSha256": "4e166a2a5d88ada1f24dfe1a85b56fcc905322f805ef6a6b67472de5f6a20869",
+      "subject": "CN=A.C. del Servicio de Administración Tributaria",
+      "issuer": "C=MX",
+      "validFrom": "Dec 16 20:15:17 2011 GMT",
+      "validTo": "Dec 16 20:15:17 2019 GMT",
+      "ca": true,
+      "bits": 2048,
+      "algorithm": "1.2.840.113549.1.1.5",
+      "selfSignature": false,
+      "verifiedIssuers": [
+        "Cert_Prod/ARC2_IES.crt",
+        "Cert_Prod/ARC3_IES.crt",
+        "Cert_Prod/ARC4_IES.crt"
+      ]
+    },
+    {
+      "file": "Cert_Prod/AC3_SAT.cer",
+      "fileSha256": "cef5304ab651e3031f8010ad68b557d0489214aa715f76fcd55d602109c44236",
+      "derSha256": "cef5304ab651e3031f8010ad68b557d0489214aa715f76fcd55d602109c44236",
+      "subject": "CN=A.C. del Servicio de Administración Tributaria",
+      "issuer": "C=MX",
+      "validFrom": "Apr 29 16:41:56 2013 GMT",
+      "validTo": "Apr 29 16:41:56 2021 GMT",
+      "ca": true,
+      "bits": 2048,
+      "algorithm": "1.2.840.113549.1.1.5",
+      "selfSignature": false,
+      "verifiedIssuers": [
+        "Cert_Prod/ARC2_IES.crt",
+        "Cert_Prod/ARC3_IES.crt",
+        "Cert_Prod/ARC4_IES.crt"
+      ]
+    },
+    {
+      "file": "Cert_Prod/AC4_SAT.cer",
+      "fileSha256": "9ce0c3a0a7b4b992388cfd903ca2241af5187e45bceb23af735fc4e3b206afce",
+      "derSha256": "9ce0c3a0a7b4b992388cfd903ca2241af5187e45bceb23af735fc4e3b206afce",
+      "subject": "CN=A.C. del Servicio de Administración Tributaria",
+      "issuer": "C=MX",
+      "validFrom": "May 25 18:04:20 2015 GMT",
+      "validTo": "May 25 18:04:20 2023 GMT",
+      "ca": true,
+      "bits": 4096,
+      "algorithm": "1.2.840.113549.1.1.11",
+      "selfSignature": false,
+      "verifiedIssuers": [
+        "Cert_Prod/ARC2_IES.crt",
+        "Cert_Prod/ARC3_IES.crt",
+        "Cert_Prod/ARC4_IES.crt"
+      ]
+    },
+    {
+      "file": "Cert_Prod/AC5_SAT.cer",
+      "fileSha256": "1ac6325143920fc047b6506e42540944fa6590b44560807b564c5603d15add8e",
+      "derSha256": "1ac6325143920fc047b6506e42540944fa6590b44560807b564c5603d15add8e",
+      "subject": "CN=AUTORIDAD CERTIFICADORA",
+      "issuer": "C=MX",
+      "validFrom": "May  3 16:19:09 2019 GMT",
+      "validTo": "May  3 16:19:09 2027 GMT",
+      "ca": true,
+      "bits": 4096,
+      "algorithm": "1.2.840.113549.1.1.11",
+      "selfSignature": false,
+      "verifiedIssuers": [
+        "Cert_Prod/ARC5_IES.cer",
+        "Cert_Prod/ARC5_IES.crt"
+      ]
+    },
+    {
+      "file": "Cert_Prod/AC5_SAT.crt",
+      "fileSha256": "d51a66ac74963220c573c9e28eb06b47e7f1f1bee2a0696ad034b29bd649f4a2",
+      "derSha256": "1ac6325143920fc047b6506e42540944fa6590b44560807b564c5603d15add8e",
+      "subject": "CN=AUTORIDAD CERTIFICADORA",
+      "issuer": "C=MX",
+      "validFrom": "May  3 16:19:09 2019 GMT",
+      "validTo": "May  3 16:19:09 2027 GMT",
+      "ca": true,
+      "bits": 4096,
+      "algorithm": "1.2.840.113549.1.1.11",
+      "selfSignature": false,
+      "verifiedIssuers": [
+        "Cert_Prod/ARC5_IES.cer",
+        "Cert_Prod/ARC5_IES.crt"
+      ]
+    },
+    {
+      "file": "Cert_Prod/AC6_SAT.crt",
+      "fileSha256": "8a5c0fd3fcc9df62f3551a11635da3b7cec3a4010a755c0514a136a978b98a7b",
+      "derSha256": "054e8f213ff2228254d8f87ec43d2e7c2eda628d927c270b9a77d1d09eef9418",
+      "subject": "CN=A.C. del Servicio de AdministraciÃ³n Tributaria",
+      "issuer": "C=MX",
+      "validFrom": "Mar 24 03:31:40 2023 GMT",
+      "validTo": "Mar 24 03:31:40 2031 GMT",
+      "ca": true,
+      "bits": 4096,
+      "algorithm": "1.2.840.113549.1.1.13",
+      "selfSignature": false,
+      "verifiedIssuers": [
+        "Cert_Prod/ARC6_IES.crt",
+        "Cert_Prod/ARC7_IES.crt"
+      ]
+    },
+    {
+      "file": "Cert_Prod/AC7.crt",
+      "fileSha256": "93819cb5eadac506607ff10749590fca354705cdff2d75f1214699b600dc6d90",
+      "derSha256": "6d1d1f871f0d69233fc94526fecf826bee67181782d6b7e5320b279c97e8dac7",
+      "subject": "CN=AC DEL SERVICIO DE ADMINISTRACION TRIBUTARIA",
+      "issuer": "C=MX",
+      "validFrom": "May 23 22:24:10 2023 GMT",
+      "validTo": "May 23 22:24:10 2031 GMT",
+      "ca": true,
+      "bits": 4096,
+      "algorithm": "1.2.840.113549.1.1.13",
+      "selfSignature": false,
+      "verifiedIssuers": [
+        "Cert_Prod/ARC6_IES.crt",
+        "Cert_Prod/ARC7_IES.crt"
+      ]
+    },
+    {
+      "file": "Cert_Prod/ARC0_IES.cer",
+      "fileSha256": "11f0f4ab4b06105af76b0b98f3643c4cd1c26ebd9db51524166cf5ccdb39f172",
+      "derSha256": "11f0f4ab4b06105af76b0b98f3643c4cd1c26ebd9db51524166cf5ccdb39f172",
+      "subject": "C=MX",
+      "issuer": "C=MX",
+      "validFrom": "Jun 20 16:07:57 2001 GMT",
+      "validTo": "Jun 20 16:07:57 2011 GMT",
+      "ca": false,
+      "bits": 2048,
+      "algorithm": "1.2.840.113549.1.1.4",
+      "selfSignature": true,
+      "verifiedIssuers": [
+        "Cert_Prod/ARC0_IES.cer"
+      ]
+    },
+    {
+      "file": "Cert_Prod/ARC1_IES.cer",
+      "fileSha256": "b2b77ad7f5513fecb543abbb9290650125ecc995d0fe4a75348f030705385eb4",
+      "derSha256": "b2b77ad7f5513fecb543abbb9290650125ecc995d0fe4a75348f030705385eb4",
+      "subject": "O=Banco de Mexico",
+      "issuer": "O=Banco de Mexico",
+      "validFrom": "Mar 25 00:06:19 2008 GMT",
+      "validTo": "Mar 25 00:06:19 2016 GMT",
+      "ca": true,
+      "bits": 2048,
+      "algorithm": "1.2.840.113549.1.1.5",
+      "selfSignature": true,
+      "verifiedIssuers": [
+        "Cert_Prod/ARC1_IES.cer"
+      ]
+    },
+    {
+      "file": "Cert_Prod/ARC2_IES.crt",
+      "fileSha256": "065c577268841d93ce91786adb7faebc597db9d9f91c227059f27c476812dd63",
+      "derSha256": "5035edf21401e2d23fe39ac1893ee02fa7bd09a870619ecb13e3f1b29e8a0009",
+      "subject": "C=MX",
+      "issuer": "C=MX",
+      "validFrom": "Jul 20 18:32:51 2010 GMT",
+      "validTo": "Jul 20 18:32:51 2026 GMT",
+      "ca": true,
+      "bits": 2784,
+      "algorithm": "1.2.840.113549.1.1.5",
+      "selfSignature": true,
+      "verifiedIssuers": [
+        "Cert_Prod/ARC2_IES.crt",
+        "Cert_Prod/ARC3_IES.crt",
+        "Cert_Prod/ARC4_IES.crt"
+      ]
+    },
+    {
+      "file": "Cert_Prod/ARC3_IES.crt",
+      "fileSha256": "065c577268841d93ce91786adb7faebc597db9d9f91c227059f27c476812dd63",
+      "derSha256": "5035edf21401e2d23fe39ac1893ee02fa7bd09a870619ecb13e3f1b29e8a0009",
+      "subject": "C=MX",
+      "issuer": "C=MX",
+      "validFrom": "Jul 20 18:32:51 2010 GMT",
+      "validTo": "Jul 20 18:32:51 2026 GMT",
+      "ca": true,
+      "bits": 2784,
+      "algorithm": "1.2.840.113549.1.1.5",
+      "selfSignature": true,
+      "verifiedIssuers": [
+        "Cert_Prod/ARC2_IES.crt",
+        "Cert_Prod/ARC3_IES.crt",
+        "Cert_Prod/ARC4_IES.crt"
+      ]
+    },
+    {
+      "file": "Cert_Prod/ARC4_IES.crt",
+      "fileSha256": "065c577268841d93ce91786adb7faebc597db9d9f91c227059f27c476812dd63",
+      "derSha256": "5035edf21401e2d23fe39ac1893ee02fa7bd09a870619ecb13e3f1b29e8a0009",
+      "subject": "C=MX",
+      "issuer": "C=MX",
+      "validFrom": "Jul 20 18:32:51 2010 GMT",
+      "validTo": "Jul 20 18:32:51 2026 GMT",
+      "ca": true,
+      "bits": 2784,
+      "algorithm": "1.2.840.113549.1.1.5",
+      "selfSignature": true,
+      "verifiedIssuers": [
+        "Cert_Prod/ARC2_IES.crt",
+        "Cert_Prod/ARC3_IES.crt",
+        "Cert_Prod/ARC4_IES.crt"
+      ]
+    },
+    {
+      "file": "Cert_Prod/ARC5_IES.cer",
+      "fileSha256": "cbf3e084a86cac5ef1060b9242196eec15e8786931ffff05466ba7becd43b15e",
+      "derSha256": "cbf3e084a86cac5ef1060b9242196eec15e8786931ffff05466ba7becd43b15e",
+      "subject": "C=MX",
+      "issuer": "C=MX",
+      "validFrom": "Dec  7 19:30:51 2018 GMT",
+      "validTo": "Dec  3 19:30:51 2034 GMT",
+      "ca": true,
+      "bits": 4096,
+      "algorithm": "1.2.840.113549.1.1.13",
+      "selfSignature": true,
+      "verifiedIssuers": [
+        "Cert_Prod/ARC5_IES.cer",
+        "Cert_Prod/ARC5_IES.crt"
+      ]
+    },
+    {
+      "file": "Cert_Prod/ARC5_IES.crt",
+      "fileSha256": "e89a2ae35713aaab0daf386b2660c0228e2df8afd8a175549e8a8b19e624c938",
+      "derSha256": "cbf3e084a86cac5ef1060b9242196eec15e8786931ffff05466ba7becd43b15e",
+      "subject": "C=MX",
+      "issuer": "C=MX",
+      "validFrom": "Dec  7 19:30:51 2018 GMT",
+      "validTo": "Dec  3 19:30:51 2034 GMT",
+      "ca": true,
+      "bits": 4096,
+      "algorithm": "1.2.840.113549.1.1.13",
+      "selfSignature": true,
+      "verifiedIssuers": [
+        "Cert_Prod/ARC5_IES.cer",
+        "Cert_Prod/ARC5_IES.crt"
+      ]
+    },
+    {
+      "file": "Cert_Prod/ARC6_IES.crt",
+      "fileSha256": "521c64469002ad5489c6b74eb2f14bb377c8e427825cd731b1f72baa26a142e2",
+      "derSha256": "a86baf49b2e91d0141722c4e7026ab246183a8072926e9983edbd4e5ba72515d",
+      "subject": "C=MX",
+      "issuer": "C=MX",
+      "validFrom": "Mar 17 23:31:34 2023 GMT",
+      "validTo": "Mar 17 23:31:34 2039 GMT",
+      "ca": true,
+      "bits": 4096,
+      "algorithm": "1.2.840.113549.1.1.13",
+      "selfSignature": true,
+      "verifiedIssuers": [
+        "Cert_Prod/ARC6_IES.crt",
+        "Cert_Prod/ARC7_IES.crt"
+      ]
+    },
+    {
+      "file": "Cert_Prod/ARC7_IES.crt",
+      "fileSha256": "521c64469002ad5489c6b74eb2f14bb377c8e427825cd731b1f72baa26a142e2",
+      "derSha256": "a86baf49b2e91d0141722c4e7026ab246183a8072926e9983edbd4e5ba72515d",
+      "subject": "C=MX",
+      "issuer": "C=MX",
+      "validFrom": "Mar 17 23:31:34 2023 GMT",
+      "validTo": "Mar 17 23:31:34 2039 GMT",
+      "ca": true,
+      "bits": 4096,
+      "algorithm": "1.2.840.113549.1.1.13",
+      "selfSignature": true,
+      "verifiedIssuers": [
+        "Cert_Prod/ARC6_IES.crt",
+        "Cert_Prod/ARC7_IES.crt"
+      ]
+    },
+    {
+      "file": "Cert_Prod/ocsp.ac4_sat.cer",
+      "fileSha256": "1f73017592d84212dfa45da778a411aa520e286ebeb90ff1794ba0140f22d843",
+      "derSha256": "1f73017592d84212dfa45da778a411aa520e286ebeb90ff1794ba0140f22d843",
+      "subject": "O=Servicio de AdministraciÃ³n Tributaria",
+      "issuer": "CN=A.C. del Servicio de Administración Tributaria",
+      "validFrom": "Jul  1 00:25:40 2015 GMT",
+      "validTo": "Jul  1 00:27:00 2023 GMT",
+      "ca": false,
+      "bits": 2048,
+      "algorithm": "1.2.840.113549.1.1.11",
+      "selfSignature": false,
+      "verifiedIssuers": [
+        "Cert_Prod/AC4_SAT.cer"
+      ]
+    },
+    {
+      "file": "Cert_Prod/ocsp.ac5_sat.cer",
+      "fileSha256": "ef78332483d7850ef5019f4bd1012a88f64b40a4a7e5bbb84f949bd0eaa65940",
+      "derSha256": "ef78332483d7850ef5019f4bd1012a88f64b40a4a7e5bbb84f949bd0eaa65940",
+      "subject": "O=Servicio de AdministraciÃ³n Tributaria",
+      "issuer": "CN=AUTORIDAD CERTIFICADORA",
+      "validFrom": "May  6 20:44:49 2019 GMT",
+      "validTo": "Sep 13 20:44:49 2027 GMT",
+      "ca": false,
+      "bits": 2048,
+      "algorithm": "1.2.840.113549.1.1.11",
+      "selfSignature": false,
+      "verifiedIssuers": [
+        "Cert_Prod/AC5_SAT.cer",
+        "Cert_Prod/AC5_SAT.crt"
+      ]
+    },
+    {
+      "file": "Cert_Prod/OCSP.AC6_SAT.cer",
+      "fileSha256": "500ee1d4cee16928a4d3ddb90776d3a25261fcb03b438dd59a974546c33f9ae5",
+      "derSha256": "500ee1d4cee16928a4d3ddb90776d3a25261fcb03b438dd59a974546c33f9ae5",
+      "subject": "O=Servicio de Administracion Tributaria",
+      "issuer": "CN=A.C. del Servicio de AdministraciÃ³n Tributaria",
+      "validFrom": "Apr  5 16:15:04 2023 GMT",
+      "validTo": "Apr  5 16:15:04 2031 GMT",
+      "ca": false,
+      "bits": 2048,
+      "algorithm": "1.2.840.113549.1.1.11",
+      "selfSignature": false,
+      "verifiedIssuers": [
+        "Cert_Prod/AC6_SAT.crt"
+      ]
+    },
+    {
+      "file": "Cert_Prod/OCSP7.crt",
+      "fileSha256": "5dd9e227bd4209ba04ccd60e16bc266c82747320e5bc83c5d147b1a65b3fafb0",
+      "derSha256": "9c983e232bf3159f49075f158887aa1a23f801dc44ebcf4f7e11d15b0f6a644e",
+      "subject": "O=Servicio de Administracion Tributaria",
+      "issuer": "CN=AC DEL SERVICIO DE ADMINISTRACION TRIBUTARIA",
+      "validFrom": "May 24 04:29:53 2023 GMT",
+      "validTo": "May 24 04:29:53 2031 GMT",
+      "ca": false,
+      "bits": 2048,
+      "algorithm": "1.2.840.113549.1.1.11",
+      "selfSignature": false,
+      "verifiedIssuers": [
+        "Cert_Prod/AC7.crt"
+      ]
+    }
+  ]
+}

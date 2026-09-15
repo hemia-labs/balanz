@@ -606,3 +606,39 @@ describe('ManualXmlJobHandler', () => {
     expect(dependencies.storage.openReadStream).not.toHaveBeenCalled();
   });
 });
+
+describe('SAT payroll boundary', () => {
+  it.each(['sat_package', 'manual_xml'] as const)(
+    'preserves payroll scope for %s',
+    async (sourceType) => {
+      const deps = setup({
+        parser: {
+          parse: jest.fn().mockResolvedValue({
+            ...parsed,
+            document: { ...parsed.document, documentType: 'N' },
+          }),
+        },
+      });
+      const processor = new XmlObjectProcessor(
+        deps.storage,
+        deps.scanner,
+        deps.parser,
+        deps.persistence,
+      );
+      await processor.process(
+        { ...claim, sourceType },
+        input,
+        new AbortController().signal,
+      );
+      if (sourceType === 'sat_package') {
+        expect(deps.persistence.publishParsed).not.toHaveBeenCalled();
+        expect(deps.persistence.publishRejected).toHaveBeenCalledWith(
+          { ...claim, sourceType },
+          input,
+          'unsupported',
+          'SAT_PAYROLL_UNSUPPORTED',
+        );
+      } else expect(deps.persistence.publishParsed).toHaveBeenCalled();
+    },
+  );
+});

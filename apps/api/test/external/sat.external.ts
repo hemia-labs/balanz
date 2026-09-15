@@ -919,6 +919,219 @@ describe('Phase 4 real isolated PostgreSQL, Vault and private MinIO', () => {
         'restart after consumed credential requires fresh authorization',
       );
       await service.cancel(tenant, fencedJob.id, randomUUID());
+      // PR25: real database scheduling fairness with more jobs than the batch size.
+      const waitingJobs: string[] = [];
+      for (let i = 0; i < 20; i++) {
+        const waiting = await service.create(
+          tenant,
+          filters,
+          randomUUID(),
+          randomUUID(),
+        );
+        waitingJobs.push(waiting.id);
+        await db.query(
+          "UPDATE sat_download_jobs SET status='processing_local',next_attempt_at='2000-01-01' WHERE id=$1",
+          [waiting.id],
+        );
+      }
+      const later = await service.create(
+        tenant,
+        filters,
+        randomUUID(),
+        randomUUID(),
+      );
+      await service.cancel(tenant, later.id, randomUUID());
+      await db.query(
+        "UPDATE sat_download_jobs SET next_attempt_at='2001-01-01' WHERE id=$1",
+        [later.id],
+      );
+      await satWorker.tick();
+      check(
+        (await service.get(tenant, later.id)).status !== 'cancelled',
+        'first twenty still fill the first batch',
+      );
+      await satWorker.tick();
+      check(
+        (await service.get(tenant, later.id)).status === 'cancelled',
+        'later cancellation is served while first twenty remain active',
+      );
+      check(
+        (
+          await db.query(
+            "SELECT count(*)::int n FROM sat_download_jobs WHERE id=ANY($1::uuid[]) AND status='processing_local'",
+            [waitingJobs],
+          )
+        )[0].n === 20,
+        'fairness does not depend on completing first twenty',
+      );
+      for (const waiting of waitingJobs)
+        await service.cancel(tenant, waiting, randomUUID());
+      await satWorker.tick();
+      await satWorker.tick();
+
+      // A different assigned accountant must be the audited actor.
+      const other: SessionAuthorizationContext = {
+        ...tenant,
+        userId: randomUUID(),
+        membershipId: randomUUID(),
+        sessionId: randomUUID(),
+        accountAccessMode: 'assigned',
+        assignedAccountIds: [account],
+      };
+      await db.query(
+        "INSERT INTO users(id,first_name,last_name,email,status,password_hash,email_verified_at) VALUES($1,'Assigned','QA',$2,'active','no-login',clock_timestamp())",
+        [other.userId, 'assigned-' + suffix + '@example.invalid'],
+      );
+      await db.query(
+        "INSERT INTO memberships(id,organization_id,user_id,role_id,status,joined_at) VALUES($1,$2,$3,$4,'active',clock_timestamp())",
+        [other.membershipId, tenant.organizationId, other.userId, role.id],
+      );
+      await db.query(
+        "INSERT INTO account_assignments(id,organization_id,client_account_id,membership_id,responsibility,status,assigned_by_membership_id,assigned_at) VALUES($1,$2,$3,$4,'collaborator','active',$5,clock_timestamp())",
+        [
+          randomUUID(),
+          tenant.organizationId,
+          account,
+          other.membershipId,
+          tenant.membershipId,
+        ],
+      );
+      await db.query(
+        "INSERT INTO auth_factors(id,user_id,status,secret_encrypted,verified_at) VALUES($1,$2,'active','synthetic-unused',clock_timestamp())",
+        [randomUUID(), other.userId],
+      );
+      await db.query(
+        "INSERT INTO auth_sessions(id,user_id,organization_id,membership_id,session_token_hash,status,requires_mfa,mfa_verified_at,reauthenticated_at,expires_at,last_activity_at) VALUES($1,$2,$3,$4,$5,'active',true,clock_timestamp(),clock_timestamp(),$6,clock_timestamp())",
+        [
+          other.sessionId,
+          other.userId,
+          tenant.organizationId,
+          other.membershipId,
+          randomBytes(32).toString('hex'),
+          other.expiresAt,
+        ],
+      );
+      const localRetry = await service.create(
+        tenant,
+        filters,
+        randomUUID(),
+        randomUUID(),
+      );
+      const localRequest = (
+        await db.query('SELECT id FROM sat_requests WHERE job_id=$1', [
+          localRetry.id,
+        ])
+      )[0].id as string;
+      const roots: { object_id: string }[] = await db.query(
+        'SELECT p.object_id FROM sat_packages p JOIN sat_requests r ON r.id=p.request_id WHERE r.job_id=$1 ORDER BY p.ordinal',
+        [job.id],
+      );
+      const pa = randomUUID(),
+        pb = randomUUID();
+      await db.query(
+        "INSERT INTO sat_packages(id,organization_id,client_account_id,legal_entity_id,request_id,external_id,ordinal,status,object_id,downloaded_at) VALUES($1,$3,$4,$5,$6,'retry-a',1,'stored',$7,clock_timestamp()),($2,$3,$4,$5,$6,'retry-b',2,'processing',$8,clock_timestamp())",
+        [
+          pa,
+          pb,
+          tenant.organizationId,
+          account,
+          entity,
+          localRequest,
+          roots[0].object_id,
+          roots[1].object_id,
+        ],
+      );
+      await db.query(
+        "UPDATE sat_download_jobs SET status='processing_local' WHERE id=$1",
+        [localRetry.id],
+      );
+      const failingRead = jest
+        .spyOn(storage, 'head')
+        .mockResolvedValueOnce(null);
+      await satWorker.runJob(tenant.organizationId!, localRetry.id);
+      await satWorker.runJob(tenant.organizationId!, localRetry.id);
+      check(
+        failingRead.mock.calls.length === 1,
+        'failed package A is not reread while B remains processing',
+      );
+      failingRead.mockRestore();
+      check(
+        (
+          await db.query(
+            'SELECT status,local_retry_count FROM sat_packages WHERE id=$1',
+            [pa],
+          )
+        )[0].local_retry_count === 0,
+        'no implicit local retry',
+      );
+      await service.retry(other, localRetry.id, pa, randomUUID());
+      const afterRetry = (
+        await db.query(
+          'SELECT status,local_retry_count FROM sat_packages WHERE id=$1',
+          [pa],
+        )
+      )[0];
+      check(
+        afterRetry.status === 'stored' && afterRetry.local_retry_count === 1,
+        'explicit retry restores stored and charges once',
+      );
+      await service.cancel(other, localRetry.id, randomUUID());
+      await satWorker.runJob(tenant.organizationId!, localRetry.id);
+      const actors: {
+        actor_user_id: string;
+        actor_membership_id: string;
+        action: string;
+      }[] = await db.query(
+        "SELECT actor_user_id,actor_membership_id,action FROM audit_events WHERE object_id=$1 AND action IN('sat.created','sat.retry_requested','sat.cancel_requested')",
+        [localRetry.id],
+      );
+      check(
+        actors.find((a) => a.action === 'sat.created')?.actor_user_id ===
+          tenant.userId,
+        'admission audited as creator',
+      );
+      check(
+        actors.filter((a) => a.action !== 'sat.created').length === 2 &&
+          actors
+            .filter((a) => a.action !== 'sat.created')
+            .every(
+              (a) =>
+                a.actor_user_id === other.userId &&
+                a.actor_membership_id === other.membershipId,
+            ),
+        'cancel and retry audited as actual assigned actor',
+      );
+      const dtoJob = await service.create(
+        tenant,
+        filters,
+        randomUUID(),
+        randomUUID(),
+      );
+      await db.query(
+        "UPDATE sat_download_jobs SET status='requires_user_authorization',error_code='SAT_TECHNICAL_FAILURE',technical_retries=1,next_attempt_at=clock_timestamp()+interval '1 minute' WHERE id=$1",
+        [dtoJob.id],
+      );
+      const waitRetry = (await service.get(tenant, dtoJob.id)).technicalRetry;
+      check(
+        waitRetry.eligible && !waitRetry.allowed && !!waitRetry.availableAt,
+        'DTO exposes recoverable technical backoff',
+      );
+      await db.query(
+        "UPDATE sat_download_jobs SET next_attempt_at=clock_timestamp()-interval '1 second' WHERE id=$1",
+        [dtoJob.id],
+      );
+      check(
+        (await service.get(tenant, dtoJob.id)).technicalRetry.allowed,
+        'DTO enables retry only after backoff',
+      );
+      await db.query(
+        "UPDATE sat_download_jobs SET status='failed',technical_retries=3,terminal_at=clock_timestamp() WHERE id=$1",
+        [dtoJob.id],
+      );
+      check(
+        !(await service.get(tenant, dtoJob.id)).technicalRetry.eligible,
+        'exhausted failure offers no retry',
+      );
       await cleaner.reconcile();
       await db.query(
         "UPDATE stored_objects SET retention_until=clock_timestamp()-interval '1 second',cleanup_requested_at=clock_timestamp()-interval '6 minutes' WHERE kind='sat_package'",
