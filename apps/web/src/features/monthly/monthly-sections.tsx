@@ -161,6 +161,37 @@ export function MonthlySections({
           fallback="No se pudo completar la operación mensual."
         />
       ) : null}
+      {tab === "close" || tab === "settings" ? (
+        <div className="space-y-3 border border-border p-4">
+          <p>
+            Confirma tu identidad con un código nuevo antes de cerrar, reabrir o
+            retomar la edición. Esta confirmación es temporal y no modifica la
+            revisión guardada.
+          </p>
+          <Field label="Código de autenticación para acciones sensibles">
+            <Input
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              maxLength={6}
+              value={totp}
+              onChange={(e) => setTotp(e.target.value)}
+            />
+          </Field>
+          <Button
+            variant="outline"
+            onClick={() =>
+              void reauthenticateSession(totp)
+                .then(() => {
+                  setTotp("");
+                  afterReauth();
+                })
+                .catch(setError)
+            }
+          >
+            Confirmar identidad
+          </Button>
+        </div>
+      ) : null}
       {tab === "sources" ? (
         <Surface>
           <SurfaceHeader
@@ -613,28 +644,6 @@ export function MonthlySections({
                 </Button>
               </fieldset>
             ) : null}
-            <Field label="Código de autenticación para acciones sensibles">
-              <Input
-                inputMode="numeric"
-                autoComplete="one-time-code"
-                maxLength={6}
-                value={totp}
-                onChange={(e) => setTotp(e.target.value)}
-              />
-            </Field>
-            <Button
-              variant="outline"
-              onClick={() =>
-                void reauthenticateSession(totp)
-                  .then(() => {
-                    setTotp("");
-                    afterReauth();
-                  })
-                  .catch(setError)
-              }
-            >
-              Confirmar identidad
-            </Button>
             {can("periods.takeover") ? (
               <>
                 <Field label="Motivo para retomar edición">

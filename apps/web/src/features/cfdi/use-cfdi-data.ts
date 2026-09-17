@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { apiClient, isAbortError } from "@/lib/api-client";
 import { getCfdi, getCfdis, type CfdiListQuery } from "./api";
-import type { CfdiDetail, CfdiPage } from "./types";
+import { normalizeCfdiDetail, type CfdiDetail, type CfdiPage } from "./types";
 
 export function useCfdiPage({
   organizationId,
@@ -71,7 +71,7 @@ export function useCfdiDetail({
 }) {
   const [revision, setRevision] = useState(0);
   const requestId = useRef(0);
-  const identity = `${organizationId}:${cfdiId}:${revision}`;
+  const identity = `${organizationId}:${cfdiId}:${resourcePath ?? ""}:${revision}`;
   const [state, setState] = useState<{
     identity: string;
     data: CfdiDetail | null;
@@ -86,7 +86,9 @@ export function useCfdiDetail({
       setState({ identity, data: null, loading: true, error: null });
       void (
         resourcePath
-          ? apiClient<CfdiDetail>(resourcePath, { signal: controller.signal })
+          ? apiClient<unknown>(resourcePath, {
+              signal: controller.signal,
+            }).then(normalizeCfdiDetail)
           : getCfdi(cfdiId, controller.signal)
       )
         .then((data) => {

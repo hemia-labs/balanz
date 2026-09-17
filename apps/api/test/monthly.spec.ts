@@ -63,6 +63,80 @@ const snapshot = (participations: Participation[]): MonthlySnapshot => ({
   scopeStatement: 'Revisión interna',
 });
 describe('monthly decisions and durable comparisons', () => {
+  const evidence = (): MonthlySnapshot => ({
+    ...snapshot([row()]),
+    sources: [
+      {
+        id: randomUUID(),
+        kind: 'ingestion',
+        status: 'completed',
+        scope: 'linked',
+        pending: false,
+        dateFrom: null,
+        dateTo: null,
+        observedAt: null,
+      },
+    ],
+    incidents: [
+      {
+        id: randomUUID(),
+        cfdiId: null,
+        code: 'CFDI_RELATION_NOT_FOUND',
+        severity: 'medium',
+        originalStatus: 'open',
+        version: 1,
+        state: 'resolved',
+        reason: 'Aclarado',
+        comment: null,
+        responsibleMembershipId: null,
+        actorMembershipId: randomUUID(),
+        eventId: randomUUID(),
+      },
+    ],
+  });
+  it('compares persisted JSON content independently of object key order', () => {
+    const current = evidence();
+    const persisted = JSON.parse(
+      JSON.stringify(current, (_key, value: unknown) => {
+        if (value && typeof value === 'object' && !Array.isArray(value))
+          return Object.fromEntries(
+            Object.entries(value).sort(([a], [b]) => a.localeCompare(b)),
+          );
+        return value;
+      }),
+    ) as MonthlySnapshot;
+    expect(monthlyChanges(persisted, current)).toEqual({
+      added: [],
+      changed: [],
+      removed: [],
+      sourceChanges: [],
+      incidentChanges: [],
+      sourcesChanged: false,
+      incidentsChanged: false,
+    });
+    expect(
+      monthlyChanges(persisted, {
+        ...current,
+        participations: current.participations.map((p) => ({
+          ...p,
+          comment: 'Nueva aclaración',
+        })),
+      }).changed,
+    ).toHaveLength(1);
+  });
+  it('reports new sources and incidents without hashing absent prior evidence', () => {
+    const current = evidence();
+    const changes = monthlyChanges(
+      { ...current, sources: [], incidents: [] },
+      current,
+    );
+    expect(changes.sourceChanges).toHaveLength(1);
+    expect(changes.sourceChanges[0].before).toBeNull();
+    expect(changes.incidentChanges).toHaveLength(1);
+    expect(changes.incidentChanges[0].before).toBeNull();
+    expect(changes.sourcesChanged).toBe(true);
+    expect(changes.incidentsChanged).toBe(true);
+  });
   it('defaults independently to pending and included', () => {
     expect(DEFAULT_DECISION.reviewStatus).toBe('pending');
     expect(DEFAULT_DECISION.inclusion).toBe('included');

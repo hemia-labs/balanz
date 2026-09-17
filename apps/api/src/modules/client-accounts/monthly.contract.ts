@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { isDeepStrictEqual } from 'node:util';
 import { HttpException } from '@nestjs/common';
 export const MONTHLY_SCHEMA = 'monthly-close/1.0.0' as const;
 export const DECISION_POLICY = 'monthly-decision/1.0.0' as const;
@@ -197,15 +198,15 @@ export function monthlyChanges(
       .filter((x) => !old.has(x.id))
       .map((x) => ({ id: x.id, cfdiId: x.cfdiId, uuid: x.uuid })),
     changed: after.participations
-      .filter(
-        (x) => old.has(x.id) && fingerprint(old.get(x.id)) !== fingerprint(x),
-      )
+      .filter((x) => old.has(x.id) && !isDeepStrictEqual(old.get(x.id), x))
       .map((x) => ({
         id: x.id,
         cfdiId: x.cfdiId,
         uuid: x.uuid,
-        relationsChanged:
-          fingerprint(old.get(x.id)?.relations) !== fingerprint(x.relations),
+        relationsChanged: !isDeepStrictEqual(
+          old.get(x.id)?.relations,
+          x.relations,
+        ),
         observation: x.satObservation,
         previousObservation: old.get(x.id)?.satObservation ?? null,
       })),
@@ -215,9 +216,10 @@ export function monthlyChanges(
     sourceChanges: after.sources
       .filter(
         (x) =>
-          fingerprint(
+          !isDeepStrictEqual(
             before.sources.find((y) => y.id === x.id && y.kind === x.kind),
-          ) !== fingerprint(x),
+            x,
+          ),
       )
       .map((x) => ({
         id: x.id,
@@ -231,8 +233,10 @@ export function monthlyChanges(
     incidentChanges: after.incidents
       .filter(
         (x) =>
-          fingerprint(before.incidents.find((y) => y.id === x.id)) !==
-          fingerprint(x),
+          !isDeepStrictEqual(
+            before.incidents.find((y) => y.id === x.id),
+            x,
+          ),
       )
       .map((x) => ({
         id: x.id,
@@ -240,8 +244,7 @@ export function monthlyChanges(
         before: before.incidents.find((y) => y.id === x.id)?.state ?? null,
         after: x.state,
       })),
-    sourcesChanged: fingerprint(before.sources) !== fingerprint(after.sources),
-    incidentsChanged:
-      fingerprint(before.incidents) !== fingerprint(after.incidents),
+    sourcesChanged: !isDeepStrictEqual(before.sources, after.sources),
+    incidentsChanged: !isDeepStrictEqual(before.incidents, after.incidents),
   };
 }
