@@ -10,7 +10,7 @@ Fecha: 2026-09-15. Evidencia técnica ejecutada por el agente; no atribuye revis
 | PHASE_5_AUTOMATED_VALIDATION | PASS, con límites indicados abajo |
 | PHASE_5_LOCAL_POSTGRES_INTEGRATION | PASS |
 | PHASE_5_INTEGRATION_STATUS | NOT_MERGED; revisión en PR borrador |
-| BROWSER_SMOKE | NOT_RUN; herramienta de navegador bloqueada en la revisión acotada posterior |
+| BROWSER_SMOKE | PASS acotado el 2026-09-17, PostgreSQL exclusivo y UI real; ver evidencia posterior |
 | LEGACY_STORAGE_RECOVERY | PASS; 33 comprobaciones PostgreSQL/MinIO/ClamAV, ver revisión posterior |
 | PHASE_4 | PARTIAL |
 | REAL_CREDENTIALS_ENABLED | NO |
@@ -19,9 +19,9 @@ Fecha: 2026-09-15. Evidencia técnica ejecutada por el agente; no atribuye revis
 | Base inicial / F4 heredada | 4802dbeb72c28b205f5b7d6ff9e096005131b1bf |
 | Develop incorporado / base final PR | 4b392b7721596cd1be5612b029fe411e40980f2b |
 | WORK_BRANCH | codex/cfdi-phase5-monthly-workspace |
-| VALIDATED_CODE_SHA | 1e6d893ef2c3df4630738905cbbc9fcc73fe5089 |
+| VALIDATED_CODE_SHA | 6e10ce3a0d9856fc7ecb557af98f50f9a60a460c; implementación inicial validada en 1e6d893ef2c3df4630738905cbbc9fcc73fe5089 |
 | POSTGRES_EXECUTED_SHA | 1e6d893ef2c3df4630738905cbbc9fcc73fe5089 |
-| Delta posterior | Sólo documentación: este reporte, ADR, contrato, runbook, norma mensual y roadmap |
+| Delta posterior | Test legacy dirigido, documentación y correcciones reproducidas en navegador descritas al final |
 
 PR25 estaba abierta al iniciar y fue integrada por el equipo durante el trabajo (2026-09-15, merge 4b392b7). Se incorporó origin/develop por fast-forward; no hubo diferencias de contenido ni conflictos. La nueva PR se dirige a develop, con dependencia F4 ya integrada. Se conservaron los worktrees anteriores y el cambio ajeno de apps/web/AGENTS.md en el workspace original. No reset, force-push, merge de PR ni despliegue por el agente.
 
@@ -154,3 +154,70 @@ Frontend F5 iniciado en localhost:5185 desde este worktree; sólo se abrió logi
 Se conserva únicamente la base sintética test_monthly_browser_a06a96c743f5 y sus objetos propios para continuar; los otros dos intentos de preparación y sus objetos fueron limpiados. No se crearon sesiones verificadas artificialmente. Se solicitó la ruta o mecanismo local para cargar la credencial API existente, sin pedir la contraseña por chat. Los archivos .env y .env.api.local del proyecto principal no contienen esa credencial. Siguiente paso: configurar la API QA con dicha identidad y la base sintética, obtener liveness y recorrer la mesa mediante login/TOTP normales.
 
 BROWSER_SMOKE: NOT_RUN (recorrido mensual); SHA recorrido: NONE; capturas de mesa/cierre: pendientes. Legacy conserva su PASS previo y no se repitió. Sin cambios de producto, tests/builds repetidos, CI, migraciones, dependencias, custodia o SAT. PHASE_4: PARTIAL; REAL_CREDENTIALS_ENABLED: NO; REAL_SAT_ACCEPTANCE: NOT_RUN; RELEASE_STATUS: BLOCKED.
+
+## Recorrido real con PostgreSQL exclusivo — 2026-09-17
+
+**ENTORNO: PASS · BROWSER_SMOKE: PASS acotado · LEGACY: PASS previo, no repetido.** La preparación del entorno no se contabiliza como validación de la mesa.
+
+### Aislamiento y SHA
+
+HEAD inicial comprobado: `c04b653cc24d6c53acd7cf9ff7e22098b696fcf8`, worktree limpio, PR26 abierta/en borrador. El usuario cerró la búsqueda de la contraseña anterior y autorizó expresamente una instancia nueva. No se reutilizó ni modificó PostgreSQL anterior, sus roles, contraseñas o volumen. Se conservaron cambios del workspace principal.
+
+- Contenedor `balanz-monthly-browser-6b878684d2b7`; volumen exclusivo `balanz-monthly-browser-6b878684d2b7-data`; publicación `127.0.0.1:55461`; DB `test_monthly_browser_6b878684d2b7`.
+- Imagen exacta PostgreSQL 16.15/bookworm de `infra/cfdi-phase0/compose.yaml`. Preparación iniciada 18:45 UTC y runtimes saludables antes de 18:49 UTC, dentro de los 20 minutos.
+- Historial existente de migraciones y seed, seguidos del provisionador existente `provision-fiscal-runtime-logins`: un API y un worker restringidos en sus grupos correspondientes, migrador separado. Ambos guard checks PASS. Sin cambios en guard, RLS, migraciones, autenticación ni MFA.
+- Credenciales aleatorias en `.local/monthly-browser-20260917`, ignorado por Git y ACL exclusiva del usuario Windows y SYSTEM. Configuraciones de API/worker separadas; sin contraseña de migrador en runtime. No se utilizó Vault de otro ambiente.
+- API 3025 y worker 3026 de este worktree, misma DB; frontend Next F5 5185 apuntando a `/api/v1` de 3025. MinIO 59000, ClamAV 53310 y Redis 56379 del QA local; Redis con prefijo exclusivo. `/liveness` y `/readiness` disponibles; PostgreSQL/storage/scanner/Redis/supervisor up, sin desactivar comprobaciones.
+
+El recorrido comenzó en c04b653 y detectó los defectos siguientes. **Código corregido y recorrido final: `6e10ce3a0d9856fc7ecb557af98f50f9a60a460c`**. Se reconstruyó API, se reiniciaron sólo API/worker propios y se comprobó nuevamente readiness. Frontend sirvió las correcciones de este mismo worktree. El siguiente commit incluye únicamente documentación y capturas; su SHA se publica en la PR para evitar una referencia circular.
+
+### Defectos reproducidos y corregidos
+
+1. El endpoint mensual entregaba el detalle CFDI real sin pasar por `normalizeCfdiDetail`; el panel mostraba `undefined` para RFC de emisor/receptor. Se aplica el normalizador existente y se incluye la ruta scoped en la identidad del recurso. Comprobado con datos iniciales y con el XML posteriormente incorporado, incluidos conceptos.
+2. Al comparar el snapshot leído de JSONB contra el objeto actual, el orden de propiedades provocaba falsas novedades inmediatamente después del cierre. `monthlyChanges` compara contenido con `node:util.isDeepStrictEqual`; no modifica fingerprints históricos, idempotencia ni snapshots. También compara correctamente una fuente/incidencia nueva sin intentar hashear una referencia anterior inexistente. Antes de incorporar el XML posterior se verificó **Cerrada, 0 altas/0 cambios/0 bajas**; después **1 alta/0 cambios/0 bajas** y la fuente de ingesta nueva.
+3. La reautenticación exigida para cerrar estaba disponible únicamente en Categorías y edición. Se reutiliza el mismo control TOTP también en Cierre y novedades, con instrucciones antes de la acción. No se cambian requisitos de MFA, expiración ni permisos. Se completó el cierre tras reautenticación normal.
+
+### Evidencia del recorrido
+
+| Acción real en navegador | Resultado observado |
+| --- | --- |
+| Login de Ana y Bruno | Contraseña y TOTP normales; cuentas/factores sintéticos, sin sesiones preautorizadas |
+| Cliente/RFC/período | Cliente sintético Agosto, AAA010101AAA, agosto 2026; tres documentos iniciales |
+| Filtros/indicadores | Con incidencias reduce a 1 fila; Todos vuelve a 3; filtro MXN; Novedades posterior muestra sólo el nuevo XML |
+| Panel y navegación | Anterior/Siguiente cambian documento; cerrar conserva filtro; abrir no marca revisado. RFC correctos después de corregir normalización |
+| Guardado y reload | Ana guarda revisión/comentario; reload conserva ambos y muestra 1/3 revisadas |
+| Lote | Dos participaciones seleccionadas; preview 2 aplicables/0 impedimentos; ejecución 2 aplicadas/0 impedimentos; total 3/3 |
+| Aclaración y relevo | Ana deja pendiente de aclaración, asigna Bruno y comenta. Bruno inicia su sesión, lee historial/autoría y resuelve sin alterar evidencia original |
+| Edición exclusiva | Segunda pestaña de la misma sesión ve editor y no puede adquirir edición; takeover con motivo y reauth vigente; escritura de la pestaña desplazada rechazada y edición desactivada |
+| Checklist/cierre | Comprobaciones automáticas y dos confirmaciones humanas motivadas; preview de 3 documentos/3 participaciones; alcance interno y limitación SAT visibles; cierre 1 persistido |
+| Incorporación posterior | Upload XML real desde navegador, 202; job `291c4c8a-e72d-48e0-bd86-704ea4e27621` completado, 1 incorporado, parser real y objeto clean |
+| Novedades/reapertura | 3/4 revisadas, exactamente una nueva participación y una fuente completada; reapertura motivada; cierre 1 conserva sus 3 participaciones |
+| Cambio de tenant/logout | Se limpian vistas al salir/cambiar a Otro despacho QA; cartera vacía sin cliente, comentarios ni filas del anterior. No se forzó latencia de red: descarte determinista de respuestas tardías cubierto por la regresión de editor ejecutada |
+
+Los tres CFDI iniciales y la incidencia son **fixtures de dominio**, con originales sintéticos en MinIO y escaneo real; no acreditan su ingreso por upload. La cuarta incorporación sí recorrió navegador → API → storage → ClamAV → worker/parser → participación del mes. Su UUID sintético es `e21f0a5f-484f-4549-ba40-747ffde4833e`; lectura dirigida confirmó `clean`, parser `balanz-cfdi-saxes/1.0.0` y una sola participación. No acredita validación criptográfica o aceptación SAT real.
+
+Lectura dirigida de la DB nueva: período `reopened`, un cierre v1 con tres participaciones; auditoría con tres decisiones de Ana, gestión de incidencia por Ana y Bruno, dos confirmaciones de Bruno, un cierre y una reapertura por Bruno. Sin nuevas escrituras de prueba fuera de esta instancia y sus objetos propios.
+
+### Verificación proporcional
+
+- Backend: `node node_modules/jest/bin/jest.js --runInBand --runTestsByPath test/monthly.spec.ts` desde apps/api: **13 tests/1 suite PASS**, incluidos 2 nuevos de comparación JSONB y evidencias nuevas.
+- Frontend: compilación de `tsconfig.tests.json` y `node --test .test-dist/features/cfdi/types.test.js .test-dist/features/monthly/editor-session.test.js`: **10 tests PASS** (5 normalización CFDI y 5 estado editorial).
+- ESLint de los cuatro archivos modificados: PASS; typecheck frontend: PASS. Build API (`nest build`, incluye TypeScript) y frontend (`next build`): PASS. `git diff --check`: PASS.
+- No Full ni repetición de las suites completas de 74/22, de las 65 comprobaciones PostgreSQL o de legacy. **Legacy conserva PASS de 33 comprobaciones en 7851cb8 del 2026-09-15**, no evidencia nueva.
+- CI, deploy, migraciones, dependencias, custodia y SAT intactos. No merge ni despliegue.
+
+### Capturas y límites
+
+Capturas reales del recorrido, sin contraseñas, TOTP ni secretos. Son evidencia visual complementaria; las acciones anteriores se verificaron separadamente.
+
+- [Mesa con filtro MXN y avance](evidence/phase5/01-mesa.png).
+- [Panel y decisión persistida tras reload](evidence/phase5/02-panel-guardado.png).
+- [Aclaración pendiente asignada a Bruno](evidence/phase5/03-aclaracion.png).
+- [Cierre 1 conservado después de reabrir](evidence/phase5/04-cierre.png).
+- [Novedad y fuente posteriores al cierre](evidence/phase5/05-novedades.png).
+
+Panel/aclaración se capturaron durante la corrección incremental incluida en 6e10ce3; mesa/cierre/novedades después de publicar ese commit localmente. No son capturas recreadas. Relevo entre personas probado secuencialmente con login propio; concurrencia probada con dos pestañas de una sesión. No matriz visual, prueba de carga masiva parcial en navegador ni carrera de red artificial; se conserva su evidencia automatizada anterior donde corresponde. Los snapshots anteriores permanecen inmutables; no se reescribieron para ocultar el fallo encontrado.
+
+**Siguiente acción:** revisión humana de PR26 y de estas capturas. La comprobación local pendiente queda cerrada dentro de este recorrido; no habilita liberación del MVP. Entorno temporal queda disponible y su retiro exclusivo está documentado en el runbook.
+
+**PHASE_4: PARTIAL · REAL_CREDENTIALS_ENABLED: NO · REAL_SAT_ACCEPTANCE: NOT_RUN · RELEASE_STATUS: BLOCKED.** Permanecen compatibilidad real/perfil, metadata, aceptación SAT y aprobaciones operativas/legal. No se inicia Fase6.
