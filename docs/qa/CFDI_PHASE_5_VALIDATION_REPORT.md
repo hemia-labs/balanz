@@ -134,3 +134,13 @@ ESLint del nuevo test y git diff --check: PASS. Jest compiló y ejecutó el test
 El commit posterior a 7851cb8 actualiza exclusivamente este reporte. Su SHA final se registra en la PR y en la entrega, evitando una referencia circular dentro del propio commit. No merge ni despliegue.
 
 **PHASE_4: PARTIAL · REAL_CREDENTIALS_ENABLED: NO · REAL_SAT_ACCEPTANCE: NOT_RUN · RELEASE_STATUS: BLOCKED.** La recuperación legacy queda acreditada localmente; falta el recorrido visual solicitado. Esta evidencia no resuelve aceptación SAT real, perfil de titular, metadata ni aprobaciones operativas del MVP.
+
+## Reintento de navegador tras reinicio — 2026-09-17
+
+HEAD inicial verificado: 3d97775a12b83acebfd62dcd26962deb5613c04b, worktree limpio; PR26 continúa abierta/en borrador. La herramienta de navegador ya inicializa correctamente y devuelve el navegador integrado disponible. Queda resuelto el bloqueo anterior de assets del kernel.
+
+El recorrido permanece **NOT_RUN**: tras el reinicio no estaban disponibles los puertos QA ni API/frontend. Se intentó iniciar la instalación existente de Docker Desktop, sin cambios de configuración. Su log de arranque a las 16:54:33 UTC registra que el backend se detiene porque no puede acceder/renombrar `sailor-ingest.sock` a `sailor-ingest.sock.stale` en su directorio local `Docker/run` (`The file cannot be accessed by the system`). El pipe `dockerDesktopLinuxEngine` no existe. Diagnóstico detenido en menos de 20 minutos; no reset de Docker/WSL, reinstalación, borrado de sockets o volúmenes ni cambios compartidos.
+
+Intervención mínima: cerrar Docker Desktop mediante **Quit** y volver a abrirlo; si persiste, reiniciar Windows y comprobar que Docker muestra el motor Linux en ejecución. No elegir **Reset to factory defaults**. Si continúa el error de socket, requiere reparación del arranque de Docker por soporte antes de retomar el QA. Verificación esperada: `docker ps` debe responder y permitir iniciar los contenedores locales existentes.
+
+No se recorrió ningún SHA en navegador ni se obtuvieron capturas de la mesa. No hubo cambios de producto, nuevas pruebas, builds o reejecución de legacy; su PASS de 33 comprobaciones se conserva como evidencia del 2026-09-15, no como disponibilidad actual. Este reintento modifica exclusivamente el reporte y la PR. PHASE_4: PARTIAL; REAL_CREDENTIALS_ENABLED: NO; REAL_SAT_ACCEPTANCE: NOT_RUN; RELEASE_STATUS: BLOCKED.
