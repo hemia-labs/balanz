@@ -50,6 +50,7 @@ interface PeriodRow {
   status: string;
   lock_version: number;
   rfc: string;
+  entity_status: string;
 }
 interface Workspace {
   id: string;
@@ -143,10 +144,15 @@ export class MonthlyService {
           membershipId: t.membershipId!,
         });
         const [p] = await m.query<PeriodRow[]>(
-          `SELECT p.*,fy.year,le.rfc FROM periods p JOIN fiscal_years fy ON fy.id=p.fiscal_year_id JOIN legal_entities le ON le.id=p.legal_entity_id WHERE p.organization_id=$1 AND p.id=$2 AND le.status='active' ${write ? 'FOR UPDATE OF p' : ''}`,
+          `SELECT p.*,fy.year,le.rfc,le.status AS entity_status FROM periods p JOIN fiscal_years fy ON fy.id=p.fiscal_year_id JOIN legal_entities le ON le.id=p.legal_entity_id WHERE p.organization_id=$1 AND p.id=$2 ${write ? 'FOR UPDATE OF p' : ''}`,
           [t.organizationId, periodId],
         );
-        if (!p) monthlyError('MONTHLY_NOT_FOUND', 404);
+        if (
+          !p ||
+          !['active', 'suspended'].includes(p.entity_status) ||
+          (write && p.entity_status !== 'active')
+        )
+          monthlyError('MONTHLY_NOT_FOUND', 404);
         await this.accounts.requireAccessibleAccountWithManager(
           m,
           p.client_account_id,
