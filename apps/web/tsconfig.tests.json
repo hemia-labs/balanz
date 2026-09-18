@@ -64,6 +64,8 @@
     "src/features/efirma/credential-state.test.ts",
     "src/features/efirma/submit-custody.test.ts",
     "src/features/sat-download/sat-state.test.ts",
-    "src/features/sat-download/sat-client.test.ts"
+    "src/features/sat-download/sat-client.test.ts",
+    "src/features/monthly/editor-session.ts",
+    "src/features/monthly/editor-session.test.ts"
   ]
 }

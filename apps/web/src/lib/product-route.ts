@@ -47,7 +47,12 @@ export function canOpenResolvedProductRoute(
 }
 
 export function isLivePeriodTabSupported(tab?: string) {
-  return !tab || tab === "overview";
+  return (
+    !tab ||
+    ["overview", "cfdi", "payments", "payroll", "incidents", "close"].includes(
+      tab,
+    )
+  );
 }
 
 const periodTabs = [

@@ -576,7 +576,7 @@ requiere crear otra base de datos. La ejecución final de cierre no se declara
 | ID                   | `PHASE_5_MONTHLY_WORKSPACE`                                                                       |
 | Objetivo             | Revisar CFDI por período y cerrar internamente con decisiones versionadas.                        |
 | Valor de producto    | Flujo mensual trazable dentro de Balanz.                                                          |
-| Dependencias         | Fases 1 y 4 `DONE`.                                                                               |
+| Dependencias         | Desarrollo autorizado con XML/ZIP y núcleo durable F4; F4 permanece PARTIAL. SAT real es gate de liberación del MVP.                                                                               |
 | Alcance              | vistas por tipo, decisiones, masivas, incidentes, checklist, lease, cierre, novedades/reapertura. |
 | Fuera de alcance     | determinación fiscal definitiva y presentación.                                                   |
 | Tablas/migraciones   | participaciones, decisiones, checklist, lease, cierres y reaperturas.                             |
@@ -594,8 +594,8 @@ requiere crear otra base de datos. La ejecución final de cierre no se declara
 | Criterios de salida  | Cierre reproducible sin modificar original.                                                       |
 | Riesgos              | criterio fiscal incorrecto y concurrencia.                                                        |
 | Rollback             | Deshabilitar mutaciones y preservar versiones.                                                    |
-| Estado               | `NOT_STARTED`                                                                                     |
-| Evidencia            | Ninguna.                                                                                          |
+| Estado               | `IN_PROGRESS` (implementación F5 y validación automatizada/local completas; revisión e integración pendientes).                                                                                     |
+| Evidencia            | Autorización explícita 2026-09-15; ADR-CFDI-008. Sin pruebas F5 ejecutadas.                                                                                          |
 
 ### Fase 6 — Exportación, portabilidad y retención
 
@@ -771,4 +771,19 @@ PR en borrador; no se autoriza Fase 3 ni se realiza merge en esta entrega.
 Implementación SAT on-demand en rama codex/cfdi-phase4-sat, basada en develop con PR24 integrada. Desarrollo y validación local controlada; release bloqueado, sin habilitación real. Véanse ADR-CFDI-007, CFDI_PHASE_4_API, CFDI_SAT_CERTIFICATE_PROFILE y CFDI_PHASE_4_VALIDATION_REPORT. No se cierran gates históricos ni se inicia Fase 5.
 
 ### Cierre técnico PR25 — 2026-09-15
-Cuatro hallazgos corregidos sin editar migraciones: agenda equitativa, retry local explícito, actor real en auditoría y elegibilidad técnica API/UI. Vía real_pilot XML preparada/desactivada; CA públicas verificadas y SHA512 limitado a CA. Perfil positivo del titular e.firma/CSD y encabezado metadata aún pendientes. Fase4 continúa PARTIAL y release BLOCKED; integración del cierre bloqueada por motor Docker Linux no disponible. Se conserva evidencia previa separada. No se inicia Fase5.
+Cuatro hallazgos corregidos sin editar migraciones: agenda equitativa, retry local explícito, actor real en auditoría y elegibilidad técnica API/UI. Vía real_pilot XML preparada/desactivada; CA públicas verificadas y SHA512 limitado a CA. Perfil positivo del titular e.firma/CSD y encabezado metadata aún pendientes. Fase4 continúa PARTIAL y release BLOCKED. La integración inicialmente bloqueada por Docker pasó después sobre 51e896ab8e6d305b024f0041c538e0bbf920d4e9: 61 comprobaciones reales locales con SAT controlado; véase la sección final del reporte F4. Ese PASS no acredita SAT real. F5 tiene autorización de desarrollo separada, registrada a continuación.
+
+## Autorización explícita de desarrollo Fase 5 — 2026-09-15
+
+El solicitante autoriza desarrollar PHASE_5_MONTHLY_WORKSPACE con CFDI XML/ZIP incorporados y el núcleo durable de F4. Se sustituye únicamente la dependencia de entrada que exigía F4 DONE; su estado permanece PARTIAL. Aceptación SAT real, perfil del titular, metadata y aprobaciones operativas siguen pendientes y SAT real continúa siendo requisito de liberación del MVP. No hay autorización de merge, despliegue, credenciales reales ni Fase6.
+
+Base inicial verificada: PR25 abierta, HEAD 4802dbeb72c28b205f5b7d6ff9e096005131b1bf; develop 0d5f0db1c2108fe3c9149660c3f7ed192414338f ya contenido. Durante esta implementación el equipo integró PR25: develop 4b392b7721596cd1be5612b029fe411e40980f2b. Se incorporó mediante fast-forward sin cambios de contenido; F5 conserva su worktree/ramas anteriores y la PR nueva se dirige a develop. El agente no fusionó PR25.
+
+[ADR-CFDI-008](../architecture/decisions/ADR-CFDI-008-MONTHLY-WORKSPACE-CLOSE.md) registra las decisiones recibidas. El prompt completo recibido sustituye la preparación anterior: se implementan fuentes/cobertura separadas, cierre interno consistente, excepciones explícitas, novedades y reapertura. El desarrollo no declara DONE F4 ni retira SAT real de los gates del MVP.
+
+
+### Entrega F5 — 2026-09-15
+
+Mesa real por participación, decisiones/categorías/comentarios opcionales, lotes congelados con éxito parcial, lease por instancia, seguimiento de incidencias, checklist automático/humano, preparación/cierre inmutable, novedades y reapertura. Reconciliación durable de pertenencia mediante el worker existente. Una migración nueva, CI/deploy e historial de migraciones intactos; sin exportación ni Fase6.
+
+Evidencia y SHAs: [CFDI_PHASE_5_VALIDATION_REPORT](../qa/CFDI_PHASE_5_VALIDATION_REPORT.md). Contrato: [CFDI_MONTHLY_WORKSPACE_API](../contracts/CFDI_MONTHLY_WORKSPACE_API.md). Operación: [CFDI_PHASE_5_RUNBOOK](../operations/CFDI_PHASE_5_RUNBOOK.md). La integración F4 de 61 comprobaciones permanece evidencia histórica diferenciada, no se repitió. F4 PARTIAL, REAL_CREDENTIALS_ENABLED NO, REAL_SAT_ACCEPTANCE NOT_RUN y RELEASE_STATUS BLOCKED.

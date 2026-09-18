@@ -181,6 +181,7 @@ export function AccountingScreen({ route }: { route: ResolvedProductRoute }) {
           legalEntityId={route.legalEntityId}
           year={route.year!}
           selectedMonth={route.period}
+          monthlyTab={route.tab}
         />
       );
     default:

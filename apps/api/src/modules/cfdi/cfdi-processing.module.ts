@@ -1,3 +1,4 @@
+import { MonthlyReconciliationService } from './workers/monthly-reconciliation.service';
 import { SatPackageJobHandler } from '../sat-download/sat-package.handler';
 import { SatMetadataProcessor } from '../sat-download/sat-metadata.processor';
 import { Module } from '@nestjs/common';
@@ -41,6 +42,7 @@ const configuredParser = CfdiParserModule.registerAsync({
     configuredParser,
   ],
   providers: [
+    MonthlyReconciliationService,
     SatPackageJobHandler,
     SatMetadataProcessor,
     ManualZipJobHandler,
@@ -51,6 +53,7 @@ const configuredParser = CfdiParserModule.registerAsync({
     ManualXmlJobHandler,
   ],
   exports: [
+    MonthlyReconciliationService,
     ManualXmlJobHandler,
     ManualZipJobHandler,
     ZipCleanupService,
