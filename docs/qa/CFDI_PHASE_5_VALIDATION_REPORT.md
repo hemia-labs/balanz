@@ -1,5 +1,29 @@
 # Validación Fase 5 — mesa mensual
 
+## Correcciones de revisión PR26 — 2026-09-18
+
+Base revisada: `1ea7815e7e53c2cad12991e57e0212c0c18ff53e`. Código corregido y validado: `1e6233d9995ee540d93718c11a0f7af2d19fe372`. La actualización posterior de este reporte y del contrato es exclusivamente documental.
+
+Se atendieron los cuatro hallazgos de la revisión 5250066057:
+
+- Registro de `PhaseFiveMonthlyWorkspace1787691200000` en el manifiesto canónico. No se modifica ni ejecuta ninguna migración.
+- Catálogo frontend sincronizado con los 11 permisos nuevos. El test extrae todos los literales de la declaración, incluido `cfdi.categories.manage`, y conserva la igualdad completa/ordenada con el catálogo backend.
+- Stub de bootstrap proporciona y exporta `MonthlyService`. El defecto era del montaje del test, no evidencia de un fallo del arranque real.
+- El control compartido mensual permite lecturas de entidades activas o suspendidas y exige entidad activa para cualquier escritura. Archivadas/estados desconocidos siguen denegados; scope, nómina, sesión y RLS no se alteran.
+
+Validación focalizada:
+
+- Jest: manifiesto, contrato de permisos, bootstrap, `monthly.spec.ts` y `monthly-access.spec.ts`: **23 pruebas únicas PASS en 5 suites**. Las cuatro primeras suites pasaron en la ejecución conjunta; la nueva suite de acceso pasó tras completar los permisos del fixture de prueba, con **7 pruebas** (lecturas activa/suspendida, escritura rechazada, archivada/desconocida, acceso a cuenta revocado, tenant distinto y cierre con nómina protegida). Comando inicial: `node node_modules/jest/bin/jest.js --runInBand --runTestsByPath test/migration-manifest.spec.ts test/permission-frontend-contract.spec.ts test/cfdi-api.bootstrap.spec.ts test/monthly-access.spec.ts test/monthly.spec.ts`; repetición sólo de `test/monthly-access.spec.ts`.
+- Frontend: `tsc -p tsconfig.tests.json` y `node --test .test-dist/lib/permissions.test.js .test-dist/lib/authorization-matrix.test.js`: **6 pruebas PASS**.
+- ESLint de los archivos de código/prueba modificados, typecheck frontend, `nest build`, `next build` y `git diff --check`: **PASS**.
+- Preflight existente: `node node_modules/ts-node/dist/bin.js --transpile-only src/database/scripts/preflight-fiscal-foundation.ts`, con configuración privada de la instancia temporal autorizada en `127.0.0.1:55461`, base `test_monthly_browser_6b878684d2b7`: **PASSED**, modo `EXISTING_DATABASE`, `readOnlyInspection=true`, `failures=[]`, `unknownExecuted=[]`. Reconoce la migración F5 aplicada. Sólo inspección; no migraciones, seeds ni cambios al PostgreSQL anterior.
+
+El CI previo [35263838589](https://github.com/hemia-labs/balanz/actions/runs/35263838589) tenía 721 pruebas aprobadas y 3 fallidas; omitió migraciones incrementales/frontend. Las tres causas reportadas están corregidas y pasan localmente. El resultado del nuevo CI debe verificarse en GitHub tras publicar estos commits; esta evidencia local no lo sustituye.
+
+No se repiten navegador, legacy ni matrices históricas: conservan la evidencia anterior, asociada a sus SHA. La regresión nueva de entidades suspendidas es de servicio con dobles de infraestructura; no se presenta como otro recorrido de navegador o integración RLS real. CI/deploy, migraciones, dependencias, custodia y SAT intactos. Sin merge ni despliegue.
+
+**PHASE_4: PARTIAL · REAL_CREDENTIALS_ENABLED: NO · REAL_SAT_ACCEPTANCE: NOT_RUN · RELEASE_STATUS: BLOCKED.** Siguiente acción: comprobar el CI nuevo y solicitar la reevaluación humana de los cuatro hilos.
+
 Fecha: 2026-09-15. Evidencia técnica ejecutada por el agente; no atribuye revisión humana independiente, aprobación fiscal/legal, merge ni despliegue.
 
 ## Estado y Git

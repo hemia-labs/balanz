@@ -8,6 +8,8 @@ Todas las rutas requieren sesión vigente, organización activa, membresía y cu
 
 Prefijo: /periods/:periodId. Cada participación concreta, incluido sourceOrdinal, tiene identidad propia. La paginación de documentos es por sourceDate/id; limit predeterminado 25, máximo 100. El historial se ordena por versión descendente.
 
+Una entidad fiscal suspendida conserva la consulta autorizada de su mesa e historial de cierres. Toda mutación, incluidas adquisición y renovación de lease, requiere entidad activa. Las entidades archivadas y estados desconocidos permanecen excluidos. La suspensión no omite la revalidación de sesión, tenant, cuenta/asignación, permisos ni protección de nómina.
+
 | Método y ruta | Resultado / entrada adicional |
 | --- | --- |
 | GET /monthly | Entidad, RFC, año/mes, estado, versión, editor/vencimiento, permisos, contadores, importes y fuentes |
