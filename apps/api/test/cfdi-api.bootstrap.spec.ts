@@ -4,6 +4,7 @@ import { getRepositoryToken } from '@nestjs/typeorm';
 import { AuditModule } from '../src/modules/audit/audit.module';
 import { AuditService } from '../src/modules/audit/audit.service';
 import { ClientAccountsModule } from '../src/modules/client-accounts/client-accounts.module';
+import { MonthlyService } from '../src/modules/client-accounts/monthly.service';
 import { LegalEntity } from '../src/modules/client-accounts/entities/legal-entity.entity';
 import { CfdiApiModule } from '../src/modules/cfdi/cfdi-api.module';
 import { CfdiQueryService } from '../src/modules/cfdi/services/cfdi-query.service';
@@ -15,7 +16,12 @@ import { IngestionModule } from '../src/modules/ingestion/ingestion.module';
 import { SessionsModule } from '../src/modules/sessions/sessions.module';
 import { SessionsService } from '../src/modules/sessions/sessions.service';
 
-@Module({})
+@Module({
+  providers: [
+    { provide: MonthlyService, useValue: { visibleDocument: jest.fn() } },
+  ],
+  exports: [MonthlyService],
+})
 class StubClientAccountsModule {}
 
 @Module({})

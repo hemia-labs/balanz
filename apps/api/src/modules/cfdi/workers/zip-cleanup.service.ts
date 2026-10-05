@@ -15,7 +15,7 @@ export class ZipCleanupService {
   async reconcile() {
     const candidates = await this.transactions.runWorkerMaintenance((manager) =>
       manager.query<Array<{ object_id: string; organization_id: string }>>(
-        `SELECT * FROM claim_zip_cleanup()`,
+        `SELECT * FROM claim_zip_cleanup() UNION ALL SELECT * FROM claim_sat_cleanup()`,
       ),
     );
     for (const candidate of candidates) {

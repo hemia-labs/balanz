@@ -16,6 +16,16 @@ interface HistogramValue {
 }
 
 const DEFINITIONS = {
+  sat_external_calls_total: {
+    help: 'SAT calls started, including uncertain responses.',
+    kind: 'counter',
+    labels: ['operation'],
+  },
+  sat_cleanup_failures_total: {
+    help: 'SAT package cleanup failures pending reconciliation.',
+    kind: 'counter',
+    labels: [],
+  },
   efirma_ready_total: {
     help: 'Temporary synthetic custodies prepared.',
     kind: 'counter',

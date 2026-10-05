@@ -9,6 +9,17 @@
 
 ---
 
+## Decisión de implementación Fase 5 — 2026-09-15
+
+Este documento 3.3 conserva su versión documental; no habilita parser CFDI 3.3. Para la mesa mensual rigen las decisiones explícitas del solicitante en [ADR-CFDI-008](decisions/ADR-CFDI-008-MONTHLY-WORKSPACE-CLOSE.md) y el [contrato implementado](../contracts/CFDI_MONTHLY_WORKSPACE_API.md). Son extensiones concretas del modelo conceptual siguiente:
+
+- La decisión pertenece a la participación y ordinal, no a una combinación que borre pagos repetidos. Se conserva cfdi-period-participation/1.0.0 y el contexto histórico de fechas.
+- Revisión e inclusión son independientes; default versionado pendiente/incluida. Clasificación, comentario y tratamiento manual son opcionales. El catálogo de categorías empieza vacío y es configurable; no se impone Ventas/Compras/Servicios.
+- El checklist mínimo de la sección G se implementa con correspondencia explícita en el contrato API: comprobaciones del sistema separadas de confirmaciones de alcance, relaciones/cancelaciones y advertencias PPD. Exportación preparada significa conjunto apto para un snapshot futuro, sin archivos ni circularidad con un cierre anterior.
+- Una instancia editorial por período: lease 120 segundos y renovación 30 segundos con actividad. Todos los cambios guardados son del servidor; los no enviados no sobreviven al cierre del navegador. Cierre/reapertura/takeover conservan MFA y reautenticación general.
+- Cierre es revisión interna de lo incorporado. Fuentes pendientes/inciertas bloquean salvo excepción explícita autorizada, cuya evidencia se congela sin cambiar SAT. Un período vacío no acredita ausencia de operaciones. Cierres heredados sin snapshot no se completan retrospectivamente.
+- F5 puede desarrollarse con XML/ZIP y núcleo durable F4. F4 sigue PARTIAL; SAT real, metadata/perfil y aprobaciones operativas permanecen gates del MVP. Exportación/portabilidad/retención son Fase6, no parte de esta implementación.
+
 ## 1. Resumen ejecutivo
 
 Balanz es un SaaS para que un contador o despacho sepa, desde una sola vista, qué clientes no han iniciado su revisión mensual, cuáles tienen incidencias, cuáles están listos para cerrar, cuáles ya se cerraron y cuáles recibieron información posterior.

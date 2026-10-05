@@ -23,10 +23,7 @@ import { SessionGuard } from '../../common/guards/session.guard';
 import { TenantAccessGuard } from '../../common/guards/tenant-access.guard';
 import type { AuthSession } from '../sessions/entities/auth-session.entity';
 import type { SessionAuthorizationContext } from '../sessions/session.types';
-import {
-  CreateExportDto,
-  CreateSatDownloadJobDto,
-} from './dtos/fiscal-operation.dtos';
+import { CreateExportDto } from './dtos/fiscal-operation.dtos';
 import { FiscalOperationsService } from './fiscal-operations.service';
 import { PrivateObjectAccessService } from './private-object-access.service';
 
@@ -37,16 +34,6 @@ export class FiscalOperationsController {
     private readonly service: FiscalOperationsService,
     private readonly objects: PrivateObjectAccessService,
   ) {}
-
-  @Post('sat-download-jobs')
-  satDownload(
-    @Body() dto: CreateSatDownloadJobDto,
-    @CurrentSession() session: AuthSession,
-    @CurrentTenant() context: SessionAuthorizationContext,
-    @CurrentRequestContext() request: RequestContext,
-  ) {
-    return this.service.createSatDownload(dto, session, context, request);
-  }
 
   @Post('exports')
   export(

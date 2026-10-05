@@ -49,12 +49,13 @@ import { EfirmaCleanupService } from './efirma-cleanup.service';
     EFIRMA_VAULT_CLEANUP,
   ],
 })
-class EfirmaPersistenceModule {}
+export class EfirmaPersistenceModule {}
 
 @Module({
   imports: [EfirmaPersistenceModule, AuthModule, SessionsModule],
   controllers: [EfirmaController],
   providers: [EfirmaPreparationService],
+  exports: [EfirmaPreparationService],
 })
 export class EfirmaApiModule {}
 

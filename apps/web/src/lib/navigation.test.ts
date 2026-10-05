@@ -277,8 +277,11 @@ test("protege rutas live y no interpreta pestañas fuera de alcance como resumen
   const audit = resolveProductRoute("demo", ["audit"]);
   assert.equal(audit, null);
   assert.equal(isLivePeriodTabSupported("overview"), true);
-  assert.equal(isLivePeriodTabSupported("payroll"), false);
-  assert.equal(isLivePeriodTabSupported("cfdi"), false);
+  assert.equal(isLivePeriodTabSupported("payroll"), true);
+  assert.equal(isLivePeriodTabSupported("cfdi"), true);
+  assert.equal(isLivePeriodTabSupported("close"), true);
+  assert.equal(isLivePeriodTabSupported("exports"), false);
+  assert.equal(isLivePeriodTabSupported("unknown"), false);
 });
 
 test("separa el resumen de las secciones de configuración del cliente", () => {

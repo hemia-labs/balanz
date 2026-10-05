@@ -1,4 +1,5 @@
 "use client";
+import { MonthlyScreen } from "@/features/monthly/monthly-screen";
 
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
@@ -13,7 +14,6 @@ import {
 import { Plus, RefreshCw } from "lucide-react";
 import { useAccountingContext } from "@/components/accounting-context";
 import {
-  DefinitionGrid,
   Field,
   FilterBar,
   Surface,
@@ -186,7 +186,10 @@ function CreateYearForm({
       ) : null}
       {error ? (
         <div className="mt-3">
-          <ErrorNotice error={error} fallback="No se pudo crear el ejercicio." />
+          <ErrorNotice
+            error={error}
+            fallback="No se pudo crear el ejercicio."
+          />
         </div>
       ) : null}
       {createdYear !== null ? (
@@ -611,11 +614,13 @@ export function LiveFiscalYearScreen({
   legalEntityId,
   year,
   selectedMonth,
+  monthlyTab,
 }: {
   clientId: string;
   legalEntityId?: string;
   year: string;
   selectedMonth?: string;
+  monthlyTab?: string;
 }) {
   const { organization, locale } = useAccountingContext();
   const router = useRouter();
@@ -787,71 +792,16 @@ export function LiveFiscalYearScreen({
         fallback="No se encontró el período solicitado."
       />
     );
-  if (selectedPeriod) {
-    const selectedMonthName =
-      monthNames[selectedPeriod.month - 1] ?? `Mes ${selectedPeriod.month}`;
+  if (selectedPeriod)
     return (
-      <div className="space-y-6">
-        <header className="flex flex-col gap-4 border-l-2 border-brand-mark pl-4 sm:flex-row sm:items-start sm:justify-between">
-          <div>
-            <p className="text-caption font-semibold text-accent-foreground">
-              Período fiscal
-            </p>
-            <h1 className="text-heading-lg font-bold">
-              {selectedMonthName} {year}
-            </h1>
-            <p className="identifier mt-1 text-body-sm text-muted-foreground">
-              {detail.account.name} · {entity.legalName} · RFC {entity.rfc}
-            </p>
-          </div>
-          <Button
-            render={
-              <Link
-                href={`${base}/legal-entities/${entity.id}/fiscal-years/${year}${routeQuery.suffix}`}
-              />
-            }
-            variant="outline"
-          >
-            Volver al ejercicio
-          </Button>
-        </header>
-        {entity.status === "suspended" ? (
-          <WarningNotice>
-            Este RFC está suspendido. El período permanece disponible en modo
-            consulta, sin acciones de modificación.
-          </WarningNotice>
-        ) : null}
-        <DefinitionGrid
-          items={[
-            {
-              label: "Estado del período",
-              value: (
-                <StatusBadge
-                  status={selectedPeriod.status}
-                  locale={locale}
-                />
-              ),
-            },
-            { label: "Ejercicio", value: year },
-            {
-              label: "Fecha de corte",
-              value: selectedPeriod.cutoffAt
-                ? new Date(selectedPeriod.cutoffAt).toLocaleString("es-MX")
-                : "Sin corte",
-            },
-            {
-              label: "Versión de bloqueo",
-              value: selectedPeriod.lockVersion,
-            },
-          ]}
-        />
-        <WarningNotice>
-          Este período está disponible en modo consulta. Las transiciones de
-          preparación, revisión y cierre no forman parte de esta entrega.
-        </WarningNotice>
-      </div>
+      <MonthlyScreen
+        key={organization.id + ":" + selectedPeriod.id + ":" + monthlyTab}
+        periodId={selectedPeriod.id}
+        initialTab={monthlyTab}
+        clientName={detail.account.name}
+      />
     );
-  }
+
   return (
     <div className="space-y-6">
       <header className="border-l-2 border-brand-mark pl-4">

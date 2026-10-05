@@ -1,3 +1,4 @@
+import { MonthlyReconciliationService } from '../../cfdi/workers/monthly-reconciliation.service';
 import {
   Injectable,
   Optional,
@@ -89,6 +90,8 @@ export class IngestionWorkerRunner
     private readonly metrics: FiscalMetricsService,
     private readonly events: FiscalEventLogger,
     @Optional() private readonly zipCleanup?: ZipCleanupService,
+    @Optional()
+    private readonly monthlyReconciliation?: MonthlyReconciliationService,
   ) {
     this.worker =
       config.getOrThrow<FiscalPlatformConfig>('fiscalPlatform').worker;
@@ -485,6 +488,7 @@ export class IngestionWorkerRunner
     try {
       const reconciliation = await this.jobs.reconcile(100);
       await this.zipCleanup?.reconcile();
+      await this.monthlyReconciliation?.reconcile();
       this.incrementIfPositive(
         'worker_lease_reclaims_total',
         { outcome: 'retryable' },

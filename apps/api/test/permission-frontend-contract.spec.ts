@@ -14,7 +14,7 @@ describe('frontend/backend permission catalog contract', () => {
     expect(declaration).not.toBeNull();
 
     const frontendKeys = Array.from(
-      declaration![1].matchAll(/["']([a-z][a-z0-9_]*\.[a-z][a-z0-9_]*)["']/g),
+      declaration![1].matchAll(/["']([^"']+)["']/g),
       (match) => match[1],
     );
 

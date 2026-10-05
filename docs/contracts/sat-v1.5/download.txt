@@ -1,0 +1,498 @@
+
+
+
+
+1 / 13
+
+
+
+
+
+
+Fecha: mayo 2025
+Versión 1.5
+
+
+
+
+
+
+2 / 13
+ÍNDICE
+
+1. INTRODUCCIÓN ................................................................................................................................................ 3
+2. PRERREQUISITOS .............................................................................................................................................. 3
+3. MODO DE USO PARA SERVICIOS .................................................................................................................... 3
+4. AUTENTICACIÓN PARA SERVICIOS ................................................................................................................. 3
+5. SERVICIO DE DESCARGA MASIVA ................................................................................................................... 7
+6. CONTROL DE CAMBIOS ................................................................................................................................. 13
+
+
+
+
+
+
+
+3 / 13
+1. INTRODUCCIÓN
+
+El servicio de descarga masiva se diseñó para que después de haber generado una solicitud de descarga
+masiva y verificado el estatus de esta, permitir realizar la descarga del paquete correspondiente. Esto
+mediante un servicio publicado en la página del SA T desde internet, siendo que este servicio solo puede
+ser consumido por el solicitante original que genero la solicitud de descarga masiva, con lo cual se
+protege esta información.
+
+En la presente documentación se describe la forma en la que el contribuy ente realizará la comunicación
+para llevar a cabo la descarga de los archivos XML y/o metadatos de las solicitudes recibidas que fueron
+procesadas de manera exitosa, cabe mencionar que algunas recomendaciones están enfocadas para
+realizarse en los equipos de cómputo propios del contribuyente, de no ser así se debe garantizar no poner
+en riesgo su información almacenándola en un equipo que no sea el propio.
+
+2. PRERREQUISITOS
+
+El contribuyente debe contar con el Certificado de tipo e.Firma vigente para soli citar la información.
+
+3. MODO DE USO PARA SERVICIOS
+
+A fin de utilizar los servicios web descritos en el presente documento es necesario crear el cliente de
+servicios web correspondiente a partir de la URL del Servicio y/o la URL del WSDL de acuerdo con las
+instrucciones de la plataforma desde la que se vaya a consumir el servicio web.
+
+Para mayor información acerca de la manera en la que se genera el cliente del servicio web, consulte la
+documentación de la plataforma desde la que consumirá el servicio.
+
+Una vez que se creó el cliente el siguiente paso es verificar el tipo de certificado a enviar para poder
+realizar la autenticación y posterior consumo de los servicios.
+
+En el siguiente paso se habla específicamente de cómo realizar dicha autenticación.
+
+4. AUTENTICACIÓN PARA SERVICIOS
+
+Para utilizar l os servicios web descritos en el presente documento es necesario autenticarse ante el
+servidor de servicios web mediante un par de llaves proporcionadas por el SAT, estas llaves son las
+correspondientes al certificado de e.Firma vigente.
+
+
+
+
+
+
+4 / 13
+El tipo de au tenticación del servicio cumple con las especificaciones de Web Services Security v1.0 (WS -
+Security 2004):
+
+https://www.oasis-open.org/standards#wssv1.0
+
+A continuación, se muestra la parte del WSDL de cada uno de los servicios que menciona el método de
+autenticación que se requiere para el consumo de los servicios:
+
+Servicio Autenticación
+
+A fin de facilitar la autenticación mediante el uso de la FIEL, se recomienda utilizar el almacén local de
+llaves criptográficas para almacenar y recuperar una llave para utilizarla posteriormente, a continuación,
+se muestra un ejemplo de código en C# de cómo obtener un certifi cado específico.
+
+Ejemplo:
+
+
+
+Una vez seleccionado el certificado a utilizar como medio de autenticación se tiene que mandar la petición
+hacia el servicio de autenticación para poder obtener el token que se requiere para poder usar el servicio
+de descarga masiva, esto se realiza de la siguiente manera:
+
+Ejemplo
+
+Servicio Autenticación
+
+
+El código mostrado anteriormente es en C#, pero sirve como ejemplo para ilustrar cómo enviar estos
+certificados a los servicios descritos y con ello obtener el token de autenticación correspondiente.
+
+A continuación, se muestra un ejemplo de cómo se ve una petición hacia el servicio de autenticación:
+
+
+
+
+
+
+
+5 / 13
+Servicio Autenticación
+
+
+<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" xmlns:u="http://docs.oasis-open.org/wss/2004/01/oasis-
+200401-wss-wssecurity-utility-1.0.xsd">
+  <s:Header>
+    <o:Security s:mustUnderstand="1" xmlns:o="http://docs.oasis -open.org/wss/2004/01/oasis-200401-wss-wssecurity-secext-
+1.0.xsd">
+      <u:Timestamp u:Id="_0">
+        <u:Created>2018-05-09T21:21:42.953Z</u:Created>
+        <u:Expires>2018-05-09T21:26:42.953Z</u:Expires>
+      </u:Timestamp>
+      <o:BinarySecurityToken u:Id="uuid -572bbc7a-287d-4233-bdcb-75f92418becd-1" ValueType="http://docs.oasis -
+open.org/wss/2004/01/oasis-200401-wss-x509-token-profile-1.0#X509v3" EncodingType="http://docs.oasis -
+open.org/wss/2004/01/oasis-200401-wss-soap-message-security-
+1.0#Base64Binary">MIIGiDCCBHCgAwIBAgIUMzAwMDEwMDAwMDAzMDAwMjkwODEwDQYJKoZIhvcNAQELBQAwggFmMSAw
+HgYDVQQDDBdBLkMuIDIgZGUgcHJ1ZWJhcyg0MDk2KTEvMC0GA1UECgwmU2VydmljaW8gZGUgQWRtaW5pc3RyYWNpw7NuIF
+RyaWJ1dGFyaWExODA2BgNVBAsML0FkbWluaXN0cmFjacOzbiBkZSBTZWd1cmlkYWQgZGUgbGEgSW5mb3JtYWNpw7NuMSkwJw
+YJKoZIhvcNAQkBFhphc2lzbmV0QHBydWViYXMuc2F0LmdvYi5teDEmMCQGA1UECQwdQXYuIEhpZGFsZ28gNzcsIENvbC4gR3Vlcn
+Jlcm8xDjAMBgNVBBEMBTA2MzAwMQswCQYDVQQGEwJNWDEZMBcGA1UECAwQRGlzdHJpdG8gRmVkZXJhbDESMBAGA1UEBww
+JQ295b2Fjw6FuMRUwEwYDVQQtEwxTQVQ5NzA3MDFOTjMxITAfBgkqhkiG9w0BCQIMElJlc3BvbnNhYmxlOiBBQ0RNQTAeFw0xNz
+EwMjUxNDU5NDhaFw0yMTEwMjQxNDU5NDhaMIIBQTFEMEIGA1UEAxM7Q09SUE9SQVRJVk8gSU5NT0JJTElBUklPIERFIENPTlRST
+0wgWSBBU0VTT1JJQSBTIEEgQiBERSBDIFYxRDBCBgNVBCkTO0NPUlBPUkFUSVZPIElOTU9CSUxJQVJJTyBERSBDT05UUk9MIFkgQV
+NFU09SSUEgUyBBIEIgREUgQyBWMUQwQgYDVQQKEztDT1JQT1JBVElWTyBJTk1PQklMSUFSSU8gREUgQ09OVFJPTCBZIEFTRVNP
+UklBIFMgQSBCIERFIEMgVjELMAkGA1UEBhMCTVgxGTAXBgkqhkiG9w0BCQEWCmFhQHNhdC5nb2IxJTAjBgNVBC0THEFYVDk0M
+DcyN0ZQOCAvIFZBQUU3MzEwMjExMjExHjAcBgNVBAUTFSAvIFZBQUU3MzEwMjFIREZSR1IwNTCCASIwDQYJKoZIhvcNAQEBBQA
+DggEPADCCAQoCggEBAKyJR9I+BClVEKhvf2VhoucqdbnwaKAolx3x1Ce3XeLBm8mj0z7cHiRr+u8VUNZeMWMKNsJDJAzxQwqpjIzD
+
+
+
+
+
+6 / 13
+7boCbxGoiNw3zEEGzkEugcCu7J4IfW7s0Bf1FWzeqwsOU6COAIfdtfa1a6nPs9GPiMO+XiuyBxPzotVhlmfcZX0Ly7GOkhLRJm5ezvSU
+4d7afBJ6BZEb/hrFamnICgTyzXVNkRlQUEJ1pcDQNMz4wAoRIlmcvujYgr1VTMfkLXmsJVJNun/ybojfQ1ALjCVBmCqQfw5uO1VMUYz
+0wO83FjEGWFK7/JdzPnTT21dpyR0z1HSGOYXHthwNjaF0uoUegUsCAwEAAaNPME0wDAYDVR0TAQH/BAIwADALBgNVHQ8EBAM
+CA9gwEQYJYIZIAYb4QgEBBAQDAgWgMB0GA1UdJQQWMBQGCCsGAQUFBwMEBggrBgEFBQcDAjANBgkqhkiG9w0BAQsFAAOCA
+gEATnZwK/g+L90DjyeSCIw420VO8HkaxpBPqUOdZsuEo23Y//bBFXXtENsm/8djRpVM39L898+Ak4Re9Ln3pdd/RQ3AAUZtRZtaCJnx
+iGVOh/NyMCQLi1lH3P0ODEE7i5RBcld+9sR7LVapQ3DnxJ8/bKr4MlY+KrChU/GKjW7KjHe+CaIoALUJKy83sLekF1MPVZASf+Q3XXAtl
+eWjQta6iBCW42MRheG/VWVxbB+w4HjNPeEcrvw/WDdamCZaEwe85ZJjhcjlZOPmt6U7Pf+rOVCWFAaIku6S+hSynvmNs2WViqC02
+zl2kc757nOyU6KEFOC0U2hnsUMXIjlR0VGrU526rNS8Wprv3fofcMDv/9z+igMc01x7mNAMI8oVdfAvGrsuCoEaPUFqCBtNbVmqOV
+x6FQdajyf8vACMfwp3R+S3Wk3ITgOSds5j9UAAABeXrsQ1DKFzjd87FdWpyucLpqfURIGHOoXb6cVoL1x4mQLpB1blaMokEO1Nxxa
+aEU1I2Latt+3hS+HMTNRzqy/6dqiBaTMxljMMWfr4PO6MCd4sz0ARnuEkYGCtW7NG9Bdi0ISDw4DrKCOlq6tEPCxh91EurhNR+UYC
+puFsubg2Hu26CTJZuE175E2Jp+GI6I8KrsYxKZMKIHL1CJgZSVExllmBzBGtjbxIkdqIH4307gs=</o:BinarySecurityToken>
+      <Signature xmlns="http://www.w3.org/2000/09/xmldsig#">
+        <SignedInfo>
+          <CanonicalizationMethod Algorithm="http://www.w3.org/2001/10/xml-exc-c14n#" />
+          <SignatureMethod Algorithm="http://www.w3.org/2000/09/xmldsig#rsa-sha1" />
+          <Reference URI="#_0">
+            <Transforms>
+              <Transform Algorithm="http://www.w3.org/2001/10/xml-exc-c14n#" />
+            </Transforms>
+            <DigestMethod Algorithm="http://www.w3.org/2000/09/xmldsig#sha1" />
+            <DigestValue>Ij+Epaya2U5D/sSncI6BHkkTRWo=</DigestValue>
+          </Reference>
+        </SignedInfo>
+
+<SignatureValue>EIY2h4gE3G8+K2kkoFxVwHqeTbdlA4fCHok4lOA+0hUloAkBipza4gUt5QsTmMi5z8ZZwV2E8tFWHOiZ1VaD01V6
+GigGwAXtAhDLJRQ9VQH/26QF9Q+5SnLMBNqt0SNU2T3LYruwpGXq4jW4hbTELuuMg/+c3hxXdFyvmU5sajRYbVm+Vqya4IJQ+aZf
+R4d9ZfWgW2t7Svv9WL4ikaizyWbTGN5Llasr69AzS2g87JfHq7mbmycl+BL/Enu5EZdf/K/r/UykmDvN9sdUMdUCRcT3A2M66VHDcO
+ZYnVxUkR7yV8NC8MLP2Hz3wIrKPRUQm4qjFQOi4fpqtInXwwKpMg==</SignatureValue>
+        <KeyInfo>
+          <o:SecurityTokenReference>
+            <o:Reference ValueType="http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-x509-token-profile-1.0#X509v3"
+URI="#uuid-572bbc7a-287d-4233-bdcb-75f92418becd-1" />
+          </o:SecurityTokenReference>
+        </KeyInfo>
+      </Signature>
+    </o:Security>
+    <To s :mustUnderstand="1" xmlns="http://schemas.microsoft.com/ws/2005/05/addressing/none">https://desktop -
+3fi24u7:444/Autenticacion/Autenticacion.svc</To>
+    <Action s:mustUnderstand="1"
+xmlns="http://schemas.microsoft.com/ws/2005/05/addressing/none">http://DescargaMasivaTerceros.gob.mx/IAutenticacion/
+Autentica</Action>
+  </s:Header>
+  <s:Body>
+    <Autentica xmlns="http://DescargaMasivaTerceros.gob.mx" />
+  </s:Body>
+</s:Envelope>
+
+
+
+
+
+
+
+7 / 13
+Si existe algún error durante la autenticación y no se obtiene el token, no se podrá utilizar los demás
+servicios; otro punto a considerar es que al consumir los servicios se validará el token enviado, si éste es
+válido se podrá hacer uso de los métodos ex puestos de cada uno, en caso contrario se mandará una
+excepción de autenticación y no se podrá hacer uso del Web Service.
+
+Nota: El servicio de autenticación descrito en esta sección es el mismo a utilizar para los servicios de
+Solicitud de Descarga Masiva, Verificación Descarga Masiva y Descarga Masiva.
+
+5. SERVICIO DE DESCARGA MASIVA
+
+Es un servicio web que permite realizar la descarga de un paquete específico, que forme parte de una
+solicitud de descarga masiva realizada a través del servicio de solic itud descarga masiva. Este WS está
+compuesto por la siguiente operación:
+
+Descargar
+
+Esta operación permite solicitar la descarga de un paquete en específico, como resultado se obtiene el
+stream correspondiente al paquete que se está descargando.
+
+Los parámetros que requiere esta operación son los siguientes:
+Parámetro Tipo de Dato Descripción Tipo de Parámetro
+Authorization Header Contiene el token de autenticación que se obtuvo
+en el servicio correspondiente, se debe de usar el
+nombre “Authorization” y el valor debe de ser en el
+siguiente formato “WRAP access_token="Token"”
+
+Entrada
+IdPaquete String Contiene el identificador del paquete que se desea
+descargar.
+Entrada
+RfcSolicitante String Contiene el RFC del solicitante que genero la
+petición de solicitud de descarga masiva.
+Entrada
+Signature SignatureType Firma de la petición realizada con el certificado de
+tipo FIEL
+Entrada
+CodEstatus String ubicado en el Header Código de estatus de la solicitud Salida
+Mensaje String ubicado en el Header Pequeña descripción del código estatus Salida
+Paquete Stream Representa el paquete que se desea descargar Salida
+
+
+
+
+
+
+8 / 13
+Ejemplo de petición a la operación Descargar del servicio de Descarga masiva
+
+
+
+
+POST https://srvdescargamasivaterceros.cloudapp.net/DescargaMasivaTercerosService.svc HTTP/1.1
+Accept-Encoding: gzip,deflate
+Content-Type: text/xml;charset=UTF-8
+SOAPAction: "http://DescargaMasivaTerceros.sat.gob.mx/IDescargaMasivaTercerosService/Descargar"
+Authorization: WRAP
+access_token="eyJhbGciOiJodHRwOi8vd3d3LnczLm9yZy8yMDAxLzA0L3htbGRzaWctbW9yZSNobWFjLXNoYTI1NiIsInR5cCI6IkpXV
+CJ9.eyJuYmYiOjE1MjU5Njk3MzgsImV4cCI6MTUyNTk3MDMzOCwiaWF0IjoxNTI1OTY5NzM4LCJpc3MiOiJMb2FkU2VydmljaW9EZW
+NhcmdhTWFzaXZhVGVyY2Vyb3MiLCJhY3RvcnQiOiIzMzMwMzAzMDMxMzAzMDMwMzAzMDMwMzMzMDMwMzAzMjM5MzAzOD
+MxIn0.CQcdFQ_8K4HPzBchTfmGuO9UzLw6WRC6c8_eGy2h2so&wrap_subject=3330303031303030303030333030303239303831
+"
+Content-Length: 4680
+Host: srvdescargamasivaterceros.cloudapp.net
+Connection: Keep-Alive
+User-Agent: Apache-HttpClient/4.1.1 (java 1.5)
+
+
+<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/"
+xmlns:des="http://DescargaMasivaTerceros.sat.gob.mx" xmlns:xd="http://www.w3.org/2000/09/xmldsig#">
+   <soapenv:Header/>
+   <soapenv:Body>
+      <des:PeticionDescargaMasivaTercerosEntrada>
+         <!--Optional:-->
+         <des:peticionDescarga IdPaquete="4e80345d-917f-40bb-a98f-4a73939343c5_01" RfcSolicitante="AXT940727FP8">
+            <!--Optional:-->
+            <Signature xmlns="http://www.w3.org/2000/09/xmldsig#">
+               <SignedInfo>
+                  <CanonicalizationMethod Algorithm="http://www.w3.org/TR/2001/REC-xml-c14n-20010315"/>
+
+
+
+
+
+9 / 13
+                  <SignatureMethod Algorithm="http://www.w3.org/2000/09/xmldsig#rsa-sha1"/>
+                  <Reference URI="">
+                     <Transforms>
+                        <Transform Algorithm="http://www.w3.org/2000/09/xmldsig#enveloped-signature"/>
+                     </Transforms>
+                     <DigestMethod Algorithm="http://www.w3.org/2000/09/xmldsig#sha1"/>
+                     <DigestValue>leZ4dK/Q/RNbckYkY7WOOnCjK5Q=</DigestValue>
+                  </Reference>
+               </SignedInfo>
+
+<SignatureValue>BuuRjPmgk4Qwl2ER7vjL7+57WiqNZMRD12Hjfh65irEI1Cu8biQSqeHHiaZ7NnmB/LsjyGaHQmZMW50mfnDtNzo
+wAdytB6FS0RNUNLoajAZAdii8bYHYoW0BqrLaXSImwbZYaHgi4TlPch1OpXZHmUOqfS1qnEEsRXVBN2DvEh1RbAYupmQxBMW75
+eo4HZZm/lRug44mb47Evm9428ejTzTnu6LDPEAZEmHV4jOwRzqmM4GgiW7aEptqHOhdSxV+QzPSQ2/H5s8AZZ41LCK+3gSdCq3
+Kmf9S2H5R3BRS6VSam5J9xa0I2CvzJf/REwrxHsc7Xk9uXwXWOofjeTI1Bw==</SignatureValue>
+               <KeyInfo>
+                  <X509Data>
+                     <X509IssuerSerial>
+                        <X509IssuerName>OID.1.2.840.113549.1.9.2=Responsable: ACDMA, OID.2.5.4.45=SAT970701NN3, L=Coyoacán,
+S=Distrito Federal, C=MX, PostalCode=06300, STREET="Av. Hidalgo 77, Col. Guerrero", E=asisnet@pruebas.sat.gob.mx,
+OU=Administración de Seguridad de la Información, O=Servicio de Administración Tributaria, CN=A.C. 2 de
+pruebas(4096)</X509IssuerName>
+                        <X509SerialNumber>292233162870206001759766198425879490509036075057</X509SerialNumber>
+                     </X509IssuerSerial>
+
+<X509Certificate>MIIGiDCCBHCgAwIBAgIUMzAwMDEwMDAwMDAzMDAwMjkwODEwDQYJKoZIhvcNAQELBQAwggFmMSAwHg
+YDVQQDDBdBLkMuIDIgZGUgcHJ1ZWJhcyg0MDk2KTEvMC0GA1UECgwmU2VydmljaW8gZGUgQWRtaW5pc3RyYWNpw7NuIFRya
+WJ1dGFyaWExODA2BgNVBAsML0FkbWluaXN0cmFjacOzbiBkZSBTZWd1cmlkYWQgZGUgbGEgSW5mb3JtYWNpw7NuMSkwJwYJK
+oZIhvcNAQkBFhphc2lzbmV0QHBydWViYXMuc2F0LmdvYi5teDEmMCQGA1UECQwdQXYuIEhpZGFsZ28gNzcsIENvbC4gR3VlcnJlc
+m8xDjAMBgNVBBEMBTA2MzAwMQswCQYDVQQGEwJNWDEZMBcGA1UECAwQRGlzdHJpdG8gRmVkZXJhbDESMBAGA1UEBwwJ
+Q295b2Fjw6FuMRUwEwYDVQQtEwxTQVQ5NzA3MDFOTjMxITAfBgkqhkiG9w0BCQIMElJlc3BvbnNhYmxlOiBBQ0RNQTAeFw0xNz
+EwMjUxNDU5NDhaFw0yMTEwMjQxNDU5NDhaMIIBQTFEMEIGA1UEAxM7Q09SUE9SQVRJVk8gSU5NT0JJTElBUklPIERFIENPTlRST
+0wgWSBBU0VTT1JJQSBTIEEgQiBERSBDIFYxRDBCBgNVBCkTO0NPUlBPUkFUSVZPIElOTU9CSUxJQVJJTyBERSBDT05UUk9MIFkgQV
+NFU09SSUEgUyBBIEIgREUgQyBWMUQwQgYDVQQKEztDT1JQT1JBVElWTyBJTk1PQklMSUFSSU8gREUgQ09OVFJPTCBZIEFTRVNP
+UklBIFMgQSBCIERFIEMgVjELMAkGA1UEBhMCTVgxGTAXBgkqhkiG9w0BCQEWCmFhQHNhdC5nb2IxJTAjBgNVBC0THEFYVDk0M
+DcyN0ZQOCAvIFZBQUU3MzEwMjExMjExHjAcBgNVBAUTFSAvIFZBQUU3MzEwMjFIREZSR1IwNTCCASIwDQYJKoZIhvcNAQEBBQA
+DggEPADCCAQoCggEBAKyJR9I+BClVEKhvf2VhoucqdbnwaKAolx3x1Ce3XeLBm8mj0z7cHiRr+u8VUNZeMWMKNsJDJAzxQwqpjIzD
+7boCbxGoiNw3zEEGzkEugcCu7J4IfW7s0Bf1FWzeqwsOU6COAIfdtfa1a6nPs9GPiMO+XiuyBxPzotVhlmfcZX0Ly7GOkhLRJm5ezvSU
+4d7afBJ6BZEb/hrFamnICgTyzXVNkRlQUEJ1pcDQNMz4wAoRIlmcvujYgr1VTMfkLXmsJVJNun/ybojfQ1ALjCVBmCqQfw5uO1VMUYz
+0wO83FjEGWFK7/JdzPnTT21dpyR0z1HSGOYXHthwNjaF0uoUegUsCAwEAAaNPME0wDAYDVR0TAQH/BAIwADALBgNVHQ8EBAM
+CA9gwEQYJYIZIAYb4QgEBBAQDAgWgMB0GA1UdJQQWMBQGCCsGAQUFBwMEBggrBgEFBQcDAjANBgkqhkiG9w0BAQsFAAOCA
+gEATnZwK/g+L90DjyeSCIw420VO8HkaxpBPqUOdZsuEo23Y//bBFXXtENsm/8djRpVM39L898+Ak4Re9Ln3pdd/RQ3AAUZtRZtaCJnx
+iGVOh/NyMCQLi1lH3P0ODEE7i5RBcld+9sR7LVapQ3DnxJ8/bKr4MlY+KrChU/GKjW7KjHe+CaIoALUJKy83sLekF1MPVZASf+Q3XXAtl
+eWjQta6iBCW42MRheG/VWVxbB+w4HjNPeEcrvw/WDdamCZaEwe85ZJjhcjlZOPmt6U7Pf+rOVCWFAaIku6S+hSynvmNs2WViqC02
+zl2kc757nOyU6KEFOC0U2hnsUMXIjlR0VGrU526rNS8Wprv3fofcMDv/9z+igMc01x7mNAMI8oVdfAvGrsuCoEaPUFqCBtNbVmqOV
+x6FQdajyf8vACMfwp3R+S3Wk3ITgOSds5j9UAAABeXrsQ1DKFzjd87FdWpyucLpqfURIGHOoXb6cVoL1x4mQLpB1blaMokEO1Nxxa
+aEU1I2Latt+3hS+HMTNRzqy/6dqiBaTMxljMMWfr4PO6MCd4sz0ARnuEkYGCtW7NG9Bdi0ISDw4DrKCOlq6tEPCxh91EurhNR+UYC
+puFsubg2Hu26CTJZuE175E2Jp+GI6I8KrsYxKZMKIHL1CJgZSVExllmBzBGtjbxIkdqIH4307gs=</X509Certificate>
+                  </X509Data>
+               </KeyInfo>
+            </Signature>
+
+
+
+
+
+10 / 13
+         </des:peticionDescarga>
+      </des:PeticionDescargaMasivaTercerosEntrada>
+   </soapenv:Body>
+</soapenv:Envelope>
+
+
+ En el ejemplo anterior se puede visualizar que la petición va dividida en dos partes:
+
+• La primera de ellas es el Header, que contiene el token de autenticación, del cual se puede
+encontrar el detalle en el tema 4 Autenticación para Servicios.
+
+• La segunda es aquella que contiene la petición hacia el servicio con los parámetros ya
+establecidos anteriormente; como se mencio nó en el punto de la autenticación esta
+operación del Web Services solo podrá ser usada siempre y cuando se haya autenticado de
+manera exitosa y el token sea válido en el tiempo que se está intentando consumir.
+
+
+Ejemplo de respuesta de la operación Descargar del servicio de Descarga masiva
+
+
+
+HTTP/1.1 200 OK
+Cache-Control: private
+Transfer-Encoding: chunked
+Content-Type: text/xml; charset=utf-8
+Content-Encoding: gzip
+Vary: Accept-Encoding
+Server: Microsoft-IIS/10.0
+X-AspNet-Version: 4.0.30319
+X-Powered-By: ASP.NET
+Date: Thu, 10 May 2018 16:30:49 GMT
+
+
+<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/">
+   <s:Header>
+
+
+
+
+
+11 / 13
+      <h:respuesta CodEstatus="5000" Mensaje="Solicitud Aceptada" xmlns:h="http://DescargaMasivaTerceros.sat.gob.mx"
+xmlns="http://DescargaMasivaTerceros.sat.gob.mx" xmlns:xsd="http://www.w3.org/2001/XMLSchema"
+xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"/>
+   </s:Header>
+   <s:Body xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema">
+      <RespuestaDescargaMasivaTercerosSalida xmlns="http://DescargaMasivaTerceros.sat.gob.mx">
+
+<Paquete>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
+gAAAFALAAAAAA==</Paquete>
+      </RespuestaDescargaMasivaTercerosSalida>
+   </s:Body>
+</s:Envelope>
+
+
+
+
+
+12 / 13
+En el ejemplo mostrado en la imagen anterior se puede ver que la respuesta contiene los parámetros de
+salida mencionados anteriormente.
+
+Nota importante: Las direcciones electrónicas (URL) que se integran en esta documentación, son
+solo referencia para la correcta interpretación de los ejemplos contenidos, por lo que las URL
+válidas para la implementación del Web Service, están publicadas en el Portal del SAT en: Trámites
+y Servicios/ Factura electrónica, en la sección de Documentos relacionados, apartado 3, como: URL´s
+Web Service: Descarga masiva de CFDI y retenciones.
+
+Mensajes recibidos desde la operación Descargar del servicio de Descarga masiva
+
+Evento Mensaje Observaciones
+300 Usuario No Válido
+301 XML Mal Formado
+Este código de error se regresa cuando el request posee
+información invalida, ejemplo: un RFC de receptor no
+válido
+302 Sello Mal Formado
+303 Sello no corresponde con RfcSolicitante
+304 Certificado Revocado o Caduco El certificado puede ser invalido por múltiples razones
+como son el tipo, la vigencia, etc.
+305 Certificado Inválido El certificado puede ser invalido por múltiples razones
+como son el tipo, la vigencia, etc.
+5000 Solicitud de descarga recibida con éxito
+5004 No se encontró la información No se encontró la información del paquete solicitado
+5007 No existe el paquete solicitado  Los paquetes solo tienen un periodo de vida de 72hrs
+5008 Máximo de descargas permitidas Un paquete solo puede descargarse un total de 2 veces,
+una vez agotadas, ya no se podrá volver a descargar.
+
+
+
+
+
+
+
+
+
+13 / 13
+6. CONTROL DE CAMBIOS
+
+En la siguiente sección se muestra un resumen de los cambios realizados al documento para brindar
+mayor entendimiento al contribuyente.
+
+Cambio realizado Fecha del
+cambio
+Introducción: se precisa que la documentación contiene recomendaciones que
+pueden aplicarse siempre y cuando se utilice un equipo propio que no comprometa
+la información.
+14/08/2018
+Autenticación para Servicios. Servicio de autenticación: Se precisa que la e.firma no
+debe almacenarse en el repositorio de llaves criptográficas si no se está utilizan un
+equipo propio, a fin de no comprometer la información.
+14/08/2018
+Se documenta la versión 1.5 del WS de Descarga Masiva de Terceros , la cual se
+encontrará disponible en producción a partir del 30 de mayo del 2025. 27/05/2025

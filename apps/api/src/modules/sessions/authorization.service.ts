@@ -139,6 +139,9 @@ export class AuthorizationService {
           )
           .map((item) => item.permission.key),
       );
+      // Organization category defaults belong to the real holder; explicit grants remain possible.
+      if (accountAccessMode !== 'tenant')
+        effective.delete('cfdi.categories.manage');
       for (const override of overrides) {
         if (override.permission.status !== PermissionStatus.ACTIVE) continue;
         if (override.effect === PermissionEffect.DENY) {

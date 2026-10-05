@@ -10,7 +10,9 @@ export function ControlledDialog({
   title,
   description,
   children,
+  side = false,
 }: {
+  side?: boolean;
   open: boolean;
   onClose: () => void;
   title: string;
@@ -32,9 +34,17 @@ export function ControlledDialog({
     <dialog
       ref={dialogRef}
       onClose={onClose}
+      onCancel={(event) => {
+        event.preventDefault();
+        onClose();
+      }}
       aria-labelledby={titleId}
       aria-describedby={descriptionId}
-      className="m-auto w-[calc(100%-2rem)] max-w-2xl rounded-lg border border-border bg-card p-0 text-card-foreground shadow-overlay"
+      className={
+        side
+          ? "ml-auto mr-0 mt-0 h-dvh max-h-none w-full max-w-3xl border-l border-border bg-card p-5 text-card-foreground shadow-overlay"
+          : "m-auto w-[calc(100%-2rem)] max-w-2xl rounded-lg border border-border bg-card p-0 text-card-foreground shadow-overlay"
+      }
     >
       <div className="flex items-start justify-between gap-4 border-b border-border px-5 py-4">
         <div>
@@ -52,7 +62,7 @@ export function ControlledDialog({
           type="button"
           variant="ghost"
           size="icon"
-          onClick={() => dialogRef.current?.close()}
+          onClick={onClose}
           aria-label="Cerrar"
         >
           <X />

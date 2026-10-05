@@ -257,7 +257,6 @@ describe('Fiscal year list compatibility', () => {
         }),
       } as never,
       {} as never,
-      {} as never,
     );
 
     const legacy = await service.list(
@@ -395,7 +394,6 @@ describe('Fiscal year lifecycle authorization', () => {
       scope as never,
       {} as never,
       {} as never,
-      {} as never,
     );
 
     await expect(
@@ -444,7 +442,6 @@ describe('Fiscal year lifecycle authorization', () => {
       { createQueryBuilder: jest.fn().mockReturnValue(periodBuilder) } as never,
       {} as never,
       scope as never,
-      {} as never,
       {} as never,
       {} as never,
     );

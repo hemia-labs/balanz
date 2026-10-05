@@ -97,6 +97,19 @@ export class XmlObjectProcessor {
           )
         ).completion;
       }
+      if (
+        job.sourceType === 'sat_package' &&
+        parsed.document.documentType === 'N'
+      ) {
+        return (
+          await this.persistence.publishRejected(
+            job,
+            input,
+            'unsupported',
+            'SAT_PAYROLL_UNSUPPORTED',
+          )
+        ).completion;
+      }
       return (await this.persistence.publishParsed(job, input, parsed))
         .completion;
     } catch (error) {

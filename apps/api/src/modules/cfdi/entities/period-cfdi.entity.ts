@@ -47,6 +47,13 @@ export type CfdiPeriodOrigin =
   'legalEntityId',
   'id',
 ])
+@Unique('uq_period_cfdis_scoped_period_id', [
+  'organizationId',
+  'clientAccountId',
+  'legalEntityId',
+  'periodId',
+  'id',
+])
 @Unique('uq_period_cfdis_source', [
   'organizationId',
   'clientAccountId',

@@ -104,7 +104,7 @@ export class CfdiWorkerPersistenceService {
              ON object.organization_id = job.organization_id
             AND object.client_account_id = job.client_account_id
             AND object.legal_entity_id = job.legal_entity_id
-            AND ((job.source_type = 'manual_xml' AND object.id = job.root_object_id) OR (job.source_type = 'manual_zip' AND object.kind = 'extracted_xml'))
+            AND ((job.source_type = 'manual_xml' AND object.id = job.root_object_id) OR (job.source_type IN ('manual_zip','sat_package') AND object.kind = 'extracted_xml'))
             AND object.id = item.object_id
            INNER JOIN legal_entities entity
              ON entity.organization_id = job.organization_id
@@ -115,7 +115,7 @@ export class CfdiWorkerPersistenceService {
             AND job.locked_by = $3
             AND job.status = 'processing'
             AND job.lease_expires_at > clock_timestamp()
-            AND job.source_type IN ('manual_xml','manual_zip')
+            AND job.source_type IN ('manual_xml','manual_zip','sat_package')
             AND entity.status = 'active'`,
         [job.organizationId, job.jobId, job.leaseToken, itemId ?? null],
       );
@@ -869,10 +869,32 @@ export class CfdiWorkerPersistenceService {
         ordinal: 1,
       });
     }
+    await manager.query(
+      `INSERT INTO cfdi_period_reconciliations(cfdi_id,organization_id,client_account_id,legal_entity_id,status) VALUES($1,$2,$3,$4,'ready') ON CONFLICT DO NOTHING`,
+      [cfdiId, job.organizationId, job.clientAccountId, job.legalEntityId],
+    );
     let missing = 0;
     for (const candidate of candidates) {
       const sourceDate = zonedDateTime(candidate.value, timezone);
       const { year, month } = localYearMonth(candidate.value);
+      await manager.query(
+        `INSERT INTO cfdi_period_intents(id,organization_id,client_account_id,legal_entity_id,cfdi_id,participation_type,source_ordinal,literal_date,source_date,source_year,source_month,timezone,policy_version) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) ON CONFLICT DO NOTHING`,
+        [
+          randomUUID(),
+          job.organizationId,
+          job.clientAccountId,
+          job.legalEntityId,
+          cfdiId,
+          candidate.type,
+          candidate.ordinal,
+          candidate.value,
+          sourceDate,
+          year,
+          month,
+          timezone,
+          PERIOD_POLICY_VERSION,
+        ],
+      );
       const periodRows = await manager.query<Array<{ id: string }>>(
         `SELECT period.id
            FROM fiscal_years year

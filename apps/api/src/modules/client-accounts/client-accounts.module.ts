@@ -1,3 +1,6 @@
+import { MonthlyController } from './monthly.controller';
+import { MonthlyService } from './monthly.service';
+import { FiscalTenantTransactionService } from '../../database/rls/fiscal-tenant-transaction.service';
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AuditModule } from '../audit/audit.module';
@@ -33,12 +36,15 @@ import { LegalEntitiesService } from './legal-entities.service';
     SessionsModule,
   ],
   controllers: [
+    MonthlyController,
     ClientAccountsController,
     LegalEntitiesController,
     AccountAssignmentsController,
     FiscalYearsController,
   ],
   providers: [
+    MonthlyService,
+    FiscalTenantTransactionService,
     ClientAccountScopeService,
     ClientAccountsService,
     LegalEntitiesService,
@@ -46,6 +52,10 @@ import { LegalEntitiesService } from './legal-entities.service';
     FiscalYearsService,
     FiscalAuthorizationService,
   ],
-  exports: [ClientAccountScopeService, FiscalAuthorizationService],
+  exports: [
+    ClientAccountScopeService,
+    FiscalAuthorizationService,
+    MonthlyService,
+  ],
 })
 export class ClientAccountsModule {}

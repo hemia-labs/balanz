@@ -1,3 +1,4 @@
+import { MonthlyDocumentController } from './controllers/monthly-document.controller';
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AuditModule } from '../audit/audit.module';
@@ -26,6 +27,7 @@ import { ZipUploadService } from './services/zip-upload.service';
     SessionsModule,
   ],
   controllers: [
+    MonthlyDocumentController,
     XmlIngestionController,
     ZipIngestionController,
     IngestionQueryController,

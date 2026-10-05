@@ -1,6 +1,7 @@
 import { RoleKey } from '../../modules/permissions/entities/role.entity';
 
-export const PERMISSION_KEY_PATTERN = /^[a-z][a-z0-9_]*\.[a-z][a-z0-9_]*$/;
+export const PERMISSION_KEY_PATTERN =
+  /^(?:[a-z][a-z0-9_]*\.[a-z][a-z0-9_]*|cfdi\.categories\.manage)$/;
 
 export enum PermissionStatus {
   ACTIVE = 'active',
@@ -13,6 +14,17 @@ export enum PermissionStatus {
  * existían en develop; HU-P0-003 agrega el bloque sensible sin ligar claves a IDs.
  */
 export const PERMISSION_CATALOG = [
+  'periods.view',
+  'periods.review',
+  'periods.ready',
+  'periods.takeover',
+  'cfdi.review',
+  'cfdi.classify',
+  'cfdi.bulk_action',
+  'cfdi.categories.manage',
+  'checklist.view',
+  'checklist.complete',
+  'checklist.configure',
   'organization.view',
   'organization.manage',
   'ownership.manage',
@@ -60,6 +72,53 @@ export interface PermissionDefinition {
 }
 
 export const PERMISSION_METADATA = {
+  'periods.view': {
+    name: 'Consultar revisión mensual',
+    description: 'Consultar revisión mensual dentro del alcance autorizado.',
+  },
+  'periods.review': {
+    name: 'Editar revisión mensual',
+    description: 'Editar revisión mensual dentro del alcance autorizado.',
+  },
+  'periods.ready': {
+    name: 'Preparar cierre interno',
+    description: 'Preparar cierre interno dentro del alcance autorizado.',
+  },
+  'periods.takeover': {
+    name: 'Retomar edición mensual',
+    description: 'Retomar edición mensual dentro del alcance autorizado.',
+  },
+  'cfdi.review': {
+    name: 'Revisar participaciones CFDI',
+    description: 'Revisar participaciones CFDI dentro del alcance autorizado.',
+  },
+  'cfdi.classify': {
+    name: 'Clasificar participaciones CFDI',
+    description:
+      'Clasificar participaciones CFDI dentro del alcance autorizado.',
+  },
+  'cfdi.bulk_action': {
+    name: 'Aplicar decisiones por lote',
+    description: 'Aplicar decisiones por lote dentro del alcance autorizado.',
+  },
+  'cfdi.categories.manage': {
+    name: 'Administrar categorías de la organización',
+    description:
+      'Administrar categorías de la organización dentro del alcance autorizado.',
+  },
+  'checklist.view': {
+    name: 'Consultar checklist mensual',
+    description: 'Consultar checklist mensual dentro del alcance autorizado.',
+  },
+  'checklist.complete': {
+    name: 'Confirmar checklist mensual',
+    description: 'Confirmar checklist mensual dentro del alcance autorizado.',
+  },
+  'checklist.configure': {
+    name: 'Configurar checklist de la organización',
+    description:
+      'Configurar checklist de la organización dentro del alcance autorizado.',
+  },
   'organization.view': {
     name: 'Ver organización',
     description: 'Consultar información visible de la organización.',
@@ -200,6 +259,8 @@ export const PERMISSION_METADATA = {
 } satisfies Record<PermissionKey, { name: string; description: string }>;
 
 const HU_P0_003_PERMISSION_KEYS = new Set<PermissionKey>([
+  'periods.takeover',
+  'checklist.configure',
   'credentials.manage',
   'sat.download',
   'payroll.view',
@@ -242,6 +303,15 @@ export const MFA_SENSITIVE_PERMISSION_KEYS = PERMISSION_CATALOG.filter(
 export const ROLE_PERMISSION_KEYS: Record<RoleKey, readonly PermissionKey[]> = {
   [RoleKey.ADMIN]: PERMISSION_CATALOG,
   [RoleKey.ACCOUNTANT]: [
+    'periods.takeover',
+    'periods.view',
+    'periods.review',
+    'periods.ready',
+    'cfdi.review',
+    'cfdi.classify',
+    'cfdi.bulk_action',
+    'checklist.view',
+    'checklist.complete',
     'organization.view',
     'team.view',
     'clients.view',
@@ -272,6 +342,14 @@ export const ROLE_PERMISSION_KEYS: Record<RoleKey, readonly PermissionKey[]> = {
     'exports.generate',
   ],
   [RoleKey.COLLABORATOR]: [
+    'periods.view',
+    'periods.review',
+    'periods.ready',
+    'cfdi.review',
+    'cfdi.classify',
+    'cfdi.bulk_action',
+    'checklist.view',
+    'checklist.complete',
     'organization.view',
     'clients.view',
     'fiscal_entities.view',
