@@ -21,6 +21,7 @@ import { PermissionsModule } from './modules/permissions/permissions.module';
 import { InvitationsModule } from './modules/invitations/invitations.module';
 import { CfdiApiModule } from './modules/cfdi/cfdi-api.module';
 import { EfirmaApiModule } from './modules/efirma/efirma.module';
+import { BillingModule } from './modules/billing/billing.module';
 
 @Module({
   imports: [
@@ -56,6 +57,7 @@ import { EfirmaApiModule } from './modules/efirma/efirma.module';
     InvitationsModule,
     CfdiApiModule,
     EfirmaApiModule,
+    BillingModule,
   ],
   controllers: [AppController],
   providers: [AppService, { provide: APP_GUARD, useClass: CsrfGuard }],

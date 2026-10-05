@@ -1,5 +1,6 @@
 import * as Joi from 'joi';
 import { parseCorsOrigins } from './cors-origins';
+import { billingIdentityEnvSettings } from './billing-identity.config';
 
 const corsOriginsSetting = Joi.string().custom((value: string, helpers) => {
   try {
@@ -183,6 +184,9 @@ const baseEnvVarsSchema = Joi.object({
       otherwise: Joi.string().allow('').default(''),
     }),
   }),
+
+  // Identity credentials for outbound Billing calls; API only.
+  ...billingIdentityEnvSettings,
 
   // Auth (JWT)
   JWT_SECRET: Joi.when('SECRETS_ENABLED', {
@@ -737,6 +741,7 @@ const runtimeDatabasePassword = Joi.when('SECRETS_ENABLED', {
 });
 
 const workerUnavailableKeys = [
+  ...Object.keys(billingIdentityEnvSettings),
   'APP_PORT',
   'APP_GLOBAL_PREFIX',
   'APP_CORS_ORIGINS',
