@@ -106,3 +106,51 @@ test('release bundles include closed Compose and a checksummed deploy controller
       assert.equal(createHash('sha256').update(readFileSync(join(directory, name))).digest('hex'), checksum);
   } finally { rmSync(directory, { recursive: true, force: true }); }
 });
+
+test('first publication uses the created draft response even before list endpoints expose it', async () => {
+  const { mkdtempSync, mkdirSync, copyFileSync, writeFileSync, readFileSync, rmSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const { execFileSync } = await import('node:child_process');
+  const directory = mkdtempSync(join(tmpdir(), 'balanz-first-publish-'));
+  const commit = 'b'.repeat(40), tag = 'balanz-v0.1.1';
+  const put = (path, source, mode) => {
+    mkdirSync(join(directory, path, '..'), { recursive: true });
+    writeFileSync(join(directory, path), source, { mode });
+  };
+  try {
+    for (const name of ['api', 'web']) {
+      put(`apps/${name}/package.json`, JSON.stringify({ version: '0.1.1' }));
+      put(`apps/${name}/CHANGELOG.md`, '## 0.1.1\n\nRelease.\n');
+    }
+    mkdirSync(join(directory, '.changeset'));
+    mkdirSync(join(directory, 'apps/api/src/database/migrations'), { recursive: true });
+    put('infra/deploy/release.mjs', readFileSync(new URL('./release.mjs', import.meta.url)));
+    copyFileSync(new URL('./balanz-deploy.py', import.meta.url), join(directory, 'infra/deploy/balanz-deploy.py'));
+    put('bin/git', `#!/bin/sh\nprintf '${commit}\\n'\n`, 0o755);
+    put('bin/docker', `#!/bin/sh\nif [ "$1 $2" = "image inspect" ]; then printf '%s\\n' '${JSON.stringify({ 'org.opencontainers.image.revision': commit, 'org.opencontainers.image.version': '0.1.1', 'io.hemia.api-url': 'https://api-contable.hemia.dev/api/v1' })}'; fi\n`, 0o755);
+    put('bin/gh', `#!${process.execPath}\nconst fs = require('node:fs');
+const args = process.argv.slice(2), endpoint = args[1];
+fs.appendFileSync(process.env.CALLS, JSON.stringify(args) + '\\n');
+if (args[0] === 'api') {
+  if (args.includes('POST')) console.log(JSON.stringify({ id: 123, draft: true, target_commitish: '${commit}', assets: [] }));
+  else if (endpoint.includes('git/ref/tags/')) {
+    if (fs.existsSync(process.env.PUBLISHED)) console.log(JSON.stringify({ object: { type: 'commit', sha: '${commit}' } }));
+    else { console.error('HTTP 404'); process.exit(1); }
+  } else if (endpoint.includes('releases?')) console.log('[]');
+  else if (fs.existsSync(process.env.PUBLISHED)) console.log(JSON.stringify({ immutable: true }));
+  else { console.error('HTTP 404'); process.exit(1); }
+} else if (args[1] === 'edit') fs.writeFileSync(process.env.PUBLISHED, 'yes');
+`, 0o755);
+    put('fetch.mjs', `globalThis.fetch = async () => ({ status: 200, headers: new Headers({ 'docker-content-digest': 'sha256:${'a'.repeat(64)}' }) });\n`);
+    execFileSync(process.execPath, ['--import', join(directory, 'fetch.mjs'), 'infra/deploy/release.mjs', 'publish', tag], {
+      cwd: directory, env: { ...process.env, PATH: `${join(directory, 'bin')}:${process.env.PATH}`,
+        GITHUB_SHA: commit, GITHUB_REPOSITORY: 'hemia-labs/balanz', REGISTRY_HOST: 'registry.hemia.cloud',
+        REGISTRY_USERNAME: 'test', REGISTRY_PASSWORD: 'test-only', CALLS: join(directory, 'calls'), PUBLISHED: join(directory, 'published') },
+    });
+    const calls = readFileSync(join(directory, 'calls'), 'utf8').trim().split('\n').map(JSON.parse);
+    assert.equal(calls.filter(args => args.includes('POST')).length, 1);
+    assert.equal(calls.filter(args => args[0] === 'release' && args[1] === 'upload').length, 4);
+    assert.equal(readFileSync(join(directory, 'published'), 'utf8'), 'yes');
+  } finally { rmSync(directory, { recursive: true, force: true }); }
+});
