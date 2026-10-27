@@ -4,4 +4,4 @@
 
 ### Patch Changes
 
-- 4858bab: Publish tested API/worker and web images to the private registry with versioned Balanz releases. Preserve the current DEV domains and PM2 deployment.
+- 4858bab: Publish tested API/worker and web images to the private registry and deploy digest-pinned Balanz releases with Docker Compose while preserving the current DEV domains.
