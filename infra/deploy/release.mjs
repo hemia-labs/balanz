@@ -166,9 +166,9 @@ async function publish(tag) {
     const notesPath = join(temporary, 'notes.md');
     writeFileSync(notesPath, notes(current.api));
     if (!existing) {
-      run('gh', 'release', 'create', tag, '--repo', 'hemia-labs/balanz', '--draft', '--target', commit,
-        '--title', `Balanz ${current.api}`, '--notes-file', notesPath);
-      existing = findRelease(tag);
+      existing = JSON.parse(run('gh', 'api', 'repos/hemia-labs/balanz/releases', '--method', 'POST',
+        '-f', `tag_name=${tag}`, '-f', `target_commitish=${commit}`, '-F', 'draft=true',
+        '-f', `name=Balanz ${current.api}`, '-f', `body=${readFileSync(notesPath, 'utf8')}`));
     }
     const images = {};
     for (const name of ['api', 'web']) {
@@ -202,7 +202,7 @@ async function publish(tag) {
     run('gh', 'release', 'edit', tag, '--repo', 'hemia-labs/balanz', '--draft=false');
     verifyTagCommit(tag, commit, true);
     assert(github(`releases/tags/${tag}`).immutable, 'Published release must be immutable');
-    console.log(`Published ${tag}; PM2 deployment is unchanged`);
+    console.log(`Published ${tag}; Docker deployment can proceed`);
   } finally { rmSync(temporary, { recursive: true, force: true }); }
 }
 
