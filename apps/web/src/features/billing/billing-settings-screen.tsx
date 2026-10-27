@@ -1,6 +1,7 @@
 "use client";
 import {
   currentPlanStatus,
+  hasCurrentBillingPlan,
   planActionLabel,
   type CurrentAccess,
 } from "./current-plan";
@@ -431,8 +432,8 @@ function BillingPlansScreen() {
           {state.plans?.flatMap((plan, planIndex) =>
             plan.prices.map((price, priceIndex) => {
               const isCurrent =
-                current.access?.source === "billing" &&
-                current.access.planCode === plan.code &&
+                hasCurrentBillingPlan(current.access) &&
+                current.access?.planCode === plan.code &&
                 (!subscription?.planPriceCode ||
                   subscription.planPriceCode === price.code);
               const isSelected =
@@ -448,7 +449,7 @@ function BillingPlansScreen() {
                 ? "Plan actual"
                 : isSelected
                   ? "Plan seleccionado"
-                  : current.access?.source === "billing"
+                  : hasCurrentBillingPlan(current.access)
                     ? "Cambiar plan"
                     : planActionLabel(current.access, plan.code, isSelected);
               return (
@@ -500,7 +501,7 @@ function BillingPlansScreen() {
                             subscriptionError ||
                             (futureMode ? isRenewalCurrent || !futureSelectable : isCurrent ||
                             (Boolean(subscription) && !canChangeSubscription(subscription))) ||
-                            (current.access.source === "billing" &&
+                            (hasCurrentBillingPlan(current.access) &&
                               !subscription)
                           }
                           aria-pressed={isSelected}
@@ -598,7 +599,7 @@ function BillingPlansScreen() {
         ? futureMode ? futureSelectable && !selectedFutureIsCurrent : canChangeSubscription(subscription)
         : !subscriptionError &&
           subscription !== undefined &&
-          current.access.source !== "billing") ? (
+          !hasCurrentBillingPlan(current.access)) ? (
         <div className="fixed bottom-4 left-4 right-4 z-20 flex flex-wrap items-center justify-between gap-4 rounded-lg border border-border bg-background p-4 shadow-sm sm:bottom-6 sm:left-auto sm:right-6 sm:max-w-lg">
           <div className="min-w-0">
             <p className="text-body font-semibold">{selectedPlan.name}</p>

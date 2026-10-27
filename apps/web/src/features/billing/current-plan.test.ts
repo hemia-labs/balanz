@@ -2,6 +2,7 @@ import { strict as assert } from "node:assert";
 import { test } from "node:test";
 import {
   currentPlanName,
+  hasCurrentBillingPlan,
   currentPlanStatus,
   planActionLabel,
   type CurrentAccess,
@@ -341,4 +342,25 @@ test("allows selecting the next renewal plan while preserving the cancelled paid
   assert.equal(canChangeRenewalPlan({ ...source, pendingRenewalPlanChange: confirmed }, now), true);
   assert.equal(canChangeRenewalPlan({ ...source, pendingRenewalPlanChange: { ...confirmed, cancellationRequested: true } }, now), false);
   assert.equal(source.planCode, "despacho");
+});
+
+
+test("a refunded or expired historical plan permits starting a new purchase", () => {
+  for (const licenseStatus of ["revoked", "expired"]) {
+    const ended: CurrentAccess = { ...access, source: "billing", active: false,
+      licenseStatus, reason: "billing_inactive" };
+    assert.equal(hasCurrentBillingPlan(ended), false);
+    assert.equal(currentPlanName(ended), "Sin plan contratado");
+    assert.equal(planActionLabel(ended, "old_plan", false), "Comenzar");
+    assert.equal(planActionLabel(ended, "new_plan", false), "Comenzar");
+    assert.equal(planActionLabel(ended, "old_plan", true), "Plan seleccionado");
+  }
+});
+
+test("an active or unresolved paid license still requires subscription management", () => {
+  for (const licenseStatus of ["active", "grace", "suspended", null]) {
+    assert.equal(hasCurrentBillingPlan({ ...access, source: "billing", active: false, licenseStatus }), true);
+  }
+  assert.equal(hasCurrentBillingPlan({ ...access, source: "billing", active: true, licenseStatus: "revoked" }), true);
+  assert.equal(hasCurrentBillingPlan(undefined), false);
 });

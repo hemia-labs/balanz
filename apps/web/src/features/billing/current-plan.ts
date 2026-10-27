@@ -9,13 +9,20 @@ export type CurrentAccess = {
   reason: string;
 };
 
+export function hasCurrentBillingPlan(access: CurrentAccess | undefined) {
+  return Boolean(
+    access?.source === "billing" &&
+      (access.active || !["revoked", "expired"].includes(access.licenseStatus ?? "")),
+  );
+}
+
 export function currentPlanName(
   access: CurrentAccess,
   plans?: { code: string; name: string }[],
 ) {
   if (access.source === "trial")
     return access.active ? "Prueba gratuita" : "Prueba gratuita finalizada";
-  if (access.source === "billing" && access.planCode)
+  if (hasCurrentBillingPlan(access) && access.planCode)
     return (
       plans?.find((plan) => plan.code === access.planCode)?.name ??
       access.planCode
@@ -39,9 +46,9 @@ export function planActionLabel(
   planCode: string,
   selected: boolean,
 ) {
-  if (access?.source === "billing" && access.planCode === planCode)
+  if (hasCurrentBillingPlan(access) && access?.planCode === planCode)
     return "Plan actual";
   if (selected) return "Plan seleccionado";
-  if (access?.source === "billing") return "Cambiar plan";
+  if (hasCurrentBillingPlan(access)) return "Cambiar plan";
   return access?.source === "trial" ? "Actualizar plan" : "Comenzar";
 }
