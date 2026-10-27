@@ -8,7 +8,7 @@ import {
   Field,
   WarningNotice,
 } from "@/components/product-patterns";
-import { ProductTable } from "@/components/product-table";
+import { DataTable } from "@/components/data-table";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -572,7 +572,7 @@ export function MonthlyScreen({
               ) : null}
             </div>
           ) : null}
-          <ProductTable
+          <DataTable
             caption="Participaciones del mes"
             rows={page.items}
             rowKey={(x) => x.id}

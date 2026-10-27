@@ -5,7 +5,7 @@
 | Campo | Valor |
 | --- | --- |
 | Nombre | Registro Sereno |
-| Versión | 1.1.0 |
+| Versión | 1.2.0 |
 | Fecha | 18 de agosto de 2026 |
 | Estado | Normativo |
 | Propietario | Producto y frontend de Hemia |
@@ -66,7 +66,7 @@ Una interpretación contemporánea del libro de registro: tinta azul petróleo, 
 
 ### Rasgos distintivos
 
-1. Regla de registro. Los encabezados de página PUEDEN usar una línea cobriza de 2 px y 28–40 px de alto en el borde inicial. Totales y cierres DEBEN usar una doble regla neutra o de énfasis. La regla NO DEBE rodear cada bloque.
+1. Regla de registro. PageHeader NO DEBE usar una línea cobriza ni contexto sobre el título. Totales y cierres DEBEN usar una doble regla neutra o de énfasis. La regla NO DEBE rodear cada bloque.
 2. Riel numérico. Montos, porcentajes y fechas DEBEN usar números tabulares. Montos se alinean al final; folios e identificadores PUEDEN usar Geist Mono. La cifra principal nunca depende solo del color.
 
 ### Razón
@@ -296,7 +296,7 @@ Escala permitida: 0, 2, 4, 8, 12, 16, 20, 24, 32, 40, 48 y 64 px. Un valor disti
 
 - Desktop: sidebar persistente, topbar global y main fluido.
 - La topbar DEBE contener controles globales; NO DEBE repetir el h1 de la página.
-- Cada ruta DEBE comenzar con PageHeader: eyebrow opcional, h1, descripción concreta y acciones.
+- Cada ruta DEBE comenzar con PageHeader: h1, descripción concreta y acciones, sin línea cobriza ni contexto sobre el título.
 - Breadcrumbs DEBEN aparecer a partir de tres niveles o cuando el usuario pueda perder contexto; NO DEBEN repetir una sola ruta.
 - El canvas DEBE ser background y las superficies de trabajo card.
 - Una tabla grande DEBE ocupar una superficie continua, no varias tarjetas.

@@ -6,7 +6,7 @@ import {
   Field,
   WarningNotice,
 } from "@/components/product-patterns";
-import { ProductTable } from "@/components/product-table";
+import { DataTable } from "@/components/data-table";
 import { ControlledDialog } from "@/components/overlay-dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -682,7 +682,7 @@ export function MonthlySections({
                 Alcance incompleto aceptado: {closingView.sourceExceptionReason}
               </WarningNotice>
             ) : null}
-            <ProductTable
+            <DataTable
               caption="Participaciones del cierre"
               rows={closingView.snapshot.participations}
               rowKey={(x) => x.id}

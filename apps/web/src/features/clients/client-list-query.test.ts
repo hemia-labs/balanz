@@ -72,7 +72,7 @@ test("la navegación externa rebasa el draft y no lo resucita al volver", () => 
 });
 
 test("limpiar filtros borra URL y draft antes y después de navegar", () => {
-  const cleared = clearClientListState("Acme");
+  const cleared = clearClientListState("Acme", "search=Acme&page=3&status=active");
   assert.equal(cleared.query, "");
   assert.equal(resolveClientSearchDraft(cleared.searchDraft, "Acme"), "");
   assert.equal(resolveClientSearchDraft(cleared.searchDraft, ""), "");
@@ -127,4 +127,16 @@ test("el estado inicial nunca expone una cartera sin identidad", () => {
     error: null,
     loading: true,
   });
+});
+
+test("limpiar conserva orden y contexto y vuelve a la primera página", () => {
+  const result = clearClientListState("Acme", "search=Acme&status=active&page=4&sort=updatedAt&direction=desc&context=actual");
+  const query = new URLSearchParams(result.query);
+  assert.equal(query.get("sort"), "updatedAt");
+  assert.equal(query.get("direction"), "desc");
+  assert.equal(query.get("context"), "actual");
+  assert.equal(query.has("page"), false);
+  assert.equal(query.has("search"), false);
+  assert.equal(query.has("status"), false);
+  assert.equal(result.searchDraft.value, "");
 });

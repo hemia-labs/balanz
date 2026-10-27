@@ -347,8 +347,6 @@ export function BillingCheckoutReturn({
   return (
     <div className="space-y-6">
       <PageHeader
-        accent={false}
-        eyebrow="Planes y suscripción"
         title={title}
         description={description}
         actions={

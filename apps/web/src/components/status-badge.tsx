@@ -10,6 +10,11 @@ import {
 import { Badge } from "@/components/ui/badge";
 
 const statusMap = {
+  "Sin período": {
+    variant: "outline",
+    icon: Circle,
+    labels: { es: "Sin período", en: "No period" },
+  },
   "Sin iniciar": {
     variant: "outline",
     icon: Circle,
@@ -315,8 +320,9 @@ export function StatusBadge({
   const language = locale.toLowerCase().startsWith("en") ? "en" : "es";
   const Icon = config?.icon ?? Circle;
   const label = config?.labels[language] ?? humanizeStatus(status);
+  const variant = config?.variant ?? "outline";
   return (
-    <Badge variant={config?.variant ?? "outline"}>
+    <Badge variant={variant} className={variant === "outline" ? "bg-muted" : undefined}>
       <Icon className="size-3" aria-hidden="true" />
       {label}
     </Badge>

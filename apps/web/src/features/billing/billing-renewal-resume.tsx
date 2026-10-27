@@ -126,7 +126,7 @@ export function BillingRenewalResumeResult({ attempt, plansHref, planName, cance
   const terminal = isCheckoutTerminal(attempt) || attempt.status === "rejected";
   const approvalUrl = checkoutActionUrl(attempt);
   return <div className="space-y-6">
-    <PageHeader accent={false} eyebrow="Planes y suscripción" title={effective ? "Renovación iniciada" : scheduled ? "Renovación activada" : terminal ? "Reactivación no completada" : "Autoriza la renovación de tu plan"}
+    <PageHeader title={effective ? "Renovación iniciada" : scheduled ? "Renovación activada" : terminal ? "Reactivación no completada" : "Autoriza la renovación de tu plan"}
       description={effective ? "La renovación comenzó. Consulta tu acceso y el siguiente cobro en Mi suscripción." : scheduled ? "Conservas tu plan y su próximo cobro quedó programado. No se vuelve a cobrar el período ya pagado." : terminal ? "Tu acceso al período ya pagado se conserva. La renovación sigue cancelada." : "Tu acceso actual se conserva. La renovación se activará cuando PayPal confirme tu autorización."}
       actions={<Button variant="ghost" size="icon" className="min-h-11 min-w-11" render={<Link href={plansHref} />} aria-label="Cerrar y volver a mi suscripción"><X aria-hidden="true" /></Button>} />
     <Surface className="space-y-4 p-5">

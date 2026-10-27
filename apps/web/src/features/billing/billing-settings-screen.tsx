@@ -54,7 +54,6 @@ export function BillingSettingsScreen({ section }: { section: string }) {
   return (
     <div className="w-full space-y-6">
       <PageHeader
-        accent={false}
         title="Configuración"
         description={`Administra la configuración de ${organization.name}.`}
       />
@@ -259,7 +258,6 @@ function BillingPlansScreen() {
   return (
     <div className="space-y-6 pb-24">
       <PageHeader
-        accent={false}
         title="Planes y suscripción"
         description={`Compara tu plan actual y las opciones para ${organization.name}. La suscripción cubre los clientes y RFC del despacho.`}
       />

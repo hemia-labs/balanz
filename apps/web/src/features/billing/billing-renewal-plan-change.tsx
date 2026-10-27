@@ -108,7 +108,7 @@ export function BillingRenewalPlanChangeResult({ attempt, plansHref, planName, c
   const cancelled = terminal && change?.state === "failed" && cancelling && attempt.statusFresh;
   const url = checkoutActionUrl(attempt);
   return <div className="space-y-6">
-    <PageHeader accent={false} eyebrow="Planes y suscripción"
+    <PageHeader
       title={cancelled ? "Cambio de renovación cancelado" : cancelling ? "Confirma la renovación anterior" : effective ? "El nuevo plan ya comenzó" : scheduled ? "Plan de próxima renovación actualizado" : terminal ? "Cambio de renovación no completado" : "Autoriza el plan de la próxima renovación"}
       description={cancelled ? "La renovación anterior se conserva y tu acceso actual sigue vigente." : cancelling ? "Completa la restauración de la renovación anterior en PayPal. Tu acceso actual se conserva." : scheduled ? "PayPal confirmó el nuevo plan para la renovación. Conservas tu plan actual hasta entonces." : terminal ? "Tu acceso actual se conserva. Consulta el plan de renovación vigente en Mi suscripción." : "Tu plan actual y la renovación ya autorizada se conservan hasta confirmar este cambio en PayPal."}
       actions={<Button variant="ghost" size="icon" className="min-h-11 min-w-11" render={<Link href={plansHref} />} aria-label="Cerrar sin cancelar el cambio y volver a mi suscripción"><X aria-hidden="true" /></Button>} />
