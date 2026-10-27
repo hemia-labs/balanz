@@ -64,7 +64,7 @@ El corte manual ya se completó. Antes de detener PM2 se probaron API y web con 
 
 El estado de PM2 previo al corte está en `/srv/apps/balanz-docker-live/shared/backups/pm2-before-docker-20261027T054038Z.json`; las instrucciones están en `PM2-ROLLBACK.txt`, dentro del mismo directorio privado. Para volver a PM2 hay que detener primero el proyecto Docker live y después restaurar el dump como `deploy`; nunca dejar dos workers reales en paralelo.
 
-El deploy actual usa el bundle local sintético `balanz-v0.0.0` con imágenes fijadas por digest, previamente publicadas y probadas. No representa una GitHub Release estable de Balanz. El flujo de releases reales requiere integrar los Dockerfiles, workflows, controlador y Changesets en `main`.
+La primera release estable `balanz-v0.1.1` ya recorrió Changesets, publicación de imágenes en `registry.hemia.cloud`, assets inmutables de GitHub y deploy automático a `live`. Sustituyó el bundle local de corte `balanz-v0.0.0`. Los tres contenedores quedaron saludables y ambos dominios conservaron HTTP 200. Las futuras releases de `main` usan este mismo recorrido; `develop` permanece excluido.
 
 Payments quedó conectado a producción mediante Console, producto `balanz_cfdi`, cliente `balanz-billing-service` y receptor `https://api-contable.hemia.dev/api/v1/payments/webhooks/license`. Console verificó sus cinco pasos: sistema, política Billing, receptor, contrato de recepción y configuración del backend. `PAYMENTS_CONNECTION` y `HEMIA_CLIENT_SECRET` están sólo en el env privado de API, fuera de Git; el secreto se validó contra Identity de producción. El backend conserva su entorno DEV, Vault, base `accounting_dev`, S3 y Redis existentes.
 
