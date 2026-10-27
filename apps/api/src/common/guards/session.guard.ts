@@ -12,7 +12,10 @@ export class SessionGuard implements CanActivate {
   constructor(private readonly sessions: SessionsService) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
-    const request = context.switchToHttp().getRequest<Request>();
+    return this.authorizeRequest(context.switchToHttp().getRequest<Request>());
+  }
+
+  async authorizeRequest(request: Request): Promise<boolean> {
     const resolved = await this.sessions.resolve(request);
     if (
       resolved.session.requiresMfa &&

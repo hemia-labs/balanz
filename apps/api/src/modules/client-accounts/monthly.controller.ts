@@ -1,3 +1,4 @@
+import { BillingAccessGuard } from '../billing/payments-access.service';
 import {
   Body,
   Controller,
@@ -30,6 +31,7 @@ import {
   CategoryDto,
   TemplateDto,
 } from './monthly.dtos';
+
 @Controller('periods/:periodId')
 @UseGuards(SessionGuard, TenantAccessGuard, PermissionsGuard)
 @Permissions('cfdi.view', 'periods.view')
@@ -138,6 +140,7 @@ export class MonthlyController {
     return this.service.renew(t, id, input, true);
   }
   @Post('monthly/decisions/:participationId')
+  @UseGuards(BillingAccessGuard)
   @Header('Cache-Control', 'no-store')
   decision(
     @CurrentTenant() t: SessionAuthorizationContext,
@@ -168,6 +171,7 @@ export class MonthlyController {
     return this.service.bulk(t, id, input, key ?? '', true);
   }
   @Post('monthly/bulk/execute')
+  @UseGuards(BillingAccessGuard)
   @Header('Cache-Control', 'no-store')
   execute(
     @CurrentTenant() t: SessionAuthorizationContext,
@@ -178,6 +182,7 @@ export class MonthlyController {
     return this.service.bulk(t, id, input, key ?? '', false);
   }
   @Post('monthly/checklist')
+  @UseGuards(BillingAccessGuard)
   @Header('Cache-Control', 'no-store')
   confirmChecklist(
     @CurrentTenant() t: SessionAuthorizationContext,
@@ -198,6 +203,7 @@ export class MonthlyController {
     return this.service.incidentHistory(t, id, incidentId, q.page, q.limit);
   }
   @Post('monthly/incidents/:incidentId')
+  @UseGuards(BillingAccessGuard)
   @Header('Cache-Control', 'no-store')
   manageIncident(
     @CurrentTenant() t: SessionAuthorizationContext,
@@ -209,6 +215,7 @@ export class MonthlyController {
     return this.service.manageIncident(t, id, incidentId, input, key ?? '');
   }
   @Post('monthly/sources')
+  @UseGuards(BillingAccessGuard)
   @Header('Cache-Control', 'no-store')
   linkSource(
     @CurrentTenant() t: SessionAuthorizationContext,
@@ -219,6 +226,7 @@ export class MonthlyController {
     return this.service.linkSource(t, id, input, key ?? '');
   }
   @Post('monthly/prepare-close')
+  @UseGuards(BillingAccessGuard)
   @Header('Cache-Control', 'no-store')
   prepareClose(
     @CurrentTenant() t: SessionAuthorizationContext,
@@ -228,6 +236,7 @@ export class MonthlyController {
     return this.service.prepareClose(t, id, input);
   }
   @Post('close')
+  @UseGuards(BillingAccessGuard)
   @Header('Cache-Control', 'no-store')
   close(
     @CurrentTenant() t: SessionAuthorizationContext,
@@ -238,6 +247,7 @@ export class MonthlyController {
     return this.service.close(t, id, input, key ?? '');
   }
   @Post('reopen')
+  @UseGuards(BillingAccessGuard)
   @Header('Cache-Control', 'no-store')
   reopen(
     @CurrentTenant() t: SessionAuthorizationContext,

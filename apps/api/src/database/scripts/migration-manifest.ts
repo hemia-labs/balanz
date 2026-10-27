@@ -61,6 +61,8 @@ export const EXPECTED_MIGRATION_IDENTITIES = [
   },
   { timestamp: 1787691100000, name: 'PhaseFourSatOnDemand1787691100000' },
   { timestamp: 1787691200000, name: 'PhaseFiveMonthlyWorkspace1787691200000' },
+  { name: 'PaymentsInitial1792886500000', timestamp: 1792886500000 },
+  { name: 'PaymentsSnapshots1793404800000', timestamp: 1793404800000 },
 ] as const;
 
 export const EXPECTED_MIGRATION_NAMES: readonly string[] =

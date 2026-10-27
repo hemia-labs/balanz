@@ -63,7 +63,7 @@ describe('runtime configuration profiles', () => {
     expect(value).not.toHaveProperty('DB_WORKER_PASSWORD');
   });
 
-  it('accepts worker configuration without API, JWT, MFA or email settings', () => {
+  it('accepts worker configuration without API, Billing, JWT, MFA or email settings', () => {
     const result = workerEnvVarsSchema.validate(workerEnvironment);
     const value: unknown = result.value;
 
@@ -72,6 +72,9 @@ describe('runtime configuration profiles', () => {
     expect(value).not.toHaveProperty('JWT_SECRET');
     expect(value).not.toHaveProperty('MFA_ENCRYPTION_KEY');
     expect(value).not.toHaveProperty('EMAIL_FROM_AUTH');
+    expect(value).not.toHaveProperty('PAYMENTS_CONNECTION');
+    expect(value).not.toHaveProperty('HEMIA_CLIENT_SECRET');
+    expect(value).not.toHaveProperty('BILLING_WEBHOOK_CLIENT_ID');
   });
 
   it.each([
@@ -119,6 +122,8 @@ describe('runtime configuration profiles', () => {
     ['JWT_SECRET', 'c'.repeat(32)],
     ['MFA_ENCRYPTION_KEY', Buffer.alloc(32).toString('base64')],
     ['EMAIL_FROM_AUTH', 'auth@example.test'],
+    ['PAYMENTS_CONNECTION', '{}'],
+    ['HEMIA_CLIENT_SECRET', 'must-not-reach-worker'],
   ])('rejects API-only setting %s in the worker profile', (name, value) => {
     const result = workerEnvVarsSchema.validate({
       ...workerEnvironment,
@@ -183,7 +188,10 @@ describe('runtime configuration profiles', () => {
 
   it('prioritizes a dedicated environment file for each entrypoint', () => {
     expect(runtimeEnvFilePaths('api')[0]).toBe('.env.api.local');
-    expect(runtimeEnvFilePaths('worker')[0]).toBe('.env.worker.local');
+    expect(runtimeEnvFilePaths('worker')).toEqual([
+      '.env.worker.local',
+      '.env.worker',
+    ]);
   });
 
   it('never reads repository environment files in production runtimes', () => {

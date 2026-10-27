@@ -1,3 +1,4 @@
+import { BillingModule } from '../billing/billing.module';
 import { ConfigService } from '@nestjs/config';
 import type { EfirmaConfig } from '../../config/efirma.config';
 import { assertRealPilot } from '../../config/efirma-real-pilot';
@@ -16,6 +17,7 @@ import { SatService, satEnabled } from './sat.service';
 import { SatWorker } from './sat-worker';
 @Module({
   imports: [
+    BillingModule,
     EfirmaApiModule,
     EfirmaPersistenceModule,
     AuthModule,

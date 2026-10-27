@@ -66,6 +66,10 @@
     "src/features/sat-download/sat-state.test.ts",
     "src/features/sat-download/sat-client.test.ts",
     "src/features/monthly/editor-session.ts",
-    "src/features/monthly/editor-session.test.ts"
+    "src/features/monthly/editor-session.test.ts",
+    "src/features/billing/checkout-recovery.test.ts",
+    "src/features/billing/legal-consent.test.ts",
+    "src/features/billing/current-plan.test.ts",
+    "src/features/billing/api.test.ts"
   ]
 }

@@ -250,12 +250,10 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
         });
     };
     const onVisibilityChange = () => refresh();
-    const timer = globalThis.setInterval(refresh, 30_000);
     globalThis.addEventListener("focus", refresh);
     document.addEventListener("visibilitychange", onVisibilityChange);
     return () => {
       active = false;
-      globalThis.clearInterval(timer);
       globalThis.removeEventListener("focus", refresh);
       document.removeEventListener("visibilitychange", onVisibilityChange);
     };

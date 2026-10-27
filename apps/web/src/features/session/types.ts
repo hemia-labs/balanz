@@ -44,8 +44,8 @@ export interface EmailVerificationResult {
 }
 
 export interface OnboardingResponse {
-  subscriptionType: SubscriptionType;
-  trial: { status: string; startedAt?: string; endsAt?: string };
+  subscriptionType: SubscriptionType | null;
+  trial: { status: string; startedAt?: string; endsAt?: string } | null;
   nextStep: string;
   mfaStatus: string;
 }

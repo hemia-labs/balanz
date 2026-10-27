@@ -28,6 +28,11 @@ export interface UnauthorizedApiEvent {
 type UnauthorizedApiListener = (event: UnauthorizedApiEvent) => void;
 
 const unauthorizedApiListeners = new Set<UnauthorizedApiListener>();
+const billingAccessListeners = new Set<(error: ApiError) => void>();
+export function subscribeToBillingAccessRequired(listener: (error: ApiError) => void) {
+  billingAccessListeners.add(listener);
+  return () => { billingAccessListeners.delete(listener); };
+}
 
 /**
  * Allows the authenticated application shell to react to an expired session
@@ -291,6 +296,11 @@ export function reportApiUnauthorized(
   method = "GET",
 ) {
   const requestMethod = method.toUpperCase();
+  if (error.status === 403 && error.code === "BILLING_ACCESS_REQUIRED") {
+    for (const listener of [...billingAccessListeners]) {
+      try { listener(error); } catch { /* Preserve the original API error. */ }
+    }
+  }
   if (
     error.status === 401 &&
     error.code !== "MFA_REQUIRED" &&
@@ -341,6 +351,7 @@ export async function apiClientResponse<T>(
     const body = contentType.includes("json")
       ? await response.json().catch(() => null)
       : null;
+    controller.signal.throwIfAborted();
     if (!response.ok && response.status !== 304) {
       const requestError = apiErrorFromPayload(response.status, body);
       reportApiUnauthorized(requestError, path, init.method ?? "GET");

@@ -284,10 +284,11 @@ El script productivo equivalente es `npm run start:worker:prod` y debe arrancar
 el entrypoint compilado del worker, no `main.ts` de la API. El proceso valida
 toda configuración antes de marcar readiness.
 
-El orden de archivos es `.env.worker.local`, `.env.worker`, `.env.local`,
-`.env`; el primer valor definido gana. No uses la plantilla/catálogo completo
-como runtime. El perfil worker rechaza valores no vacíos `DB_API_*`, `JWT_*`,
-`MFA_*`, `EMAIL_*`, configuración HTTP/cookie/auth o migrator. La API tiene
+El worker carga únicamente `.env.worker.local` y `.env.worker`; el primer
+valor definido gana. No hereda `.env.local` ni `.env`: completa su archivo
+dedicado con los valores fiscales necesarios. No uses la plantilla/catálogo
+completo como runtime. El perfil worker rechaza valores no vacíos `DB_API_*`,
+`BILLING_*`, `JWT_*`, `MFA_*`, `EMAIL_*`, configuración HTTP/cookie/auth o migrator. La API tiene
 comandos explícitos `start:api:dev`/`start:api:prod`, prioriza
 `.env.api.local` y rechaza `DB_WORKER_*` y migrator.
 

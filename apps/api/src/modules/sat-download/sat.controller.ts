@@ -1,3 +1,4 @@
+import { BillingAccessGuard } from '../billing/payments-access.service';
 import {
   Body,
   Controller,
@@ -32,6 +33,7 @@ import type { SessionAuthorizationContext } from '../sessions/session.types';
 import { receiveCredentials } from '../efirma/receive-credentials';
 import { CreateSatJobDto, SatReauthDto } from './sat.dtos';
 import { SatService } from './sat.service';
+
 @Controller('sat-download-jobs')
 @UseGuards(SessionGuard, TenantAccessGuard, PermissionsGuard)
 @Permissions('sat.download', 'credentials.manage')
@@ -42,6 +44,7 @@ export class SatController {
     private readonly sessions: SessionsService,
   ) {}
   @Post()
+  @UseGuards(BillingAccessGuard)
   @HttpCode(202)
   create(
     @Body() input: CreateSatJobDto,
@@ -156,6 +159,7 @@ export class SatController {
     return this.service.cancel(t, id, c.correlationId);
   }
   @Post(':id/retry')
+  @UseGuards(BillingAccessGuard)
   @HttpCode(202)
   retry(
     @Param('id', ParseUUIDPipe) id: string,
@@ -165,6 +169,7 @@ export class SatController {
     return this.service.retry(t, id, undefined, c.correlationId);
   }
   @Post(':id/packages/:packageId/retry')
+  @UseGuards(BillingAccessGuard)
   @HttpCode(202)
   retryPackage(
     @Param('id', ParseUUIDPipe) id: string,

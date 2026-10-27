@@ -1,3 +1,4 @@
+import { BillingAccessGuard } from '../../billing/payments-access.service';
 import {
   Controller,
   Get,
@@ -12,8 +13,10 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import type { Response } from 'express';
-import { CurrentRequestContext } from '../../../common/decorators/request-context.decorator';
-import type { RequestContext } from '../../../common/decorators/request-context.decorator';
+import {
+  CurrentRequestContext,
+  type RequestContext,
+} from '../../../common/decorators/request-context.decorator';
 import { CurrentTenant } from '../../../common/decorators/current-session.decorator';
 import { Permissions } from '../../../common/decorators/permissions.decorator';
 import { PermissionsGuard } from '../../../common/guards/permissions.guard';
@@ -61,6 +64,7 @@ export class IngestionQueryController {
   }
 
   @Post('ingestions/:ingestionJobId/retry')
+  @UseGuards(BillingAccessGuard)
   @Permissions('ingestion.retry')
   @HttpCode(HttpStatus.ACCEPTED)
   retry(

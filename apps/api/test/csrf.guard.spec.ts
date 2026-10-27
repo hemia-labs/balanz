@@ -7,6 +7,8 @@ function context(
   headers: Record<string, string> = {},
 ): ExecutionContext {
   return {
+    getHandler: () => () => undefined,
+    getClass: () => class TestController {},
     switchToHttp: () => ({
       getRequest: () => ({
         method,

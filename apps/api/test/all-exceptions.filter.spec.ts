@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  HttpException,
   InternalServerErrorException,
   ServiceUnavailableException,
   UnauthorizedException,
@@ -71,6 +72,34 @@ describe('AllExceptionsFilter', () => {
     expect(json).toHaveBeenCalledWith(
       expect.objectContaining({ code: 'MFA_REQUIRED' }),
     );
+  });
+
+  it('clasifica un error HTTP con respuesta string sin llamarlo error interno', () => {
+    const json = jest.fn();
+    const response = { status: jest.fn(() => ({ json })) };
+    const host = {
+      switchToHttp: () => ({
+        getResponse: () => response,
+        getRequest: () => ({
+          method: 'POST',
+          path: '/api/v1/payments/checkout-attempts',
+          correlationId: '550e8400-e29b-41d4-a716-446655440000',
+        }),
+      }),
+    } as never;
+    new AllExceptionsFilter().catch(
+      new HttpException('Payments http (404)', 404),
+      host,
+    );
+    expect(response.status).toHaveBeenCalledWith(404);
+    expect(json).toHaveBeenCalledWith(
+      expect.objectContaining({
+        statusCode: 404,
+        error: 'NOT_FOUND',
+        message: 'Payments http (404)',
+      }),
+    );
+    expect(captureException).not.toHaveBeenCalled();
   });
 
   it('conserva errores de campo seguros', () => {

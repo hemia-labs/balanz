@@ -1,3 +1,4 @@
+import { BillingAccessGuard } from '../../billing/payments-access.service';
 import {
   Body,
   Controller,
@@ -30,6 +31,7 @@ export class ZipIngestionController {
   constructor(private readonly uploads: ZipUploadService) {}
 
   @Post('legal-entities/:legalEntityId/ingestions/zip/init')
+  @UseGuards(BillingAccessGuard)
   @Permissions('ingestion.create')
   init(
     @Param('legalEntityId', ParseUUIDPipe) id: string,
@@ -52,6 +54,7 @@ export class ZipIngestionController {
   }
 
   @Post('ingestion-uploads/:uploadId/zip/confirm')
+  @UseGuards(BillingAccessGuard)
   @Permissions('ingestion.create')
   @HttpCode(202)
   confirm(

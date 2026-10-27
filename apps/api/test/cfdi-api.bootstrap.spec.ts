@@ -1,3 +1,5 @@
+import { BillingModule } from '../src/modules/billing/billing.module';
+import { PaymentsAccessService } from '../src/modules/billing/payments-access.service';
 import { type INestApplication, Module } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
@@ -23,6 +25,14 @@ import { SessionsService } from '../src/modules/sessions/sessions.service';
   exports: [MonthlyService],
 })
 class StubClientAccountsModule {}
+
+@Module({
+  providers: [
+    { provide: PaymentsAccessService, useValue: { assert: jest.fn() } },
+  ],
+  exports: [PaymentsAccessService],
+})
+class StubBillingModule {}
 
 @Module({})
 class StubFiscalInfrastructureModule {}
@@ -66,6 +76,8 @@ describe('CfdiApiModule bootstrap', () => {
     const moduleFixture = await Test.createTestingModule({
       imports: [CfdiApiModule],
     })
+      .overrideModule(BillingModule)
+      .useModule(StubBillingModule)
       .overrideModule(ClientAccountsModule)
       .useModule(StubClientAccountsModule)
       .overrideModule(AuditModule)

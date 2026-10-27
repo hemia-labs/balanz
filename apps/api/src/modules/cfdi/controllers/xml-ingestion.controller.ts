@@ -1,3 +1,4 @@
+import { BillingAccessGuard } from '../../billing/payments-access.service';
 import {
   Controller,
   Headers,
@@ -10,8 +11,10 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import type { Request } from 'express';
-import { CurrentRequestContext } from '../../../common/decorators/request-context.decorator';
-import type { RequestContext } from '../../../common/decorators/request-context.decorator';
+import {
+  CurrentRequestContext,
+  type RequestContext,
+} from '../../../common/decorators/request-context.decorator';
 import { CurrentTenant } from '../../../common/decorators/current-session.decorator';
 import { Permissions } from '../../../common/decorators/permissions.decorator';
 import { PermissionsGuard } from '../../../common/guards/permissions.guard';
@@ -26,6 +29,7 @@ export class XmlIngestionController {
   constructor(private readonly uploads: XmlUploadService) {}
 
   @Post('legal-entities/:legalEntityId/ingestions/xml')
+  @UseGuards(BillingAccessGuard)
   @Permissions('ingestion.create')
   @HttpCode(HttpStatus.ACCEPTED)
   upload(

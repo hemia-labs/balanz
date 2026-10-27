@@ -11,8 +11,12 @@ export function ControlledDialog({
   description,
   children,
   side = false,
+  fullScreen = false,
+  headerActions,
 }: {
   side?: boolean;
+  fullScreen?: boolean;
+  headerActions?: React.ReactNode;
   open: boolean;
   onClose: () => void;
   title: string;
@@ -41,31 +45,42 @@ export function ControlledDialog({
       aria-labelledby={titleId}
       aria-describedby={descriptionId}
       className={
-        side
-          ? "ml-auto mr-0 mt-0 h-dvh max-h-none w-full max-w-3xl border-l border-border bg-card p-5 text-card-foreground shadow-overlay"
-          : "m-auto w-[calc(100%-2rem)] max-w-2xl rounded-lg border border-border bg-card p-0 text-card-foreground shadow-overlay"
+        fullScreen
+          ? "m-0 h-dvh max-h-none w-screen max-w-none overflow-hidden border-0 bg-card p-0 text-card-foreground open:flex open:flex-col"
+          : side
+            ? "ml-auto mr-0 mt-0 h-dvh max-h-none w-full max-w-3xl border-l border-border bg-card p-5 text-card-foreground shadow-overlay"
+            : "m-auto w-[calc(100%-2rem)] max-w-2xl rounded-lg border border-border bg-card p-0 text-card-foreground shadow-overlay"
       }
     >
-      <div className="flex items-start justify-between gap-4 border-b border-border px-5 py-4">
-        <div>
+      <div
+        className={
+          fullScreen
+            ? "flex shrink-0 items-center justify-end gap-3 border-b border-border bg-card px-4 py-2 text-card-foreground sm:px-6"
+            : "flex items-start justify-between gap-4 border-b border-border px-5 py-4"
+        }
+      >
+        <div className={fullScreen ? "sr-only" : "min-w-0"}>
           <h2 id={titleId} className="text-heading-sm font-emphasis">
             {title}
           </h2>
           <p
             id={descriptionId}
-            className="mt-1 text-body-sm text-muted-foreground"
+            className={fullScreen ? "mt-1 text-body-sm text-primary-foreground/80" : "mt-1 text-body-sm text-muted-foreground"}
           >
             {description}
           </p>
         </div>
+        {headerActions}
         <Button
           type="button"
           variant="ghost"
-          size="icon"
+          size={fullScreen ? "default" : "icon"}
           onClick={onClose}
           aria-label="Cerrar"
+          className="shrink-0"
         >
-          <X />
+          <X aria-hidden="true" />
+          {fullScreen ? "Cerrar" : null}
         </Button>
       </div>
       {children}

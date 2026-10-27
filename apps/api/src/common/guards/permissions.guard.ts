@@ -33,10 +33,19 @@ export class PermissionsGuard implements CanActivate {
       [context.getHandler(), context.getClass()],
     );
 
+    return this.authorizeRequest(
+      context.switchToHttp().getRequest<Request>(),
+      required,
+    );
+  }
+
+  async authorizeRequest(
+    request: Request,
+    required?: string[],
+  ): Promise<boolean> {
     // Sin @Permissions => endpoint sin restricción de permisos.
     if (!required || required.length === 0) return true;
 
-    const request = context.switchToHttp().getRequest<Request>();
     const tenantContext = (
       request as Request & {
         tenantContext?: {

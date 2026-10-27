@@ -66,6 +66,12 @@ const LiveCfdiDetailScreen = dynamic(() =>
   ),
 );
 
+const LiveBillingSettingsScreen = dynamic(() =>
+  import("@/features/billing/billing-settings-screen").then(
+    (module) => module.BillingSettingsScreen,
+  ),
+);
+
 export function AccountingScreen({ route }: { route: ResolvedProductRoute }) {
   const { accountAccessMode, capabilities, locale, membership, organization } =
     useAccountingContext();
@@ -84,6 +90,13 @@ export function AccountingScreen({ route }: { route: ResolvedProductRoute }) {
     return <LiveForbiddenScreen reason="out_of_scope" />;
   }
   switch (route.screen) {
+    case "organization-settings":
+      return (
+        <LiveBillingSettingsScreen
+          key={organization.id}
+          section={route.section ?? "overview"}
+        />
+      );
     case "processes":
       return <LiveProcessesScreen />;
     case "client-cfdi":

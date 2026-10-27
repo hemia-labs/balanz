@@ -18,7 +18,8 @@ import { efirmaConfigForRuntime } from './efirma.config';
 export const RUNTIME_CONFIG_PROFILE = Symbol('RUNTIME_CONFIG_PROFILE');
 
 export function runtimeEnvFilePaths(profile: RuntimeConfigProfile): string[] {
-  return [`.env.${profile}.local`, `.env.${profile}`, '.env.local', '.env'];
+  const paths = [`.env.${profile}.local`, `.env.${profile}`];
+  return profile === 'worker' ? paths : [...paths, '.env.local', '.env'];
 }
 
 export function ignoreRuntimeEnvFiles(

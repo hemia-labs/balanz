@@ -140,6 +140,10 @@ en la terminal antes de iniciar la API. Si antes ejecutaste
 unset DB_USERNAME DB_PASSWORD DB_WORKER_USERNAME DB_WORKER_PASSWORD
 ```
 
+El worker carga únicamente `.env.worker.local` y `.env.worker`; no hereda
+`.env.local` ni `.env`. Completa su plantilla con la configuración fiscal y sus
+credenciales propias. El perfil rechaza credenciales y configuración de Billing.
+
 Los comandos siguientes muestran primero la variante con `npm` y después la
 variante equivalente con `bun`.
 

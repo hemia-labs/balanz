@@ -801,7 +801,7 @@ export class AuthService {
         where: { id: session.membershipId!, userId: session.userId },
       }),
     ]);
-    if (!user || !subscription || !membership)
+    if (!user || !membership)
       throw new UnauthorizedException('Onboarding session required');
     const nextStep = !user.emailVerifiedAt
       ? 'verify_email'
@@ -809,14 +809,16 @@ export class AuthService {
         ? 'activate_membership'
         : 'ready';
     return {
-      subscriptionType: subscription.subscriptionType,
-      trial: subscription.trialStartedAt
-        ? {
-            status: subscription.status,
-            startedAt: subscription.trialStartedAt,
-            endsAt: subscription.trialEndsAt,
-          }
-        : { status: subscription.status },
+      subscriptionType: subscription?.subscriptionType ?? null,
+      trial: subscription
+        ? subscription.trialStartedAt
+          ? {
+              status: subscription.status,
+              startedAt: subscription.trialStartedAt,
+              endsAt: subscription.trialEndsAt,
+            }
+          : { status: subscription.status }
+        : null,
       nextStep,
       mfaStatus: context.mfaStatus,
     };

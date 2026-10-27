@@ -348,3 +348,19 @@ test("resuelve el tenant de una ruta por slug o identificador", () => {
     undefined,
   );
 });
+
+test("el catálogo de planes exige billing.manage y conserva la organización de la ruta", () => {
+  const route = resolveProductRoute("organization-active", [
+    "settings",
+    "billing-plan",
+  ]);
+  assert.equal(route?.screen, "organization-settings");
+  assert.equal(route?.section, "billing-plan");
+  assert.equal(route?.organizationId, "organization-active");
+  assert.equal(route?.capability, "billing.manage");
+  assert.equal(
+    canOpenResolvedProductRoute(route!, ["organization.view"]),
+    false,
+  );
+  assert.equal(canOpenResolvedProductRoute(route!, ["billing.manage"]), true);
+});

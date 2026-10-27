@@ -13,6 +13,39 @@ import {
   subscribeToUnauthorizedApi,
 } from "./api-client";
 
+test("descarta una respuesta tardía cuando el contexto cancela la solicitud", async () => {
+  const originalFetch = globalThis.fetch;
+  const controller = new AbortController();
+  let finishBody!: (value: unknown) => void;
+  let bodyStarted!: () => void;
+  const started = new Promise<void>((resolve) => { bodyStarted = resolve; });
+  const body = new Promise<unknown>((resolve) => { finishBody = resolve; });
+  globalThis.fetch = async () => ({
+    ok: true,
+    status: 201,
+    headers: new Headers({ "content-type": "application/json" }),
+    json: () => { bodyStarted(); return body; },
+  }) as Response;
+
+  try {
+    let applied = false;
+    const request = apiClient("/payments/checkout-attempts", {
+      method: "POST",
+      signal: controller.signal,
+    }).then(() => { applied = true; });
+    const rejected = assert.rejects(request, (error: unknown) =>
+      error instanceof ApiError && error.code === "ABORTED",
+    );
+    await started;
+    controller.abort();
+    finishBody({ status: "ready", checkoutUrl: "https://www.sandbox.paypal.com/checkoutnow" });
+    await rejected;
+    assert.equal(applied, false);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("multipart conserva el boundary del navegador y admite 202", async () => {
   const original = globalThis.fetch;
   globalThis.fetch = async (_input, init) => {
@@ -276,4 +309,17 @@ test("respeta una señal cancelada antes de iniciar la petición", async () => {
     unsubscribe();
     globalThis.fetch = originalFetch;
   }
+});
+
+// Billing denial is an access notice, not a session expiration.
+test("Billing access errors notify subscribers and preserve the original error", async () => {
+  const { subscribeToBillingAccessRequired, reportApiUnauthorized, ApiError } = await import("./api-client");
+  const events: unknown[] = [];
+  const unsubscribe = subscribeToBillingAccessRequired(error => events.push(error));
+  const error = new ApiError(403, "Access required", "BILLING_ACCESS_REQUIRED");
+  reportApiUnauthorized(error, "/legal-entities/entity/ingestions/xml", "POST");
+  assert.equal(events[0], error);
+  unsubscribe();
+  reportApiUnauthorized(error, "/legal-entities/entity/ingestions/xml", "POST");
+  assert.equal(events.length, 1);
 });

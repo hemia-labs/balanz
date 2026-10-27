@@ -1,3 +1,4 @@
+import { BillingModule } from '../billing/billing.module';
 import { MonthlyDocumentController } from './controllers/monthly-document.controller';
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
@@ -19,6 +20,7 @@ import { ZipUploadService } from './services/zip-upload.service';
 
 @Module({
   imports: [
+    BillingModule,
     TypeOrmModule.forFeature([LegalEntity]),
     ClientAccountsModule,
     AuditModule,

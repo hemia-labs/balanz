@@ -1,3 +1,4 @@
+import { BillingModule } from '../billing/billing.module';
 import { MonthlyController } from './monthly.controller';
 import { MonthlyService } from './monthly.service';
 import { FiscalTenantTransactionService } from '../../database/rls/fiscal-tenant-transaction.service';
@@ -24,6 +25,7 @@ import { LegalEntitiesService } from './legal-entities.service';
 
 @Module({
   imports: [
+    BillingModule,
     TypeOrmModule.forFeature([
       ClientAccount,
       LegalEntity,

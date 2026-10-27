@@ -1,6 +1,7 @@
 import { AppSidebar } from "@/components/app-sidebar";
 import { AppTopbar } from "@/components/app-topbar";
 import { AccountingContextProvider } from "@/components/accounting-context";
+import { BillingAccessNotice } from "@/features/billing/billing-access-notice";
 import { SessionProvider } from "@/features/session/session-provider";
 import { isLocale } from "@/lib/i18n";
 import { notFound } from "next/navigation";
@@ -29,7 +30,10 @@ export default async function PrivateLayout({
                 tabIndex={-1}
                 className="flex-1 px-4 py-6 focus:outline-none sm:px-6 sm:py-8 lg:px-8"
               >
-                <div className="mx-auto w-full max-w-content">{children}</div>
+                <div className="mx-auto w-full max-w-content">
+                  <BillingAccessNotice />
+                  {children}
+                </div>
               </main>
             </div>
           </div>
