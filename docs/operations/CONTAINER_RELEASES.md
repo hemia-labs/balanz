@@ -7,7 +7,7 @@ Los tres procesos de Balanz se retiraron de PM2 y se guardó su lista vacía. El
 ## Versiones y tags
 
 1. Agregar una nota con `bun run changeset`, seleccionando API, web o ambos.
-2. Integrar el PR funcional en `main`. **Balanz release** ejecuta CI y abre/actualiza `changeset-release/balanz` mediante Changesets.
+2. Integrar el PR funcional en `main`. **Balanz release** ejecuta CI y abre/actualiza `changeset-release/main` mediante Changesets.
 3. Revisar e integrar el PR de versión. API y web se versionan juntas; el primer changeset alinea las versiones existentes en `0.1.1`.
 4. El workflow reconoce un cambio exclusivamente de versiones, changelogs, lockfile y notas consumidas. Vuelve a validar el commit, construye/prueba imágenes y publica `balanz-vX.Y.Z` junto con la GitHub Release **Balanz X.Y.Z**.
 

@@ -88,7 +88,7 @@ jobs:
         uses: changesets/action@a45c4d594aa4e2c509dc14a9f2b3b67ba3780d0d # v1
         with:
           version: bun run version:balanz
-          branch: changeset-release/balanz
+          branch: main
           title: 'chore(balanz): release application version'
           commit: 'chore(balanz): release application version'
           createGithubReleases: false
