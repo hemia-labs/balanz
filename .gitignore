@@ -6,3 +6,6 @@ dist/
 infra/cfdi-phase0/.env
 propuesta/
 docs2/
+
+# Python deployment tooling
+__pycache__/

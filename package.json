@@ -14,6 +14,13 @@
     "qa:cfdi:external": "npm --prefix apps/api run test:external:fiscal",
     "infra:cfdi:config": "docker compose --env-file infra/cfdi-phase0/.env -f infra/cfdi-phase0/compose.yaml config",
     "infra:cfdi:up": "docker compose --env-file infra/cfdi-phase0/.env -f infra/cfdi-phase0/compose.yaml up -d --wait",
-    "infra:cfdi:down": "docker compose --env-file infra/cfdi-phase0/.env -f infra/cfdi-phase0/compose.yaml down"
+    "infra:cfdi:down": "docker compose --env-file infra/cfdi-phase0/.env -f infra/cfdi-phase0/compose.yaml down",
+    "changeset": "changeset",
+    "version:balanz": "changeset version && bun install --lockfile-only --ignore-scripts",
+    "test:release": "node --test infra/deploy/release.test.mjs",
+    "test:images": "python3 infra/deploy/image-smoke.py"
+  },
+  "devDependencies": {
+    "@changesets/cli": "3.0.3"
   }
 }

@@ -47,6 +47,9 @@ async function bootstrap() {
   app.enableCors(getCorsOptions(nodeEnv, corsOrigins));
   app.enableShutdownHooks();
 
-  await app.listen(config.get<number>('app.port') ?? 3021, '127.0.0.1');
+  await app.listen(
+    config.get<number>('app.port') ?? 3021,
+    config.get<string>('app.host') ?? '127.0.0.1',
+  );
 }
 void bootstrap();

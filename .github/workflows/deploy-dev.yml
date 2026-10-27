@@ -21,6 +21,7 @@ env:
 
 jobs:
   deploy:
+    if: vars.BALANZ_PM2_ENABLED != 'false'
     name: Deploy Balanz DEV
     runs-on: ubuntu-24.04
     timeout-minutes: 30

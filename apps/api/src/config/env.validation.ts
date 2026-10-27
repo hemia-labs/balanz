@@ -48,6 +48,7 @@ const baseEnvVarsSchema = Joi.object({
 
   // App
   APP_PORT: Joi.number().port().default(3021),
+  APP_HOST: Joi.string().ip().default('127.0.0.1'),
   APP_GLOBAL_PREFIX: Joi.string().default('api/v1'),
   APP_CORS_ORIGINS: Joi.when('NODE_ENV', {
     is: 'production',
@@ -743,6 +744,7 @@ const runtimeDatabasePassword = Joi.when('SECRETS_ENABLED', {
 const workerUnavailableKeys = [
   ...Object.keys(paymentsEnvSettings),
   'APP_PORT',
+  'APP_HOST',
   'APP_GLOBAL_PREFIX',
   'APP_CORS_ORIGINS',
   'TRUST_PROXY_HOPS',

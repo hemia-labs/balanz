@@ -413,3 +413,7 @@ Para más detalles específicos de cada aplicación, consulta:
 
 - [Documentación de la API](apps/api/README.md)
 - [Documentación del frontend](apps/web/README.md)
+
+## Releases de contenedores
+
+Dockerfiles, Changesets, tags `balanz-vX.Y.Z`, publicación en el registry privado y pruebas aisladas: [guía de operación](docs/operations/CONTAINER_RELEASES.md). El deploy DEV por PM2 conserva los dominios y sigue activo durante esta transición.

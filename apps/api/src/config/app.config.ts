@@ -15,6 +15,7 @@ export function getCorsOptions(nodeEnv: string, corsOrigins: string[]) {
 
 export default registerAs('app', () => ({
   port: Number(process.env.APP_PORT) || 3021,
+  host: process.env.APP_HOST || '127.0.0.1',
   nodeEnv: process.env.NODE_ENV || 'development',
   globalPrefix: process.env.APP_GLOBAL_PREFIX || 'api/v1',
   // En desarrollo sólo se autoriza el frontend local por defecto.
