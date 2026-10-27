@@ -85,3 +85,12 @@ Si existe una renovación futura autorizada, la selección de planes permite cam
 La operación `change_renewal_plan` revisa el mismo acuerdo futuro, sin crear otro contrato ni cobrar un prorrateo. `renewalPlanChange` describe el intento y `pendingRenewalPlanChange` permite recuperarlo desde Mi suscripción. La autorización anterior se conserva hasta confirmar el nuevo plan en PayPal; entonces `pendingRenewal` refleja el plan y precio futuros. El plan y la licencia del período actual no cambian.
 
 Cerrar sólo vuelve a planes. Cancelar este cambio restaura la renovación anterior y puede requerir consentimiento de PayPal; no cancela el acuerdo futuro completo. Las aprobaciones atrasadas de enlaces descartados requieren conciliación durable de la autorización anterior.
+
+
+## Producción y cambio de autoridad de Billing
+
+La configuración de `PAYMENTS_CONNECTION` debe incluir `legal` para habilitar el paso de documentos previo al pago. En producción, el destino es `https://legal.hemia.cloud`, audience `legal-api`, resource `https://legal.hemia.cloud` y el cliente verificador existente `legal-service-dev`. Estos datos no sustituyen las autorizaciones OAuth ni el registro collector/validator de Legal. No copiar secretos al repositorio. Una nueva release debe tomar la configuración privada actualizada.
+
+Al cambiar de Billing dev a prod, las revisiones de sus bases no son comparables. Antes del corte, registrar la revisión que el consumidor conserva y preparar la autoridad destino para emitir revisiones superiores; luego entregar un snapshot autenticado y comprobar `/payments/access` en la sesión real. Una respuesta HTTP exitosa con `applied: false` sólo confirma recepción: no prueba que Balanz reemplazó su copia. No quitar la protección monotónica ni aceptar revisiones antiguas por webhook. Conservar un respaldo y documentar la reconciliación del cambio de autoridad.
+
+Una licencia histórica revocada/expirada no es un plan vigente. Si Billing no devuelve suscripción actual, la UI debe permitir seleccionar un plan y llegar al resumen de contratación; una licencia activa sin suscripción continúa bloqueando para evitar cobros duplicados.
