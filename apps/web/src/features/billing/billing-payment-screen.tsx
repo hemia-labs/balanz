@@ -23,7 +23,7 @@ import {
 } from "./api";
 import { BillingLegalStep } from "./billing-legal-step";
 import { period, featureValue } from "./billing-plan-format";
-import type { CurrentAccess } from "./current-plan";
+import { hasCurrentBillingPlan, type CurrentAccess } from "./current-plan";
 import { billingDate, canChangeSubscription } from "./subscription-management";
 
 export function BillingPaymentScreen() {
@@ -100,7 +100,7 @@ function PaymentDetails({
             subscription.pendingPlanChange.targetPlanPriceCode === priceCode;
           if (
             (subscription && !canChangeSubscription(subscription) && !resuming) ||
-            (access.source === "billing" && !subscription) ||
+            (hasCurrentBillingPlan(access) && !subscription) ||
             (subscription?.planCode === planCode &&
               subscription?.planPriceCode === priceCode)
           ) {
