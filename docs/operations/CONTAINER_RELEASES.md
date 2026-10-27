@@ -2,7 +2,7 @@
 
 El flujo construye y prueba imágenes, las publica en `registry.hemia.cloud` y permite descargarlas por digest y arrancarlas mediante Docker Compose. El entorno público de `vps-dev` ya corre API, worker y web en el proyecto `hemia-balanz-live`. Nginx y los dominios se conservan: `contable.hemia.dev` → `127.0.0.1:5181`, `api-contable.hemia.dev` → `127.0.0.1:3021`; worker → `127.0.0.1:3002`.
 
-Los tres procesos de Balanz se retiraron de PM2 y se guardó su lista vacía. El workflow antiguo `deploy-dev.yml` está deshabilitado en GitHub y `BALANZ_PM2_ENABLED=false` impide reactivarlo al integrar el guard local. La publicación automática a live sigue pendiente de autorización y de integrar los cambios de Balanz en `main`; no confundirla con el deploy manual ya probado.
+Los tres procesos de Balanz se retiraron de PM2 y se guardó su lista vacía. El workflow antiguo `deploy-dev.yml` está deshabilitado en GitHub y `BALANZ_PM2_ENABLED=false` impide reactivarlo al integrar el guard local. La publicación automática a live ya está autorizada y configurada; se activará al integrar el flujo en `main`. El corte manual ya está probado.
 
 ## Versiones y tags
 
@@ -46,7 +46,11 @@ Configuración de GitHub en el environment `docker-validation`, restringido a `m
 
 - Variables `VPS_HOST`, `VPS_SSH_KNOWN_HOSTS`, `BALANZ_DOCKER_DEPLOY_USER`.
 - Secret `BALANZ_DOCKER_SSH_PRIVATE_KEY`: clave exclusiva con acceso Docker/sudo en el servidor. La clave antigua de PM2 no tiene esos permisos.
-- `ENABLE_BALANZ_DOCKER_VALIDATION=true` habilita el deploy automático posterior a publicar una release. Sin la variable, se publica y se omite el deploy automático.
+- `BALANZ_DOCKER_TARGET=live` es una variable del repositorio que selecciona el entorno real tras publicar una release.
+- `ENABLE_BALANZ_DOCKER_LIVE=true`, en el environment, habilita ese deploy; el modo automático permite exclusivamente `deploy`, nunca `migrate` o `rollback`.
+- `ENABLE_BALANZ_DOCKER_VALIDATION=true` conserva la opción de validación aislada. Sin target explícito el workflow selecciona `validation`; si el gate del target está apagado, publica y omite el deploy automático.
+
+Ambos modos reutilizan la clave existente del environment `docker-validation` (nombre histórico), limitado a la rama `main`. No se habilitó `develop` ni se crearon otras credenciales.
 
 La provisión del host vive en `hemia-infra/ansible/playbooks/balanz-docker-validation.yml`. El root es `/srv/apps/balanz-docker-validation`; `shared/host.json` fija registro, base, red, storage y puertos. Los envs privados de API, worker y migrador están separados. Cada release conserva copias privadas de API/worker para recuperar también su configuración anterior. Una rotación de configuración requiere una nueva release.
 
