@@ -1,0 +1,7 @@
+interface:
+  display_name: "Data Scalability Auditor"
+  short_description: "Audita PostgreSQL, TypeORM y Redis"
+  default_prompt: "Usa $data-scalability-auditor para auditar PostgreSQL, TypeORM y Redis, separando problemas actuales, riesgos futuros y optimizaciones prematuras en un reporte Markdown con evidencia."
+
+policy:
+  allow_implicit_invocation: true

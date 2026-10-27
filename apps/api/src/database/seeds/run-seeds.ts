@@ -1,14 +1,18 @@
-import { AppDataSource } from '../data-source';
+import { DataSource } from 'typeorm';
+import { resolveScriptDatabaseOptions } from '../scripts/script-database-options';
+import { seedDatabase } from './seed-database';
 
 async function seed(): Promise<void> {
-  // Agregar aquí seeds idempotentes cuando sean necesarios.
+  const dataSource = new DataSource(await resolveScriptDatabaseOptions());
+  try {
+    await dataSource.initialize();
+    await seedDatabase(dataSource);
+  } finally {
+    if (dataSource.isInitialized) await dataSource.destroy();
+  }
 }
 
-AppDataSource.initialize()
-  .then(seed)
-  .then(() => AppDataSource.destroy())
-  .catch(async (error: unknown) => {
-    if (AppDataSource.isInitialized) await AppDataSource.destroy();
-    console.error(error);
-    process.exitCode = 1;
-  });
+seed().catch((error: unknown) => {
+  console.error(error);
+  process.exitCode = 1;
+});

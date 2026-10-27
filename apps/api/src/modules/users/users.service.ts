@@ -1,35 +1,61 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { ILike, Repository } from 'typeorm';
+import { EntityManager, ILike, In, Repository } from 'typeorm';
 import { FindUsersDto } from './dtos/find-users.dto';
-import { CreateUserDto } from './dtos/create-user.dto';
-import { UpdateUserDto } from './dtos/update-user.dto';
 import { UserResponseDto } from './dtos/user-response.dto';
 import { UsersPageResponseDto } from './dtos/users-page-response.dto';
 import { User } from './entities/user.entity';
 import { UserMapper } from './mappers/user.mapper';
-import { PasswordService } from '../../common/auth/password.service';
+import { Membership } from '../memberships/entities/membership.entity';
+
+export interface RegistrationUserInput {
+  firstName: string;
+  lastName: string;
+  email: string;
+  passwordHash: string;
+  phoneE164?: string;
+  locale: string;
+  timezone: string;
+}
 
 @Injectable()
 export class UsersService {
   constructor(
     @InjectRepository(User)
     private readonly repository: Repository<User>,
-    private readonly passwords: PasswordService,
+    @InjectRepository(Membership)
+    private readonly memberships: Repository<Membership>,
   ) {}
 
-  async findAll(query: FindUsersDto): Promise<UsersPageResponseDto> {
+  async findAll(
+    query: FindUsersDto,
+    organizationId: string,
+  ): Promise<UsersPageResponseDto> {
     const page = query.page;
     const limit = query.limit;
     const search = query.search?.trim();
-    const base = query.status ? { status: query.status } : {};
+    const memberships = await this.memberships.find({
+      select: { userId: true, status: true },
+      where: {
+        organizationId,
+        ...(query.status ? { status: query.status } : {}),
+      },
+    });
+    const userIds = memberships.map(({ userId }) => userId);
+    if (userIds.length === 0) {
+      return {
+        items: [],
+        meta: { page, limit, total: 0, totalPages: 0 },
+      };
+    }
+
     const where = search
       ? [
-          { ...base, firstName: ILike(`%${search}%`) },
-          { ...base, lastName: ILike(`%${search}%`) },
-          { ...base, email: ILike(`%${search}%`) },
+          { id: In(userIds), firstName: ILike(`%${search}%`) },
+          { id: In(userIds), lastName: ILike(`%${search}%`) },
+          { id: In(userIds), email: ILike(`%${search}%`) },
         ]
-      : base;
+      : { id: In(userIds) };
     const [users, total] = await this.repository.findAndCount({
       where,
       order: { createdAt: 'DESC' },
@@ -38,47 +64,40 @@ export class UsersService {
     });
 
     return {
-      items: UserMapper.toDTOList(users),
+      items: UserMapper.toDTOList(
+        users,
+        new Map(memberships.map(({ userId, status }) => [userId, status])),
+      ),
       meta: { page, limit, total, totalPages: Math.ceil(total / limit) },
     };
   }
 
-  async findOne(id: string): Promise<UserResponseDto> {
-    return UserMapper.toDTO(await this.ensureExists(id));
+  async findOne(id: string, organizationId: string): Promise<UserResponseDto> {
+    const { user, membership } = await this.ensureMember(id, organizationId);
+    return UserMapper.toDTO(user, membership.status);
   }
 
-  async create(dto: CreateUserDto): Promise<UserResponseDto> {
-    const user = this.repository.create({
-      firstName: dto.firstName,
-      lastName: dto.lastName,
-      email: dto.email.trim().toLowerCase(),
-      passwordHash: await this.passwords.hash(dto.password),
-      phoneE164: dto.phoneE164,
-      locale: dto.locale,
-      timezone: dto.timezone,
+  createForRegistration(
+    manager: EntityManager,
+    input: RegistrationUserInput,
+  ): Promise<User> {
+    const repository = manager.getRepository(User);
+    return repository.save(repository.create(input));
+  }
+
+  private async ensureMember(
+    id: string,
+    organizationId: string,
+    manager?: EntityManager,
+  ): Promise<{ user: User; membership: Membership }> {
+    const memberships = manager?.getRepository(Membership) ?? this.memberships;
+    const users = manager?.getRepository(User) ?? this.repository;
+    const membership = await memberships.findOne({
+      where: { organizationId, userId: id },
     });
-    return UserMapper.toDTO(await this.repository.save(user));
-  }
-
-  async update(id: string, dto: UpdateUserDto): Promise<UserResponseDto> {
-    const user = await this.ensureExists(id);
-    const { password, ...changes } = dto;
-    Object.assign(user, {
-      ...changes,
-      ...(changes.email && { email: changes.email.trim().toLowerCase() }),
-    });
-    if (password) user.passwordHash = await this.passwords.hash(password);
-    return UserMapper.toDTO(await this.repository.save(user));
-  }
-
-  async remove(id: string): Promise<void> {
-    await this.ensureExists(id);
-    await this.repository.softDelete(id);
-  }
-
-  private async ensureExists(id: string): Promise<User> {
-    const user = await this.repository.findOne({ where: { id } });
+    if (!membership) throw new NotFoundException('User not found');
+    const user = await users.findOne({ where: { id } });
     if (!user) throw new NotFoundException('User not found');
-    return user;
+    return { user, membership };
   }
 }

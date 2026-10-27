@@ -1,0 +1,7 @@
+interface:
+  display_name: "NestJS Quality Auditor"
+  short_description: "Audita calidad y buenas prácticas de NestJS"
+  default_prompt: "Usa $nestjs-quality-auditor para revisar la calidad idiomática del backend NestJS y generar un reporte Markdown con evidencia, severidad, fixes mínimos y derivaciones a arquitectura o seguridad."
+
+policy:
+  allow_implicit_invocation: true

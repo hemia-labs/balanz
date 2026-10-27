@@ -11,10 +11,6 @@ export function SurfaceHeader({ title, description, actions }: { title: string; 
   return <div className="flex flex-col gap-3 border-b border-border px-5 py-4 sm:flex-row sm:items-start sm:justify-between"><div><h2 className="text-heading-sm font-emphasis">{title}</h2>{description ? <p className="mt-1 text-body-sm text-muted-foreground">{description}</p> : null}</div>{actions ? <div className="flex flex-wrap gap-2">{actions}</div> : null}</div>;
 }
 
-export function FilterBar({ children }: { children: ReactNode }) {
-  return <div className="flex flex-wrap items-end gap-3 border-b border-border bg-muted/35 px-4 py-3">{children}</div>;
-}
-
 export function Field({ label, children }: { label: string; children: ReactNode }) {
   return <label className="grid gap-1.5 text-body-sm font-semibold"><span>{label}</span>{children}</label>;
 }
@@ -39,6 +35,6 @@ export function SectionTabs({ items, active }: { items: { label: string; href: s
   return <nav aria-label="Vistas de la sección" className="overflow-x-auto border-b border-border"><div className="flex min-w-max gap-1 px-2">{items.map((item) => <Link key={item.id} href={item.href} aria-current={active === item.id ? "page" : undefined} className={cn("relative flex min-h-11 items-center px-3 text-body-sm font-semibold text-muted-foreground hover:text-foreground", active === item.id && "text-foreground after:absolute after:bottom-0 after:left-3 after:right-3 after:h-0.5 after:bg-brand-mark")}>{item.label}</Link>)}</div></nav>;
 }
 
-export function DefinitionGrid({ items }: { items: { label: string; value: ReactNode }[] }) {
-  return <dl className="grid gap-px overflow-hidden rounded-lg border border-border bg-border sm:grid-cols-2 xl:grid-cols-4">{items.map((item) => <div key={item.label} className="bg-card p-4"><dt className="text-caption font-semibold text-muted-foreground">{item.label}</dt><dd className="mt-1 text-body font-semibold">{item.value}</dd></div>)}</dl>;
+export function DefinitionGrid({ items, className }: { items: { label: string; value: ReactNode }[]; className?: string }) {
+  return <dl className={cn("grid gap-px overflow-hidden rounded-lg border border-border bg-border sm:grid-cols-2 xl:grid-cols-4", className)}>{items.map((item) => <div key={item.label} className="bg-card p-4"><dt className="text-caption font-semibold text-muted-foreground">{item.label}</dt><dd className="mt-1 text-body font-semibold">{item.value}</dd></div>)}</dl>;
 }

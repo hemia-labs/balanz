@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<cfdi:Comprobante xmlns:cfdi="http://www.sat.gob.mx/cfd/4"
+  xmlns:p="http://www.sat.gob.mx/Pagos20"
+  xmlns:t="http://www.sat.gob.mx/TimbreFiscalDigital"
+  Version="4.0" Serie="PAY" Folio="2001" Fecha="2026-08-31T23:00:00"
+  Sello="U0VMTE8=" NoCertificado="00000000000000000000" Certificado="Q0VSVA=="
+  SubTotal="0" Moneda="XXX" Total="0" TipoDeComprobante="P"
+  Exportacion="01" LugarExpedicion="00000">
+  <cfdi:Emisor Rfc="AAA010101AAA" Nombre="EMISOR SINTETICO" RegimenFiscal="601"/>
+  <cfdi:Receptor Rfc="XAXX010101000" Nombre="RECEPTOR SINTETICO"
+    DomicilioFiscalReceptor="00000" RegimenFiscalReceptor="616" UsoCFDI="CP01"/>
+  <cfdi:Conceptos>
+    <cfdi:Concepto ClaveProdServ="84111506" Cantidad="1" ClaveUnidad="ACT"
+      Descripcion="PAGO" ValorUnitario="0" Importe="0" ObjetoImp="01"/>
+  </cfdi:Conceptos>
+  <cfdi:Complemento>
+    <p:Pagos Version="2.0">
+      <p:Totales TotalTrasladosBaseIVA16="150.00"
+        TotalTrasladosImpuestoIVA16="24.00" MontoTotalPagos="174.00"/>
+      <p:Pago FechaPago="2026-08-31T13:00:00" FormaDePagoP="03" MonedaP="MXN"
+        Monto="116.000000" NumOperacion="SYN-PAY-1"
+        NomBancoOrdExt="BANCO EXTRANJERO SINTETICO" CtaOrdenante="SYNTHETIC_01">
+        <p:DoctoRelacionado IdDocumento="33333333-3333-4333-8333-333333333333"
+          Serie="SYN" Folio="3001" MonedaDR="MXN" NumParcialidad="1"
+          ImpSaldoAnt="100.000000" ImpPagado="58.000000" ImpSaldoInsoluto="42.000000"
+          ObjetoImpDR="02">
+          <p:ImpuestosDR>
+            <p:TrasladosDR>
+              <p:TrasladoDR BaseDR="50.000000" ImpuestoDR="002" TipoFactorDR="Tasa"
+                TasaOCuotaDR="0.160000" ImporteDR="8.000000"/>
+            </p:TrasladosDR>
+          </p:ImpuestosDR>
+        </p:DoctoRelacionado>
+        <p:DoctoRelacionado IdDocumento="44444444-4444-4444-8444-444444444444"
+          MonedaDR="MXN" NumParcialidad="2" ImpSaldoAnt="100.000000"
+          ImpPagado="58.000000" ImpSaldoInsoluto="42.000000" ObjetoImpDR="02"/>
+        <p:ImpuestosP>
+          <p:TrasladosP>
+            <p:TrasladoP BaseP="100.000000" ImpuestoP="002" TipoFactorP="Tasa"
+              TasaOCuotaP="0.160000" ImporteP="16.000000"/>
+          </p:TrasladosP>
+        </p:ImpuestosP>
+      </p:Pago>
+      <p:Pago FechaPago="2026-09-01T09:00:00" FormaDePagoP="03" MonedaP="MXN"
+        Monto="58.000000" NumOperacion="SYN-PAY-2">
+        <p:DoctoRelacionado IdDocumento="55555555-5555-4555-8555-555555555555"
+          MonedaDR="MXN" NumParcialidad="1" ImpSaldoAnt="58.000000"
+          ImpPagado="58.000000" ImpSaldoInsoluto="0.000000" ObjetoImpDR="02"/>
+        <p:ImpuestosP>
+          <p:TrasladosP>
+            <p:TrasladoP BaseP="50.000000" ImpuestoP="002" TipoFactorP="Tasa"
+              TasaOCuotaP="0.160000" ImporteP="8.000000"/>
+          </p:TrasladosP>
+        </p:ImpuestosP>
+      </p:Pago>
+    </p:Pagos>
+    <t:TimbreFiscalDigital Version="1.1"
+      UUID="BBBBBBBB-BBBB-4BBB-8BBB-BBBBBBBBBBBB"
+      FechaTimbrado="2026-09-01T09:01:00" RfcProvCertif="AAA010101AAA"
+      SelloCFD="SELLO-CFD-SINTETICO" NoCertificadoSAT="00000000000000000000"
+      SelloSAT="SELLO-SAT-SINTETICO"/>
+  </cfdi:Complemento>
+</cfdi:Comprobante>

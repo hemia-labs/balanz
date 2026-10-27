@@ -1,20 +1,76 @@
 export const capabilities = [
-  "organization.view", "organization.manage", "ownership.manage", "billing.manage",
-  "team.view", "team.manage", "clients.view", "clients.manage", "clients.assign",
-  "credentials.manage", "sat.download", "payroll.view", "cfdi.review", "cfdi.exclude",
-  "period.close", "period.reopen", "exports.create", "obligations.view",
-  "obligations.configure", "diot.generate", "ieps.generate", "audit.view",
+  "periods.view",
+  "periods.review",
+  "periods.ready",
+  "periods.takeover",
+  "cfdi.review",
+  "cfdi.classify",
+  "cfdi.bulk_action",
+  "cfdi.categories.manage",
+  "checklist.view",
+  "checklist.complete",
+  "checklist.configure",
+  "organization.view",
+  "organization.manage",
+  "ownership.manage",
+  "billing.manage",
+  "team.view",
+  "clients.view",
+  "clients.manage",
+  "clients.assign",
+  "fiscal_entities.view",
+  "fiscal_entities.manage",
+  "fiscal_years.view",
+  "fiscal_years.manage",
+  "credentials.manage",
+  "sat.download",
+  "payroll.view",
+  "cfdi.exclude",
+  "ingestion.view",
+  "ingestion.create",
+  "ingestion.retry",
+  "ingestion.cancel",
+  "processes.view",
+  "processes.retry",
+  "processes.cancel",
+  "cfdi.view",
+  "cfdi.download",
+  "incidents.view",
+  "incidents.manage",
+  "exceptions.accept",
+  "periods.close",
+  "periods.reopen",
+  "exports.generate",
   "support.authorize",
+  "members.manage",
+  "permissions.manage",
 ] as const;
 
 export type Capability = (typeof capabilities)[number];
-export type MembershipRole = "titular" | "administrador" | "responsable" | "colaborador";
+export type MembershipRole =
+  "administrador" | "titular" | "responsable" | "colaborador";
 export type PeriodStatus =
-  | "Sin iniciar" | "En preparación" | "En revisión" | "Listo para cerrar"
-  | "Cerrado" | "Con novedades" | "Reabierto" | "Bloqueado";
+  | "Sin iniciar"
+  | "En preparación"
+  | "En revisión"
+  | "Listo para cerrar"
+  | "Cerrado"
+  | "Con novedades"
+  | "Reabierto"
+  | "Bloqueado";
 
-export interface DemoAccount { id: string; name: string; email: string; }
-export interface DemoOrganization { id: string; name: string; shortName: string; }
+export interface DemoAccount {
+  id: string;
+  name: string;
+  email: string;
+  avatarUrl?: string | null;
+}
+export interface DemoOrganization {
+  id: string;
+  slug: string;
+  name: string;
+  shortName: string;
+}
 export interface DemoMembership {
   organizationId: string;
   role: MembershipRole;
@@ -22,31 +78,65 @@ export interface DemoMembership {
   assignedClientIds: string[];
 }
 export interface DemoClient {
-  id: string; organizationId: string; name: string; rfc: string; responsible: string;
-  currentPeriod: string; status: PeriodStatus; progress: number; incidents: number;
-  lastCutoff: string; lastActivity: string;
+  id: string;
+  organizationId: string;
+  name: string;
+  rfc: string;
+  responsible: string;
+  currentPeriod: string;
+  status: PeriodStatus;
+  progress: number;
+  incidents: number;
+  lastCutoff: string;
+  lastActivity: string;
   eSignature: "Vigente" | "Próxima a vencer" | "Vencida";
   satConnection: "Conectado" | "Requiere atención" | "Sin configurar";
 }
 export interface DemoPeriod {
-  month: string; slug: string; status: PeriodStatus; progress: number; cfdi: number;
-  incidents: number; cutoff: string; version: string; responsible: string;
+  month: string;
+  slug: string;
+  status: PeriodStatus;
+  progress: number;
+  cfdi: number;
+  incidents: number;
+  cutoff: string;
+  version: string;
+  responsible: string;
 }
 export interface DemoProcess {
-  id: string; type: string; clientId: string; period: string;
-  status: "En proceso" | "Completado" | "Con errores"; satStatus?: string;
-  progress: number; requestedBy: string; startedAt: string; updatedAt: string; result: string;
+  id: string;
+  type: string;
+  clientId: string;
+  period: string;
+  status: "En proceso" | "Completado" | "Con errores";
+  satStatus?: string;
+  progress: number;
+  requestedBy: string;
+  startedAt: string;
+  updatedAt: string;
+  result: string;
 }
 export interface DemoCfdi {
-  uuid: string; clientId: string; type: "Ingreso" | "Egreso" | "Pago" | "Nómina";
-  direction: "Emitido" | "Recibido"; rfc: string; name: string; date: string;
-  method: "PUE" | "PPD"; total: number; currency: "MXN" | "USD";
+  uuid: string;
+  clientId: string;
+  type: "Ingreso" | "Egreso" | "Pago" | "Nómina";
+  direction: "Emitido" | "Recibido";
+  rfc: string;
+  name: string;
+  date: string;
+  method: "PUE" | "PPD";
+  total: number;
+  currency: "MXN" | "USD";
   status: "Revisado" | "Pendiente" | "Cancelado" | "Con incidencia";
   paymentComplement: "No aplica" | "Completo" | "Pendiente";
 }
 export interface DemoNotification {
-  id: string; title: string; detail: string; kind: "info" | "warning" | "danger" | "success";
-  href: string; time: string;
+  id: string;
+  title: string;
+  detail: string;
+  kind: "info" | "warning" | "danger" | "success";
+  href: string;
+  time: string;
 }
 export interface DemoFixtureSet {
   mode: "demo";

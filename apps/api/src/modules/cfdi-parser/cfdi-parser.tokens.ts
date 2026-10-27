@@ -1,0 +1,2 @@
+export const CFDI_PARSER_PORT = Symbol('CFDI_PARSER_PORT');
+export const CFDI_PARSER_OPTIONS = Symbol('CFDI_PARSER_OPTIONS');

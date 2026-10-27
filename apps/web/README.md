@@ -38,7 +38,7 @@ Aliases: `@/components`, `@/components/ui`, `@/lib`, `@/lib/utils`, `@/hooks`.
 
 ```bash
 bun install
-bun run --cwd apps/web dev      # http://localhost:3000
+bun run --cwd apps/web dev      # http://localhost:5181
 ```
 
 ## Scripts
@@ -49,6 +49,18 @@ bun run --cwd apps/web build
 bun run --cwd apps/web start
 bun run --cwd apps/web lint
 ```
+
+## Alcance fiscal actual
+
+La Fase 0 de CFDI entrega únicamente la plataforma compartida del backend. No
+añade al frontend un flujo de carga XML/ZIP, progreso de ingesta, lista o
+detalle real de CFDI, descarga de originales, SAT, e.firma, mesa mensual ni
+exportaciones. Las pantallas existentes de clientes, ejercicios y períodos no
+constituyen evidencia de esas capacidades.
+
+`PHASE_1_XML` permanece `NOT_STARTED`. No debe conectarse una UI de carga ni
+eliminarse un fallback/demo fiscal hasta que la Fase 1 sea autorizada,
+implementada y validada de extremo a extremo.
 
 ## Añadir componentes shadcn
 

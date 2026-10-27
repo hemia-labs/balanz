@@ -1,4 +1,5 @@
 import { registerAs } from '@nestjs/config';
+import { parseCorsOrigins } from './cors-origins';
 
 export function getCorsOptions(nodeEnv: string, corsOrigins: string[]) {
   if (nodeEnv === 'production' && corsOrigins.length === 0) {
@@ -8,16 +9,19 @@ export function getCorsOptions(nodeEnv: string, corsOrigins: string[]) {
   return {
     origin: corsOrigins.length > 0 ? corsOrigins : true,
     credentials: true,
+    exposedHeaders: ['ETag', 'Retry-After'],
   };
 }
 
 export default registerAs('app', () => ({
-  port: Number(process.env.APP_PORT) || 3001,
+  port: Number(process.env.APP_PORT) || 3021,
+  host: process.env.APP_HOST || '127.0.0.1',
   nodeEnv: process.env.NODE_ENV || 'development',
   globalPrefix: process.env.APP_GLOBAL_PREFIX || 'api/v1',
-  // CSV -> string[]; vacío => CORS abierto solo fuera de producción
-  corsOrigins: (process.env.APP_CORS_ORIGINS || '')
-    .split(',')
-    .map((o) => o.trim())
-    .filter(Boolean),
+  // En desarrollo sólo se autoriza el frontend local por defecto.
+  corsOrigins: parseCorsOrigins(
+    process.env.APP_CORS_ORIGINS ||
+      (process.env.NODE_ENV === 'production' ? '' : 'http://localhost:5181'),
+  ),
+  trustProxyHops: Number(process.env.TRUST_PROXY_HOPS) || 0,
 }));

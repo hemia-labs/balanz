@@ -1,6 +1,6 @@
 import { Type } from 'class-transformer';
 import { IsEnum, IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
-import { UserStatus } from '../entities/user.entity';
+import { MembershipStatus } from '../../memberships/entities/membership.entity';
 
 export class FindUsersDto {
   @IsOptional()
@@ -8,8 +8,8 @@ export class FindUsersDto {
   search?: string;
 
   @IsOptional()
-  @IsEnum(UserStatus)
-  status?: UserStatus;
+  @IsEnum(MembershipStatus)
+  status?: MembershipStatus;
 
   @IsOptional()
   @Type(() => Number)

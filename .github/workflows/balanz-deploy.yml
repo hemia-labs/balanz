@@ -1,0 +1,147 @@
+name: Balanz Docker deployment
+run-name: Balanz Docker ${{ inputs.operation }} ${{ inputs.release_tag }} (${{ inputs.target_mode }})
+
+on:
+  workflow_call:
+    inputs:
+      operation:
+        type: string
+        default: deploy
+      release_tag:
+        type: string
+        required: true
+      target_mode:
+        type: string
+        default: validation
+      automatic:
+        type: boolean
+        default: false
+      acknowledge_schema:
+        type: boolean
+        default: false
+      backup_confirmation:
+        type: string
+        default: ''
+  workflow_dispatch:
+    inputs:
+      operation:
+        type: choice
+        options: [deploy, rollback, migrate]
+        default: deploy
+      release_tag:
+        description: 'Published immutable release: balanz-vMAJOR.MINOR.PATCH'
+        required: true
+        type: string
+      target_mode:
+        description: 'validation preserves PM2; live requires an enabled host and GitHub gate'
+        type: choice
+        options: [validation, live]
+        default: validation
+      acknowledge_schema:
+        description: 'Rollback: I reviewed database schema compatibility'
+        type: boolean
+        default: false
+      backup_confirmation:
+        description: 'Migrate only: type I_HAVE_A_BACKUP after checking the backup'
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: balanz-docker-${{ inputs.target_mode || 'validation' }}
+  cancel-in-progress: false
+
+jobs:
+  enabled:
+    if: github.repository == 'hemia-labs/balanz' && github.ref == 'refs/heads/main'
+    environment: docker-validation
+    runs-on: ubuntu-24.04
+    outputs:
+      enabled: ${{ steps.gate.outputs.enabled }}
+    steps:
+      - name: Check explicit deployment gate
+        id: gate
+        env:
+          MODE: ${{ inputs.target_mode }}
+          AUTOMATIC: ${{ inputs.automatic || false }}
+          VALIDATION_ENABLED: ${{ vars.ENABLE_BALANZ_DOCKER_VALIDATION }}
+          LIVE_ENABLED: ${{ vars.ENABLE_BALANZ_DOCKER_LIVE }}
+          DEFAULT_TARGET: ${{ vars.BALANZ_DOCKER_TARGET }}
+          OPERATION: ${{ inputs.operation }}
+        run: |
+          set -euo pipefail
+          case "$MODE" in
+            validation) enabled=$VALIDATION_ENABLED ;;
+            live)
+              enabled=$LIVE_ENABLED
+              if [[ "$AUTOMATIC" == true ]]; then
+                test "$DEFAULT_TARGET" = live
+                test "$OPERATION" = deploy
+              fi
+              ;;
+            *) exit 1 ;;
+          esac
+          if [[ "$enabled" == true ]]; then
+            echo 'enabled=true' >> "$GITHUB_OUTPUT"
+          elif [[ "$AUTOMATIC" == true ]]; then
+            echo 'enabled=false' >> "$GITHUB_OUTPUT"
+            echo 'Release published; Docker validation deployment is disabled. PM2 remains active.' >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo 'Enable the selected Docker deployment gate after provisioning the host.' >&2
+            exit 1
+          fi
+
+  deploy:
+    needs: enabled
+    if: needs.enabled.outputs.enabled == 'true'
+    environment: docker-validation
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      GH_TOKEN: ${{ github.token }}
+      DEPLOY_HOST: ${{ vars.VPS_HOST }}
+      DEPLOY_USER: ${{ vars.BALANZ_DOCKER_DEPLOY_USER }}
+      DEPLOY_PORT: '22'
+      TARGET_MODE: ${{ inputs.target_mode }}
+      RELEASE_TAG: ${{ inputs.release_tag }}
+      OPERATION: ${{ inputs.operation }}
+      ACKNOWLEDGE_SCHEMA: ${{ inputs.acknowledge_schema }}
+      BACKUP_CONFIRMATION: ${{ inputs.backup_confirmation }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: Prepare SSH credentials and validate requested operation
+        env:
+          PRIVATE_KEY: ${{ secrets.BALANZ_DOCKER_SSH_PRIVATE_KEY }}
+          KNOWN_HOSTS: ${{ vars.VPS_SSH_KNOWN_HOSTS }}
+        run: |
+          python3 - <<'PY'
+          import os,re
+          from pathlib import Path
+          assert os.environ['TARGET_MODE'] in ['validation','live']
+          assert os.environ['OPERATION'] in ['deploy','rollback','migrate']
+          assert re.fullmatch(r'balanz-v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)',os.environ['RELEASE_TAG'])
+          for name in ['DEPLOY_HOST','DEPLOY_USER','PRIVATE_KEY','KNOWN_HOSTS']:
+              assert os.environ.get(name), 'Missing Docker deployment configuration: '+name
+          if os.environ['OPERATION']=='migrate':
+              assert os.environ['BACKUP_CONFIRMATION']=='I_HAVE_A_BACKUP'
+          base=Path(os.environ['RUNNER_TEMP'])
+          key=base/'balanz-docker-key'; known=base/'balanz-docker-known-hosts'
+          for path,value in [(key,os.environ['PRIVATE_KEY']),(known,os.environ['KNOWN_HOSTS'])]:
+              path.write_text(value+'\n'); path.chmod(0o600)
+          with open(os.environ['GITHUB_ENV'],'a') as env:
+              env.write('DEPLOY_KEY_FILE='+str(key)+'\nDEPLOY_KNOWN_HOSTS_FILE='+str(known)+'\n')
+              env.write('DEPLOY_PATH=/srv/apps/balanz-docker-'+os.environ['TARGET_MODE']+'\n')
+          PY
+      - name: Download the published release bundle
+        run: |
+          gh release download "$RELEASE_TAG" --repo hemia-labs/balanz \
+            --dir "$RUNNER_TEMP/balanz-release" \
+            --pattern release.json --pattern compose.json --pattern balanz-deploy.py --pattern SHA256SUMS
+      - name: Verify and activate the release through SSH
+        run: python3 infra/deploy/balanz-remote.py "$OPERATION" "$RELEASE_TAG" "$RUNNER_TEMP/balanz-release"
+      - name: Remove temporary credentials
+        if: always()
+        run: rm -f -- "$RUNNER_TEMP/balanz-docker-key" "$RUNNER_TEMP/balanz-docker-known-hosts"

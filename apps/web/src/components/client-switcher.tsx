@@ -2,19 +2,38 @@
 
 import { Building, Check, ChevronsUpDown } from "lucide-react";
 import { useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
 import { useAccountingContext } from "@/components/accounting-context";
 import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 
 export function ClientSwitcher({ compact = false }: { compact?: boolean }) {
   const router = useRouter();
-  const { client, clients, organization } = useAccountingContext();
-  if (!client) return null;
+  const pathname = usePathname();
+  const { client, clientName, clients, organization } = useAccountingContext();
+  const activeName = client?.name ?? clientName;
+  if (!activeName) return null;
 
   if (compact) {
     return (
-      <div className="grid size-10 place-items-center rounded-md bg-sidebar-accent text-sidebar-foreground" title={client.name}>
+      <div
+        className="grid size-10 place-items-center rounded-md bg-sidebar-accent text-sidebar-accent-foreground"
+        title={activeName}
+      >
         <Building className="size-5" aria-hidden="true" />
+      </div>
+    );
+  }
+
+  if (!client) {
+    return (
+      <div className="px-3 py-2">
+        <span className="block text-caption font-semibold text-sidebar-foreground/55">
+          Cliente activo
+        </span>
+        <span className="block truncate text-body-sm font-semibold text-sidebar-foreground">
+          {activeName}
+        </span>
       </div>
     );
   }
@@ -35,7 +54,7 @@ export function ClientSwitcher({ compact = false }: { compact?: boolean }) {
         {clients.map((option) => (
           <DropdownMenuItem
             key={option.id}
-            onClick={() => router.push(`/es/despachos/${organization.id}/clientes/${option.id}/resumen`)}
+            onClick={() => router.push(`/${pathname.split("/").filter(Boolean)[0] ?? "es"}/organizations/${organization.slug}/clients/${option.id}/overview`)}
           >
             <Building className="size-4" />
             <span className="min-w-0 flex-1">
