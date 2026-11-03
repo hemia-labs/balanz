@@ -1,14 +1,14 @@
 import 'reflect-metadata';
 import { config } from 'dotenv';
 import { createPaymentsClient } from '@hemia/payments';
-import { getPaymentsSettings } from '../../config/payments.config';
+import { loadPaymentsSettings } from '../../config/payments.config';
 import { runtimeEnvFilePaths } from '../../config/platform-config.module';
 
 async function main() {
   config({ path: runtimeEnvFilePaths('api'), quiet: true });
-  const settings = getPaymentsSettings();
+  const settings = await loadPaymentsSettings();
   if (!settings.connection || !settings.clientSecret)
-    throw new Error('Configure PAYMENTS_CONNECTION y HEMIA_CLIENT_SECRET.');
+    throw new Error('Configure la conexión de Payments y HEMIA_CLIENT_SECRET.');
   const payments = createPaymentsClient({
     ...settings.connection,
     clientSecret: settings.clientSecret,

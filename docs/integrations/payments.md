@@ -2,7 +2,11 @@
 
 Billing selecciona el único proveedor activo configurado en el precio publicado. La selección queda guardada con la compra y los reintentos la conservan aunque cambie el catálogo; las suscripciones existentes conservan su proveedor. Si no hay una configuración única o el proveedor no tiene adaptador, Billing rechaza la operación antes de cobrar. PayPal conserva su implementación; registrar otro proveedor en el catálogo no implementa su integración. Balanz no envía un proveedor ni necesita credenciales de la pasarela.
 
-Console genera `PAYMENTS_CONNECTION` con producto, destinos, cliente y funciones seleccionadas. Configura únicamente ese JSON y `HEMIA_CLIENT_SECRET` en el API. El JSON incluye `receiver` y `legal` cuando corresponden; no hay variables ni secretos separados para cada servicio. Una conexión solo de catálogo puede omitir ambos bloques y las URLs de retorno.
+Console publica la conexión y entrega `HEMIA_BASE_URL`, `HEMIA_CONNECTION`, `HEMIA_CLIENT_ID` y `HEMIA_CLIENT_SECRET`. El API resuelve esa referencia una sola vez al cargar la configuración `payments` de Nest. El SDK, los retornos de checkout y la copia de licencias comparten el mismo objeto resuelto; las operaciones normales no vuelven a descargarlo. El worker no acepta estas variables ni solicita configuración de Billing.
+
+La conexión publicada debe incluir **Consultar planes** y las demás funciones que Balanz use. Antes de sustituir el JSON existente, confirma en Console los retornos de checkout, Legal y los callbacks de licencias/verificación correspondientes. Una referencia de solo catálogo no conserva automáticamente las funciones omitidas del snapshot. El secreto queda en el backend y no se rota durante esta adopción.
+
+La configuración explícita con `PAYMENTS_CONNECTION` y `HEMIA_CLIENT_SECRET` sigue disponible. No mezcles ambas fuentes: al activar la referencia elimina el JSON de todos los archivos de entorno aplicables. Si la resolución falla, el arranque falla y no usa una configuración anterior silenciosamente. HTTP loopback solo se habilita fuera de producción.
 
 Para recibir licencias, `PAYMENTS_CONNECTION.receiver` debe incluir `audience` y `billingClientId` (el cliente OAuth emisor de Billing). En desarrollo se usan `balanz-api` y `billing-legal-service`. Billing debe registrar además el producto `balanz_cfdi` con receptor `http://localhost:3021/api/v1/payments/webhooks/license`, resource `http://localhost:3021` y audience `balanz-api`. La configuración valida que Identity autorice `billing.webhooks.deliver` para ese destino. Reinicia la API después de cambiar su configuración local.
 
@@ -55,9 +59,9 @@ Validación local: pruebas de API/SDK con transporte y proveedor simulados; no e
 
 Validación de la adopción: pruebas unitarias del API, build con el paquete candidato y fixture PostgreSQL desechable `bash apps/api/test/payments-snapshots.docker.sh`. El fixture verifica migración aditiva, historial, CAS y confirmación de origen, revocación, TTL, roles/RLS y trial durante una caída de Billing. No se ejecutan migraciones ni recorridos financieros en servicios residentes.
 
-## Compatibilidad del SDK 0.9.0
+## Compatibilidad del SDK 0.12.0
 
-Balanz fija `@hemia/payments` en `0.9.0`. Requiere Billing >=1.0.1 y <2.0.0 con el contrato `billing.integrations.v1`. Antes de desplegar Balanz, despliega Billing y aplica sus migraciones explícitamente. Ejecuta `bun run --cwd apps/api billing:identity:check` contra la configuración del entorno: verifica compatibilidad y lectura del catálogo con la credencial instalada, sin crear ni cancelar pagos. Un fallo bloquea la comprobación.
+Balanz fija `@hemia/payments` en `0.12.0`, instalado desde npm. Requiere Billing >=1.0.1 y <2.0.0 con el contrato `billing.integrations.v1`; la referencia requiere además los endpoints `hemia.payments.connections.v2` bajo `/api/v1` y una conexión guardada en Console con el permiso `billing.integration.connections.read`. Antes de desplegar Balanz, despliega Billing y aplica sus migraciones explícitamente cuando correspondan. Esta adopción no agrega migraciones. Ejecuta `bun run --cwd apps/api billing:identity:check` contra la configuración del entorno: resuelve la referencia si está configurada y verifica compatibilidad y lectura del catálogo con la credencial instalada, sin crear ni cancelar pagos. Un fallo bloquea la comprobación.
 
 `GET /payments/integration-status` autenticado verifica la compatibilidad remota antes de devolver `ready: true`; `/payments/ready` sólo comprueba inicialización local.
 

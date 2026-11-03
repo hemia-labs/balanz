@@ -18,7 +18,7 @@
         "@aws-sdk/s3-request-presigner": "3.1116.0",
         "@hemia/auth": "1.1.0",
         "@hemia/horus": "^0.0.5",
-        "@hemia/payments": "0.9.0",
+        "@hemia/payments": "0.12.0",
         "@hemia/secrets": "^0.0.2",
         "@nestjs/common": "^11.0.1",
         "@nestjs/config": "^4.0.4",
@@ -353,7 +353,7 @@
 
     "@hemia/horus": ["@hemia/horus@0.0.5", "", { "peerDependencies": { "@nestjs/common": ">=9", "@nestjs/core": ">=9" }, "optionalPeers": ["@nestjs/common", "@nestjs/core"] }, "sha512-CueA7tZxCsNWtYqG6NdQQeiY86PNRw1d5Uma9jOalmavah5Eq54ip1t1ABCERIRCrH/yhgrT/EDWaRFohbKCPA=="],
 
-    "@hemia/payments": ["@hemia/payments@0.9.0", "", { "peerDependencies": { "@hemia/auth": "^1.1.0", "@nestjs/common": "^11.0.0", "@nestjs/core": "^11.0.0", "reflect-metadata": "^0.2.0", "rxjs": "^7.0.0", "typeorm": ">=0.3.0 <2" }, "optionalPeers": ["@nestjs/common", "@nestjs/core", "reflect-metadata", "rxjs", "typeorm"] }, "sha512-ReboKulkBfTY9odD3+RypxnJIDxlMf8Xr9VjZNOCnlpGtR9Ee6TkJis+YMTkXHw+y8l+M98so53iQbgiBHPiwQ=="],
+    "@hemia/payments": ["@hemia/payments@0.12.0", "", { "peerDependencies": { "@hemia/auth": "^1.1.0", "@nestjs/common": "^11.0.0", "@nestjs/core": "^11.0.0", "reflect-metadata": "^0.2.0", "rxjs": "^7.0.0", "typeorm": ">=0.3.0 <2" }, "optionalPeers": ["@nestjs/common", "@nestjs/core", "reflect-metadata", "rxjs", "typeorm"] }, "sha512-C2bU/N9D47WMfC+Wf38Yjx1ZFD56lD7ew2VePOskfaqMMbi5wDNMb3bYTzkmipUla0ijr55/HmUiRt50ArfJ+g=="],
 
     "@hemia/secrets": ["@hemia/secrets@0.0.2", "", { "peerDependencies": { "@nestjs/common": ">=10" }, "optionalPeers": ["@nestjs/common"] }, "sha512-iVVEEXAy+19gAt0FncwHI5EsC4rj9asqdx186U/QjSyflBz42J/Dcz/i8DESupRSb22TL22VGl7H6D5qbgMzaw=="],
 
