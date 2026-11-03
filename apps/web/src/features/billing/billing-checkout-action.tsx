@@ -10,6 +10,7 @@ import {
   isCheckoutTerminal,
   pendingCheckoutKey,
   checkoutActionUrl,
+  checkoutPollDelay,
   isCheckoutApprovalConfirmed,
   readCheckoutDraft,
   checkoutFailureMessage,
@@ -50,6 +51,7 @@ export function BillingCheckoutAction({
   planPriceCode,
   legalAcceptanceId,
   startImmediately,
+  continueStartedAt,
   changePlan = false,
   expectedSubscriptionId,
   expectedAmountDueNow,
@@ -61,6 +63,7 @@ export function BillingCheckoutAction({
   planPriceCode: string;
   legalAcceptanceId: string;
   startImmediately: boolean;
+  continueStartedAt?: number;
   changePlan?: boolean;
   expectedSubscriptionId?: string;
   expectedAmountDueNow?: string;
@@ -73,8 +76,28 @@ export function BillingCheckoutAction({
   const [error, setError] = useState("");
   const [quoteNotice, setQuoteNotice] = useState("");
   const [busy, setBusy] = useState(false);
+  const [openingPayment, setOpeningPayment] = useState(false);
   const pending = useRef<AbortController | null>(null);
   const autoStarted = useRef(false);
+  const preparationStartedAt = useRef<number | undefined>(undefined);
+  const openPayment = useCallback((value: CheckoutAttempt) => {
+    const url = checkoutActionUrl(value);
+    if (value.status === "ready" && url) {
+      if (preparationStartedAt.current !== undefined) {
+        globalThis.performance?.measure("balanz.checkout.payment-link", { start: preparationStartedAt.current });
+        if (continueStartedAt !== undefined)
+          globalThis.performance?.measure("balanz.checkout.continue-to-paypal", { start: continueStartedAt });
+        preparationStartedAt.current = undefined;
+      }
+      if (changePlan) window.location.assign(url);
+      else {
+        window.location.replace(url);
+        setOpeningPayment(true);
+      }
+      return true;
+    }
+    return false;
+  }, [changePlan, continueStartedAt]);
 
   const save = useCallback(
     (value: Draft): boolean => {
@@ -101,6 +124,7 @@ export function BillingCheckoutAction({
       setAttempt(undefined);
       setError("");
       setBusy(false);
+      setOpeningPayment(false);
       setDraftLoaded(true);
     });
     return () => {
@@ -111,15 +135,20 @@ export function BillingCheckoutAction({
   }, [key, legalAcceptanceId]);
 
   useEffect(() => {
-    const attemptId = draft?.attemptId;
+    const attemptId = draft?.attemptId ?? (!changePlan ? draft?.idempotencyKey : undefined);
     if (!attemptId || attempt?.attemptId === attemptId) return;
     const controller = new AbortController();
     queueMicrotask(() => {
-      if (controller.signal.aborted) return;
+      if (controller.signal.aborted || pending.current) return;
       getCheckoutAttempt(attemptId, controller.signal)
         .then((value) => {
-          if (controller.signal.aborted || pending.current ||
-              readDraft(key, legalAcceptanceId)?.attemptId !== attemptId) return;
+          const stored = readDraft(key, legalAcceptanceId);
+          if (controller.signal.aborted || pending.current || !stored ||
+              (stored.attemptId ?? stored.idempotencyKey) !== attemptId) return;
+          if (!stored.attemptId) {
+            if (value.attemptId !== attemptId || value.planCode !== planCode ||
+                value.planPriceCode !== planPriceCode || value.operation !== "checkout") return;
+          }
           if (canReplaceAbandonedCheckout(value, { attemptId, planCode, planPriceCode,
             operation: changePlan ? "change_plan" : "checkout" })) {
             if (save(createCheckoutDraft(legalAcceptanceId))) {
@@ -127,16 +156,53 @@ export function BillingCheckoutAction({
               setQuoteNotice("El intento anterior fue descartado. Puedes iniciar un pago nuevo.");
             }
           } else {
-            setAttempt(value);
+            if (!stored.attemptId && !save({ ...stored, attemptId })) return;
+            if (changePlan || !openPayment(value)) setAttempt(value);
           }
         })
         .catch(() => undefined);
     });
     return () => controller.abort();
-  }, [key, draft?.attemptId, attempt?.attemptId, planCode, planPriceCode, changePlan, legalAcceptanceId, save]);
+  }, [key, draft?.attemptId, draft?.idempotencyKey, attempt?.attemptId, planCode, planPriceCode, changePlan, legalAcceptanceId, save, openPayment]);
+
+  const waitingForLink = !changePlan && !attempt?.abandoned &&
+    (attempt?.status === "processing" || (attempt?.status === "pending" && !attempt.errorCode));
+  const pollingId = waitingForLink ? attempt?.attemptId : undefined;
+  useEffect(() => {
+    if (!pollingId) return;
+    const controller = new AbortController();
+    let timer: number;
+    const startedAt = Date.now();
+    const check = async () => {
+      try {
+        const latest = await getCheckoutAttempt(pollingId, controller.signal);
+        if (controller.signal.aborted) return;
+        if (!pending.current) {
+          if (openPayment(latest)) return;
+          setAttempt(latest);
+          if (latest.status !== "pending" && latest.status !== "processing") return;
+        }
+      } catch (cause) {
+        if (controller.signal.aborted) return;
+        if (cause instanceof ApiError && [401, 403, 404].includes(cause.status)) {
+          setError(message(cause));
+          return;
+        }
+      }
+      const elapsed = Date.now() - startedAt;
+      if (elapsed < 60_000) timer = window.setTimeout(() => void check(), checkoutPollDelay(elapsed));
+      else setError("Tu solicitud está guardada. Puedes volver a consultar el pago desde aquí.");
+    };
+    timer = window.setTimeout(() => void check(), checkoutPollDelay(0));
+    return () => {
+      controller.abort();
+      window.clearTimeout(timer);
+    };
+  }, [pollingId, key, openPayment]);
 
   const submit = useCallback(async () => {
-    if (!draftLoaded || busy || pending.current) return;
+    if (!draftLoaded || busy || openingPayment || pending.current) return;
+    preparationStartedAt.current = globalThis.performance?.now();
     setBusy(true);
     setError("");
     setQuoteNotice("");
@@ -201,8 +267,7 @@ export function BillingCheckoutAction({
           /* The checkout remains usable without background tracking. */
         }
       }
-      const nextUrl = checkoutActionUrl(value);
-      if (value.status === "ready" && nextUrl) window.location.assign(nextUrl);
+      openPayment(value);
     } catch (cause) {
       if (!controller.signal.aborted && pending.current === controller)
         setError(message(cause));
@@ -214,6 +279,8 @@ export function BillingCheckoutAction({
     }
   }, [
     busy,
+    openingPayment,
+    openPayment,
     changePlan,
     expectedSubscriptionId,
     expectedAmountDueNow,
@@ -294,11 +361,10 @@ export function BillingCheckoutAction({
   const terminal = isCheckoutTerminal(attempt);
   const confirmed = isCheckoutApprovalConfirmed(attempt, changePlan);
   const checkoutUrl = checkoutActionUrl(attempt);
-  const statusMessage =
-    attempt?.status === "processing"
-      ? changePlan
-        ? `Estamos preparando el cambio de plan. Puedes reintentar en ${attempt.retryAfterSeconds ?? 5} segundos.`
-        : `Creando el enlace de pago… Puedes reintentar en ${attempt.retryAfterSeconds ?? 5} segundos.`
+  const startingAutomatically = startImmediately && !attempt && !error && !quoteNotice;
+  const preparing = openingPayment || startingAutomatically || (!changePlan && (busy || (waitingForLink && !error)));
+  const statusMessage = changePlan && attempt?.status === "processing"
+      ? `Estamos preparando el cambio de plan. Puedes reintentar en ${attempt.retryAfterSeconds ?? 5} segundos.`
       : attempt?.status === "pending"
         ? attempt.errorCode === "BILLING_TEMPORARILY_UNAVAILABLE"
           ? changePlan
@@ -326,12 +392,16 @@ export function BillingCheckoutAction({
           {error}
         </p>
       ) : null}
-      {statusMessage ? (
+      {statusMessage && !preparing ? (
         <p role="status" className="text-body-sm text-muted-foreground">
           {statusMessage}
         </p>
       ) : null}
-      {confirmed ? (
+      {preparing ? (
+        <Button className="min-h-11 w-full" disabled aria-busy="true">
+          {changePlan ? "Preparando cambio de plan…" : "Abriendo PayPal…"}
+        </Button>
+      ) : confirmed ? (
         <p role="status" className="text-body-sm">
           {changePlan ? (attempt?.planChange?.state === "effective" ? "El cambio de plan está aplicado. Estamos confirmando sus beneficios en Balanz." : "El cambio de plan está confirmado para la próxima renovación. Consulta su fecha en Planes y suscripción.") : "La suscripción está activa."}
         </p>

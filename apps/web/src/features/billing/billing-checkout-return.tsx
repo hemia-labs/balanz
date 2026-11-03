@@ -8,6 +8,7 @@ import {
   Check,
   Minus,
   CheckCircle2,
+  Clock3,
   CircleX,
   LoaderCircle,
   LockKeyhole,
@@ -35,11 +36,13 @@ import {
   isCheckoutAccessActive,
   isCheckoutRetryablePending,
   pendingCheckoutKey,
+  returnedCheckoutKey,
   isPlanChangeScheduled,
   isPlanChangeCancelled,
   isRenewalResumeScheduled,
   isRenewalPlanChangeScheduled,
   checkoutActionUrl,
+  checkoutPollDelay,
   shouldReadCheckoutAccess,
   shouldPollCheckout,
 } from "./checkout-recovery";
@@ -51,11 +54,15 @@ export function BillingCheckoutReturn({
   attemptId,
   cancelled,
   returnedFromPayment = false,
+  resumePayment = false,
 }: {
   attemptId: string;
   cancelled: boolean;
   returnedFromPayment?: boolean;
+  resumePayment?: boolean;
 }) {
+  const resume = resumePayment && !cancelled && !returnedFromPayment;
+  const trackingReturn = returnedFromPayment && !cancelled;
   const [attempt, setAttempt] = useState<CheckoutAttempt>();
   const [access, setAccess] = useState<CurrentAccess>();
   const [plans, setPlans] = useState<BillingPlan[]>();
@@ -151,10 +158,12 @@ export function BillingCheckoutReturn({
       // Returning from the provider does not confirm cancellation of the contract.
       if (!cancelled || !sessionStorage.getItem(key) || sessionStorage.getItem(key) === attemptId)
         sessionStorage.setItem(key, attemptId);
+      if (trackingReturn)
+        sessionStorage.setItem(returnedCheckoutKey(organization.id, session.userId), attemptId);
     } catch {
       /* The result page can still confirm while browser storage is unavailable. */
     }
-  }, [attemptId, cancelled, organization.id, session?.userId]);
+  }, [attemptId, cancelled, organization.id, session?.userId, trackingReturn]);
   const plansHref = `/${locale}/organizations/${encodeURIComponent(organization.slug)}/settings/billing-plan`;
 
   useEffect(() => {
@@ -171,10 +180,18 @@ export function BillingCheckoutReturn({
       if (timer) clearTimeout(timer);
       inFlight = true;
       let received = false;
+      let retryStatusRead = false;
       setChecking(true);
       try {
         const result = await getCheckoutAttempt(attemptId, controller.signal);
         if (active) {
+          const url = resume && result.operation === "checkout" && result.status === "ready"
+            ? checkoutActionUrl(result)
+            : undefined;
+          if (url) {
+            window.location.replace(url);
+            return;
+          }
           latest = result;
           received = true;
           setAttempt(result);
@@ -194,7 +211,8 @@ export function BillingCheckoutReturn({
         }
       } catch (cause) {
         received = false;
-        if (active && !controller.signal.aborted) {
+        retryStatusRead = trackingReturn && !(cause instanceof ApiError && [401, 403, 404].includes(cause.status));
+        if (active && !controller.signal.aborted && !retryStatusRead) {
           setError(
             cause instanceof ApiError && cause.status === 404
               ? "La solicitud de pago no está disponible en el despacho activo."
@@ -205,8 +223,11 @@ export function BillingCheckoutReturn({
         inFlight = false;
         if (active) setChecking(false);
       }
-      if (active && received && shouldPollCheckout(latest, activated, cancelled, returnedFromPayment) && Date.now() - startedAt < 120_000) {
-        timer = setTimeout(check, 5_000);
+      const elapsed = Date.now() - startedAt;
+      const pollAgain = retryStatusRead || (received && shouldPollCheckout(latest, activated, cancelled, returnedFromPayment));
+      if (active && pollAgain) {
+        if (elapsed < 120_000) timer = setTimeout(check, checkoutPollDelay(elapsed));
+        else if (resume) setError("Tu solicitud sigue guardada. Puedes volver a consultar el pago.");
       }
     }
 
@@ -215,14 +236,17 @@ export function BillingCheckoutReturn({
           (!latest || shouldPollCheckout(latest, activated, cancelled, returnedFromPayment))) void check();
     };
     document.addEventListener("visibilitychange", onVisible);
-    queueMicrotask(() => { void check(); });
+    queueMicrotask(() => {
+      if (!active) return;
+      void check();
+    });
     return () => {
       active = false;
       controller.abort();
       if (timer) clearTimeout(timer);
       document.removeEventListener("visibilitychange", onVisible);
     };
-  }, [attemptId, manualRefresh, cancelled, returnedFromPayment]);
+  }, [attemptId, manualRefresh, cancelled, returnedFromPayment, resume, trackingReturn]);
 
   const hasPlanDetails = Boolean(attempt?.planCode);
   useEffect(() => {
@@ -264,6 +288,7 @@ export function BillingCheckoutReturn({
   const retryRequired = isCheckoutRetryablePending(attempt);
   const approvalUrl = checkoutActionUrl(attempt);
   const planChange = isCheckoutPlanChange(attempt);
+  const activatingPlan = attempt?.statusFresh === true && shouldReadCheckoutAccess(attempt);
   const awaitingApproval = Boolean(approvalUrl && !returnedFromPayment && !planChange);
   const awaitingPaymentConfirmation = returnedFromPayment && !cancelled &&
     attempt?.planChange?.action === "approve_payment" &&
@@ -343,6 +368,80 @@ export function BillingCheckoutReturn({
     attempt={attempt} plansHref={plansHref} planName={plans?.find(plan => plan.code === (attempt.renewalResume?.planCode ?? attempt.planCode))?.name ?? "Plan de próxima renovación"}
     cancelled={cancelled} checking={checking} onRefresh={() => setManualRefresh(value => value + 1)}
     onRetry={() => void confirm(true)} retrying={confirming} error={error} />;
+
+  if (resume && !error && (!attempt || (!retryRequired &&
+      (attempt.status === "pending" || attempt.status === "processing") && !terminal))) {
+    return <Button className="min-h-11" disabled aria-busy="true">Abriendo PayPal…</Button>;
+  }
+
+  if ((!attempt && trackingReturn) || (attempt?.operation === "checkout" &&
+      (trackingReturn || confirmed || activatingPlan))) {
+    const needsReview = attempt?.statusFresh === true && (terminal || needsAttention);
+    const planName = selectedPlan?.name;
+    const homeHref = `/${locale}/organizations/${encodeURIComponent(organization.slug)}/home`;
+    const StatusIcon = confirmed ? CheckCircle2 : needsReview ? CircleX : Clock3;
+
+    return (
+      <Surface className="max-w-2xl space-y-5 p-5 sm:p-6">
+        <div role="status" className="space-y-2">
+          <StatusIcon aria-hidden="true" className={confirmed ? "size-6 text-success" : "size-6 text-muted-foreground"} />
+          <h1 className="text-heading-lg font-semibold">
+            {confirmed
+              ? `Tu plan${planName ? ` ${planName}` : ""} está activo`
+              : needsReview
+                ? "Tu contratación necesita atención"
+                : activatingPlan
+                  ? "Estamos verificando la activación de tu plan"
+                  : "Estamos confirmando tu pago"}
+          </h1>
+          <p className="text-body-sm text-muted-foreground">
+            {confirmed
+              ? "Ya puedes usar tu plan en este despacho."
+              : needsReview
+                ? "Revisa el estado en Planes y suscripción antes de intentar otro pago."
+                : "Puedes salir de esta pantalla y consultar el estado en Planes y suscripción."}
+          </p>
+        </div>
+        <dl className="flex flex-wrap gap-x-8 gap-y-3 border-y border-border py-4 text-body-sm">
+          <div>
+            <dt className="text-muted-foreground">Despacho</dt>
+            <dd className="break-words font-semibold">{organization.name}</dd>
+          </div>
+          {planName ? (
+            <div>
+              <dt className="text-muted-foreground">Plan</dt>
+              <dd className="font-semibold">{planName}</dd>
+            </div>
+          ) : null}
+        </dl>
+        {error ? <p role="alert" className="text-body-sm text-destructive">{error}</p> : null}
+        <div className="flex flex-wrap gap-3">
+          <Button className="min-h-11" render={<Link href={confirmed ? homeHref : plansHref} />}>
+            {confirmed ? "Ir a mi despacho" : "Volver a Planes y suscripción"}
+          </Button>
+          {confirmed ? (
+            <Button className="min-h-11" variant="outline" render={<Link href={plansHref} />}>
+              Ver mi suscripción
+            </Button>
+          ) : !needsReview ? (
+            <Button
+              className="min-h-11"
+              variant="outline"
+              disabled={checking || syncing}
+              aria-busy={syncing}
+              onClick={() => activatingPlan ? void synchronize() : setManualRefresh((value) => value + 1)}
+            >
+              {syncing ? "Consultando…" : "Consultar estado"}
+            </Button>
+          ) : null}
+        </div>
+        <details className="text-caption text-muted-foreground">
+          <summary className="min-h-10 cursor-pointer py-2 font-semibold">Ver detalles</summary>
+          <p className="break-all">Referencia de contratación: {attemptId}</p>
+        </details>
+      </Surface>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -658,7 +757,7 @@ export function BillingCheckoutReturn({
         <Surface className="h-fit">
           <div className="space-y-3 p-5">
             <p className="flex items-center gap-2 text-body-sm font-semibold">
-              <LockKeyhole className="size-4" aria-hidden="true" /> {changeCancelled ? "Tu plan actual se conserva" : cancellingChange ? "Confirma la renovación de tu plan actual" : confirmed ? "Tu suscripción está activa" : abandoned ? "Tu plan actual se conserva" : "Cerrar no cancela el intento"}
+              <LockKeyhole className="size-4" aria-hidden="true" /> {changeCancelled ? "Tu plan actual se conserva" : cancellingChange ? "Confirma la renovación de tu plan actual" : confirmed ? "Tu suscripción está activa" : abandoned ? "Tu plan actual se conserva" : "Tu contratación queda guardada"}
             </p>
             <p className="text-body-sm text-muted-foreground">
               {changeCancelled
@@ -669,7 +768,7 @@ export function BillingCheckoutReturn({
                 ? "Consulta tus beneficios y la próxima renovación desde Planes y suscripción."
                 : abandoned
                 ? "Este intento ya no puede activar una suscripción en Balanz. Para contratar, elige un plan e inicia una nueva solicitud."
-                : "La X te devuelve a Planes y suscripción sin cancelar el pago pendiente. Podrás retomarlo desde ahí."}
+                : "Pulsa la X para volver a Planes y suscripción. Desde ahí puedes retomar el pago si sigue pendiente."}
             </p>
             <p className="text-body-sm text-muted-foreground">
               {changeCancelled
@@ -680,7 +779,7 @@ export function BillingCheckoutReturn({
                 ? "Cerrar esta página no cancela tu suscripción. Puedes administrar tu plan y su renovación desde la configuración."
                 : abandoned
                 ? "No apruebes el enlace antiguo de PayPal. Si llega una aprobación posterior, gestionaremos la cancelación de esa contratación sin cambiar tu plan actual."
-                : "Para abandonar esta contratación, elige «Conservar mi plan actual». Si ya pagaste, primero consulta el estado para evitar un segundo cobro."}
+                : "Si ya aprobaste el pago en PayPal, consulta su estado antes de reintentarlo. Si quieres dejar la contratación, elige «Conservar mi plan actual» cuando aparezca."}
             </p>
           </div>
         </Surface>

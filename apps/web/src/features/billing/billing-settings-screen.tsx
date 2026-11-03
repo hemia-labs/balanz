@@ -37,6 +37,7 @@ import {
   isCheckoutRetryablePending,
   isCheckoutTerminal,
   pendingCheckoutId,
+  hasReturnedCheckout,
   pendingCheckoutKey,
 } from "./checkout-recovery";
 
@@ -106,7 +107,7 @@ function BillingPlansScreen() {
     error?: string;
   }>({});
   const [subscription, setSubscription] =
-    useState<BillingSubscription | null>();
+    useState<(BillingSubscription & { confirmingPayment?: boolean }) | null>();
   const [subscriptionError, setSubscriptionError] = useState(false);
   const [retry, setRetry] = useState(0);
   const [selected, setSelected] = useState<{
@@ -188,7 +189,12 @@ function BillingPlansScreen() {
             refreshTimer = delay === undefined
               ? undefined
               : window.setTimeout(loadAccess, delay);
-            setSubscription(management.value ? { ...management.value, pendingCheckoutAttemptId } : null);
+            const confirmingPayment = Boolean(
+              userId && pendingCheckoutAttemptId &&
+              management.value?.status === "pending" &&
+              hasReturnedCheckout(organization.id, userId, pendingCheckoutAttemptId),
+            );
+            setSubscription(management.value ? { ...management.value, pendingCheckoutAttemptId, confirmingPayment } : null);
             setSubscriptionError(false);
           } else {
             setSubscription(undefined);
@@ -212,7 +218,7 @@ function BillingPlansScreen() {
     queueMicrotask(() => {
       if (controller.signal.aborted) return;
       loadAccess();
-      getBillingPlans(controller.signal)
+      getBillingPlans(controller.signal, userId ? `${organization.id}:${userId}` : undefined)
         .then((plans) => {
           if (!controller.signal.aborted) setState({ plans });
         })
@@ -588,6 +594,7 @@ function BillingPlansScreen() {
         <BillingSubscriptionActions
           key={subscription.id}
           subscription={subscription}
+          confirmingPayment={subscription.confirmingPayment}
           plans={state.plans}
           onChange={setSubscription}
         />
