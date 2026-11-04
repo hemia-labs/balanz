@@ -73,6 +73,9 @@ describe('runtime configuration profiles', () => {
     expect(value).not.toHaveProperty('MFA_ENCRYPTION_KEY');
     expect(value).not.toHaveProperty('EMAIL_FROM_AUTH');
     expect(value).not.toHaveProperty('PAYMENTS_CONNECTION');
+    expect(value).not.toHaveProperty('HEMIA_BASE_URL');
+    expect(value).not.toHaveProperty('HEMIA_CONNECTION');
+    expect(value).not.toHaveProperty('HEMIA_CLIENT_ID');
     expect(value).not.toHaveProperty('HEMIA_CLIENT_SECRET');
     expect(value).not.toHaveProperty('BILLING_WEBHOOK_CLIENT_ID');
   });
@@ -123,6 +126,9 @@ describe('runtime configuration profiles', () => {
     ['MFA_ENCRYPTION_KEY', Buffer.alloc(32).toString('base64')],
     ['EMAIL_FROM_AUTH', 'auth@example.test'],
     ['PAYMENTS_CONNECTION', '{}'],
+    ['HEMIA_BASE_URL', 'https://billing.test'],
+    ['HEMIA_CONNECTION', 'balanz_cfdi'],
+    ['HEMIA_CLIENT_ID', 'balanz-billing-service'],
     ['HEMIA_CLIENT_SECRET', 'must-not-reach-worker'],
   ])('rejects API-only setting %s in the worker profile', (name, value) => {
     const result = workerEnvVarsSchema.validate({

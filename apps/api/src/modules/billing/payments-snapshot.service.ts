@@ -18,7 +18,7 @@ export class PaymentsSnapshotService {
     const product =
       this.config.getOrThrow<PaymentsSettings>('payments').connection
         ?.productCode;
-    if (!product) throw new Error('PAYMENTS_CONNECTION is required');
+    if (!product) throw new Error('Payments connection is required');
     const snapshot = parsePaymentSnapshot(
       input,
       product,

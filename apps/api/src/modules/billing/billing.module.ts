@@ -34,7 +34,7 @@ import { FiscalTenantTransactionService } from '../../database/rls/fiscal-tenant
       ): PaymentsModuleOptions => {
         const { connection, clientSecret } =
           config.getOrThrow<PaymentsSettings>('payments');
-        if (!connection) throw new Error('PAYMENTS_CONNECTION is required');
+        if (!connection) throw new Error('Payments connection is required');
         return {
           connection,
           clientSecret,
