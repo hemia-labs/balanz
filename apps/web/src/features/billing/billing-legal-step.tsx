@@ -16,6 +16,7 @@ import {
   type LegalDocuments,
   type LegalAcceptance,
   type PlanChangeQuote,
+  type startLegalPreparation,
 } from "./api";
 function errorMessage(error: unknown) {
   if (error instanceof ApiError) {
@@ -33,6 +34,7 @@ export function BillingLegalStep({
   userId,
   planCode,
   planPriceCode,
+  initialPreparation,
   changePlan = false,
   expectedSubscriptionId,
   expectedAmountDueNow,
@@ -42,6 +44,7 @@ export function BillingLegalStep({
   userId: string;
   planCode: string;
   planPriceCode: string;
+  initialPreparation?: ReturnType<typeof startLegalPreparation>;
   changePlan?: boolean;
   expectedSubscriptionId?: string;
   expectedAmountDueNow?: string;
@@ -57,12 +60,12 @@ export function BillingLegalStep({
     checked,
   );
   const [result, setResult] = useState<LegalAcceptance>();
-  const [startCheckoutAutomatically, setStartCheckoutAutomatically] =
-    useState(false);
+  const [startCheckoutAutomatically, setStartCheckoutAutomatically] = useState(false);
+  const [continueStartedAt, setContinueStartedAt] = useState<number>();
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [stale, setStale] = useState(false);
-  const loadingDocuments = !result && (busy || (!documents && !error));
+  const loadingDocuments = !documents && !error;
   const attempt = useRef<{ prepare: string; accept: string } | undefined>(
     undefined,
   );
@@ -70,22 +73,26 @@ export function BillingLegalStep({
   const mounted = useRef(true);
   const inFlight = useRef(false);
   const prepare = useCallback(
-    async (renew = false) => {
+    async (renew = false, preload?: typeof initialPreparation) => {
       if (inFlight.current) return;
       inFlight.current = true;
       setBusy(true);
       setError("");
       if (!attempt.current || renew)
         attempt.current = {
-          prepare: crypto.randomUUID(),
+          prepare: preload?.key ?? crypto.randomUUID(),
           accept: crypto.randomUUID(),
         };
       pending.current = new AbortController();
       try {
-        const value = await prepareLegalAcceptance(
+        const controller = pending.current;
+        const prepared = await (preload?.result ?? prepareLegalAcceptance(
           attempt.current.prepare,
-          pending.current.signal,
-        );
+          controller.signal,
+        ).then((documents) => ({ documents })));
+        if ("error" in prepared) throw prepared.error;
+        if (controller.signal.aborted) return;
+        const value = prepared.documents;
         if (mounted.current) {
           setDocuments(value);
           setChecked([]);
@@ -118,17 +125,18 @@ export function BillingLegalStep({
     let active = true;
     mounted.current = true;
     queueMicrotask(() => {
-      if (active) void prepare();
+      if (active) void prepare(false, initialPreparation);
     });
     return () => {
       active = false;
       mounted.current = false;
       pending.current?.abort();
     };
-  }, [acceptanceStorageKey, prepare]);
+  }, [acceptanceStorageKey, initialPreparation, prepare]);
   async function accept() {
     if (!documents || !attempt.current || !allConfirmed || inFlight.current)
       return;
+    const startedAt = globalThis.performance?.now();
     inFlight.current = true;
     setBusy(true);
     setError("");
@@ -139,6 +147,8 @@ export function BillingLegalStep({
         attempt.current.accept,
         pending.current.signal,
       );
+      if (startedAt !== undefined)
+        globalThis.performance?.measure("balanz.checkout.legal-acceptance", { start: startedAt });
       if (mounted.current) {
         try {
           sessionStorage.setItem(
@@ -157,6 +167,7 @@ export function BillingLegalStep({
           );
         }
         setResult(value);
+        setContinueStartedAt(startedAt);
         setStartCheckoutAutomatically(true);
       }
     } catch (c) {
@@ -179,13 +190,12 @@ export function BillingLegalStep({
         <section
           className="space-y-5 p-5"
           aria-label="Documentos legales"
-          aria-busy={loadingDocuments}
+          aria-busy={loadingDocuments || busy}
         >
           {result ? (
             <div role="status" className="space-y-3">
-              <p className="text-body font-semibold">Aceptación registrada</p>
               {documents ? (
-                <ul className="space-y-3">
+                <ul className="space-y-4" aria-label="Documentos aceptados">
                   {documents.documents.map((document) => (
                     <li
                       key={document.documentVersionId}
@@ -226,12 +236,10 @@ export function BillingLegalStep({
               {loadingDocuments ? (
                 <div className="space-y-5">
                   <span role="status" className="sr-only">
-                    {documents
-                      ? "Registrando aceptación…"
-                      : "Consultando documentos vigentes…"}
+                    Consultando documentos vigentes…
                   </span>
                   {Array.from(
-                    { length: documents?.documents.length ?? 2 },
+                    { length: 2 },
                     (_, index) => (
                       <div key={index} className="flex items-center gap-3">
                         <div
@@ -304,22 +312,14 @@ export function BillingLegalStep({
         </section>
       </Surface>
       {!result && documents ? (
-        loadingDocuments ? (
-          <div
-            role="status"
-            aria-busy="true"
-            aria-label="Procesando aceptación de documentos"
-            className="h-11 w-full animate-pulse rounded-md bg-muted motion-reduce:animate-none"
-          />
-        ) : (
-          <Button
-            className="min-h-11 w-full"
-            disabled={busy || stale || !allConfirmed}
-            onClick={() => void accept()}
-          >
-            Continuar
-          </Button>
-        )
+        <Button
+          className="min-h-11 w-full"
+          disabled={busy || stale || !allConfirmed}
+          aria-busy={busy}
+          onClick={() => void accept()}
+        >
+          {busy ? (stale ? "Consultando documentos…" : "Guardando aceptación…") : "Continuar"}
+        </Button>
       ) : null}
       {result ? (
         <BillingCheckoutAction
@@ -330,6 +330,7 @@ export function BillingLegalStep({
           planPriceCode={planPriceCode}
           legalAcceptanceId={result.legalAcceptanceId}
           startImmediately={startCheckoutAutomatically}
+          continueStartedAt={continueStartedAt}
           changePlan={changePlan}
           expectedSubscriptionId={expectedSubscriptionId}
           expectedAmountDueNow={expectedAmountDueNow}
