@@ -16,6 +16,7 @@ describe('FiscalReadinessService', () => {
       postgres?: 'up' | 'down';
       foundationReady?: boolean;
       storage?: 'up' | 'down';
+      storageDriver?: 'local' | 's3';
       scanner?: 'up' | 'down' | 'bypassed';
       publisherReady?: boolean;
       subscriberReady?: boolean;
@@ -86,11 +87,11 @@ describe('FiscalReadinessService', () => {
               options.storage === 'down'
                 ? {
                     status: 'down',
-                    provider: 's3',
+                    provider: 'local',
                     durationMs: 1,
                     errorCode: 'OBJECT_STORAGE_UNAVAILABLE',
                   }
-                : { status: 'up', provider: 's3', durationMs: 1 },
+                : { status: 'up', provider: 'local', durationMs: 1 },
             )),
       ),
     } as unknown as ObjectStoragePort;
@@ -133,7 +134,7 @@ describe('FiscalReadinessService', () => {
           storageProbeIntervalMs:
             options.storageProbeIntervalMs ?? options.healthTimeoutMs ?? 100,
         },
-        storage: { driver: 's3' },
+        storage: { driver: options.storageDriver ?? 'local' },
         worker: { pollIntervalMs: 1_000 },
       }),
     } as unknown as ConfigService;
@@ -238,11 +239,27 @@ describe('FiscalReadinessService', () => {
     expect(response.status).toHaveBeenLastCalledWith(503);
   });
 
+  it.each(['api', 'worker'] as const)(
+    'skips the S3 probe entirely in %s readiness',
+    async (process) => {
+      const storageHealth = jest.fn();
+      await expect(
+        service({ storageDriver: 's3', storageHealth }).check(process),
+      ).resolves.toMatchObject({
+        status: 'up',
+        dependencies: {
+          storage: { status: 'disabled', provider: 's3', required: false },
+        },
+      });
+      expect(storageHealth).not.toHaveBeenCalled();
+    },
+  );
+
   it('samples physical storage independently and never serves expired success', async () => {
     jest.useFakeTimers();
     const storageHealth = jest
       .fn()
-      .mockResolvedValue({ status: 'up', provider: 's3', durationMs: 1 });
+      .mockResolvedValue({ status: 'up', provider: 'local', durationMs: 1 });
     const postgresFoundationProbe = jest
       .fn()
       .mockResolvedValue([{ foundation_ready: true }]);
@@ -255,7 +272,7 @@ describe('FiscalReadinessService', () => {
       await readiness.check('api');
       storageHealth.mockResolvedValue({
         status: 'down',
-        provider: 's3',
+        provider: 'local',
         durationMs: 1,
       });
       for (let poll = 0; poll < 5; poll += 1) {
@@ -277,7 +294,7 @@ describe('FiscalReadinessService', () => {
       expect(storageHealth).toHaveBeenCalledTimes(2);
       storageHealth.mockResolvedValue({
         status: 'up',
-        provider: 's3',
+        provider: 'local',
         durationMs: 1,
       });
       jest.advanceTimersByTime(101);
@@ -294,8 +311,8 @@ describe('FiscalReadinessService', () => {
     jest.useFakeTimers();
     const storageHealth = jest
       .fn()
-      .mockResolvedValueOnce({ status: 'up', provider: 's3', durationMs: 1 })
-      .mockResolvedValue({ status: 'down', provider: 's3', durationMs: 1 });
+      .mockResolvedValueOnce({ status: 'up', provider: 'local', durationMs: 1 })
+      .mockResolvedValue({ status: 'down', provider: 'local', durationMs: 1 });
     const postgresFoundationProbe = jest
       .fn()
       .mockResolvedValueOnce([{ foundation_ready: true }])
@@ -366,7 +383,7 @@ describe('FiscalReadinessService', () => {
       storageHealth: (signal) =>
         waitForAbort(signal, storageAborted, {
           status: 'down',
-          provider: 's3',
+          provider: 'local',
           durationMs: 10,
           errorCode: 'OBJECT_STORAGE_UNAVAILABLE',
         }),
@@ -390,7 +407,7 @@ describe('FiscalReadinessService', () => {
       .mockResolvedValue([{ foundation_ready: true }]);
     const storageHealth = jest.fn().mockResolvedValue({
       status: 'up',
-      provider: 's3',
+      provider: 'local',
       durationMs: 1,
     });
     const scannerHealth = jest.fn().mockResolvedValue({
@@ -426,10 +443,10 @@ describe('FiscalReadinessService', () => {
     const storageHealth = jest.fn().mockImplementation(() =>
       Promise.resolve(
         storageAvailable
-          ? { status: 'up', provider: 's3', durationMs: 1 }
+          ? { status: 'up', provider: 'local', durationMs: 1 }
           : {
               status: 'down',
-              provider: 's3',
+              provider: 'local',
               durationMs: 1,
               errorCode: 'OBJECT_STORAGE_UNAVAILABLE',
             },
@@ -517,13 +534,13 @@ describe('FiscalReadinessService', () => {
       jest.useFakeTimers();
       jest.setSystemTime(new Date('2026-09-02T12:00:00.000Z'));
       type PendingHealth =
-        | { status: 'up'; provider: 's3'; durationMs: number }
+        | { status: 'up'; provider: 'local'; durationMs: number }
         | { status: 'up'; scanner: 'clamav'; durationMs: number };
       let releasePhysical: (() => void) | undefined;
       let physicalSignal: AbortSignal | undefined;
       const physicalResult: PendingHealth =
         dependency === 'storage'
-          ? { status: 'up', provider: 's3', durationMs: 1 }
+          ? { status: 'up', provider: 'local', durationMs: 1 }
           : { status: 'up', scanner: 'clamav', durationMs: 1 };
       const pendingHealth = new Promise<PendingHealth>((resolve) => {
         releasePhysical = () => resolve(physicalResult);

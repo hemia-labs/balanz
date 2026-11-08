@@ -309,20 +309,17 @@ Fase 0 no debe crear un job ficticio para que el arranque “se vea activo”.
 
 - Liveness responde sin consultar Redis.
 - Readiness confirma PostgreSQL y adapters autoritativos/obligatorios.
-- API requiere PostgreSQL y storage; scanner caído produce `degraded`/HTTP 200
+- API requiere PostgreSQL y comprueba el storage cuando es local; scanner caído produce `degraded`/HTTP 200
   para mantener consultas existentes. Worker requiere también scanner y su
   supervisor; scanner caído produce HTTP 503. La respuesta del scanner incluye
   `required` para distinguir ambos procesos. Los futuros handlers/endpoints de
   carga deben aplicar admisión y escaneo fail-closed; readiness no los sustituye.
+- Con S3, readiness de API y worker devuelve `storage.status: disabled` sin
+  enviar solicitudes al bucket. Las operaciones de almacenamiento de la
+  aplicación siguen usando S3.
 - `HEALTH_STORAGE_PROBE_INTERVAL_MS` limita a 30 s por defecto la reutilización
-  de una sonda física exitosa. Al vencer, readiness espera una sonda nueva y
-  falla si expira o falla. PostgreSQL/scanner mantienen caché de hasta 1 s.
-  Storage fallido reintenta con esa ventana breve, conservando una sola sonda
-  física en curso, incluso durante timeout/cleanup.
-- Con sondas sanas cada 30 s, S3 ejecuta unas 14.400 solicitudes por proceso/día
-  (cinco operaciones por sonda), frente a 86.400 con consultas cada 5 s sin esa
-  caché. Es una estimación sin reintentos; mide frecuencia y duración mediante
-  `object_storage_operation_duration_seconds{stage="health"}`.
+  de una sonda exitosa de almacenamiento local. Al vencer, readiness espera
+  una sonda nueva. PostgreSQL y scanner mantienen caché de hasta 1 s.
 - `WORKER_QUEUE_METRICS_INTERVAL_MS` muestrea la edad de cola cada 30 s por
   proceso, incluidos intentos fallidos. Polling, wakeups y reconciliación
   comparten la consulta en curso; los claims mantienen su frecuencia original.

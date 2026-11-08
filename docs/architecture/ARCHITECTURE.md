@@ -718,6 +718,7 @@ La API y el worker exponen probes separados:
 - liveness: el proceso responde;
 - readiness: PostgreSQL y los adapters obligatorios están disponibles; en el
   worker también confirma que el supervisor está ejecutándose y vigente.
+  Comprueba el almacenamiento local y omite las sondas de S3.
 
 Los endpoints son `/liveness` y `/readiness`; no cachean la respuesta y usan
 `503` cuando el proceso o una dependencia autoritativa no está listo. Los
@@ -883,7 +884,7 @@ nuevos módulos.
    recuperable. Definir qué correos son obligatorios y usar outbox para los que
    no se pueden perder.
 3. **Health check — resuelta para API y worker (2026-08-28):** existen
-   `/liveness` y `/readiness`; PostgreSQL, storage, scanner y supervisor del
+   `/liveness` y `/readiness`; PostgreSQL, almacenamiento local, scanner y supervisor del
    worker se comprueban con deadlines acotados. Redis se reporta degradado sin
    bloquear readiness.
 4. **Headers de seguridad:** no hay configuración explícita equivalente a
