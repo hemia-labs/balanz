@@ -26,9 +26,13 @@ interface DependencyHealth {
   errorCode?: string;
 }
 
+type StorageReadiness =
+  | ObjectStorageHealth
+  | { status: 'disabled'; provider: 's3'; required: false; durationMs: 0 };
+
 interface RequiredDependencyHealth {
   postgres: DependencyHealth;
-  storage: ObjectStorageHealth;
+  storage: StorageReadiness;
   scanner: MalwareScannerHealth;
 }
 
@@ -44,7 +48,7 @@ export interface FiscalReadinessResult {
   process: FiscalProcessName;
   dependencies: {
     postgres: DependencyHealth;
-    storage: ObjectStorageHealth;
+    storage: StorageReadiness;
     scanner: MalwareScannerHealth & { required: boolean };
     redisWakeup: {
       status: 'up' | 'down' | 'disabled';
@@ -143,7 +147,7 @@ export class FiscalReadinessService {
       process === 'worker' ? this.workerSupervisorHealth() : undefined;
     const requiredReady =
       postgres.status === 'up' &&
-      storage.status === 'up' &&
+      storage.status !== 'down' &&
       (process === 'api' || scanner.status !== 'down') &&
       (workerSupervisor?.status ?? 'up') === 'up';
 
@@ -169,8 +173,9 @@ export class FiscalReadinessService {
     if (
       cached &&
       cached.expiresAt > Date.now() &&
-      this.storageHealthCache &&
-      this.storageHealthCache.expiresAt > Date.now()
+      (this.storageProvider === 's3' ||
+        (this.storageHealthCache &&
+          this.storageHealthCache.expiresAt > Date.now()))
     ) {
       return Promise.resolve(cached.value);
     }
@@ -214,7 +219,16 @@ export class FiscalReadinessService {
     return { postgres, storage: currentStorage, scanner };
   }
 
-  private async storageHealth(): Promise<ObjectStorageHealth> {
+  private async storageHealth(): Promise<StorageReadiness> {
+    // Readiness is polled continuously. Keep synthetic S3 traffic out of it.
+    if (this.storageProvider === 's3') {
+      return {
+        status: 'disabled',
+        provider: 's3',
+        required: false,
+        durationMs: 0,
+      };
+    }
     const cached = this.storageHealthCache;
     if (cached && cached.expiresAt > Date.now()) return cached.value;
     const value = await this.withAbortTimeout(
