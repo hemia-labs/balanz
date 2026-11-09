@@ -3,7 +3,7 @@ import test from "node:test";
 import { ApiError } from "../../lib/api-client";
 import {
   createCheckoutAttempt, createPlanChangeAttempt, retryCheckoutAttempt,
-  getCheckoutAttempt, syncBillingAccess,
+  getCheckoutAttempt, syncBillingAccess, getBillingPlans, getBillingPlanPreview,
 } from "./api";
 import { canStartNewCheckout, readCheckoutDraft, checkoutActionUrl } from "./checkout-recovery";
 import { canReuseLegalAcceptance } from "./legal-consent";
@@ -87,6 +87,22 @@ for (const failure of [409, 429, 503, "network"] as const) {
   });
 }
 
+test("a lost checkout response recovers the same processing attempt with a single GET", async () => {
+  const previous = globalThis.fetch;
+  const pending = { attemptId: id, operation: "checkout", status: "processing", planCode: input.planCode, planPriceCode: input.planPriceCode };
+  const calls: string[] = [];
+  globalThis.fetch = async (url, init) => {
+    calls.push(init?.method ?? "GET");
+    if (init?.method === "POST") return response({}, 503);
+    assert.ok(String(url).endsWith(`/payments/checkout-attempts/${id}`));
+    return response(pending);
+  };
+  try {
+    assert.deepEqual(await createCheckoutAttempt(input, new AbortController().signal), pending);
+    assert.deepEqual(calls, ["POST", "GET"]);
+  } finally { globalThis.fetch = previous; }
+});
+
 test("successful submission needs no recovery GET; explicit synchronization POST is separate from status GET", async () => {
   const previous = globalThis.fetch;
   const calls: { path: string; method: string }[] = [];
@@ -114,8 +130,12 @@ for (const failure of [404, 503, "network"] as const) {
     const storedDraft = JSON.stringify({ idempotencyKey: input.idempotencyKey, legalAcceptanceId: accepted.legalAcceptanceId });
     const calls: unknown[] = [];
     globalThis.fetch = async (url, init) => {
+      if (init?.method !== "POST") {
+        assert.notEqual(failure, 404);
+        assert.ok(String(url).endsWith(`/payments/checkout-attempts/${id}`));
+        return response({}, 404);
+      }
       assert.ok(String(url).endsWith("/payments/checkout-attempts"));
-      assert.equal(init?.method, "POST");
       calls.push(JSON.parse(String(init?.body)));
       if (calls.length < 3) {
         if (failure === "network") throw new TypeError("connection lost");
@@ -377,9 +397,11 @@ for (const alreadyCancelled of [true, false, null]) {
 }
 
 for (const terminalView of [false, true]) {
-for (const scenario of ["abandoned", "pending", "stale-abandonment", "wrong-purchase", "late-recovery"] as const) {
-  if (terminalView && scenario === "late-recovery") continue;
-  test(`returning to the same plan uses a new key only for confirmed abandonment (${scenario}, terminal=${terminalView})`, async () => {
+for (const scenario of ["abandoned", "pending", "stale-abandonment", "wrong-purchase", "late-recovery", "reload-pending"] as const) {
+  if (terminalView && (scenario === "late-recovery" || scenario === "reload-pending")) continue;
+  test(scenario === "reload-pending"
+    ? "reloading after a lost response opens PayPal for the same checkout without posting"
+    : `returning to the same plan uses a new key only for confirmed abandonment (${scenario}, terminal=${terminalView})`, async () => {
     const { readFileSync } = await import("node:fs");
     const { resolve } = await import("node:path");
     const { runInNewContext } = await import("node:vm");
@@ -387,15 +409,18 @@ for (const scenario of ["abandoned", "pending", "stale-abandonment", "wrong-purc
     const jsxRuntime = await import("react/jsx-runtime");
     const recovery = await import("./checkout-recovery");
     const lateRecovery = scenario === "late-recovery";
+    const reloading = scenario === "reload-pending";
+    let displayedAttempt: unknown;
+    const timers: Array<() => void> = [];
     const replacing = scenario === "abandoned" || lateRecovery;
     let releaseOld: (() => void) | undefined;
     const effects: Array<() => unknown> = [];
     let createdKey = "";
     let quotesReviewed = 0;
-    const draft = { idempotencyKey: id, attemptId: id, legalAcceptanceId: id };
-    const abandoned = scenario !== "pending";
+    const draft = { idempotencyKey: id, attemptId: reloading ? undefined : id, legalAcceptanceId: id };
+    const abandoned = scenario !== "pending" && !reloading;
     const receipt = { attemptId: id, operation: "checkout", planCode: scenario === "wrong-purchase" ? "other" : "professional",
-      planPriceCode: "monthly", abandoned, status: abandoned ? "rejected" : "ready", statusFresh: scenario !== "stale-abandonment",
+      planPriceCode: "monthly", abandoned, status: abandoned ? "rejected" : reloading ? "processing" : "ready", statusFresh: scenario !== "stale-abandonment",
       checkoutStatus: abandoned ? "cancelled" : "created", subscriptionStatus: abandoned ? "cancelled" : "pending" };
     const calls: string[] = [];
     const storage = new Map([[`balanz:billing-checkout:v1:${id}:${id}:professional:monthly:new`, JSON.stringify(draft)]]);
@@ -407,21 +432,29 @@ for (const scenario of ["abandoned", "pending", "stale-abandonment", "wrong-purc
     const approvalUrl = "https://www.sandbox.paypal.com/approve?token=new";
     runInNewContext(transpileModule(source, { compilerOptions: { module: ModuleKind.CommonJS, jsx: JsxEmit.ReactJSX } }).outputText, {
       exports, AbortController, queueMicrotask,
-      window: { location: { assign: (url: string) => redirects.push(url) } },
+      window: {
+        location: { replace: (url: string) => redirects.push(url) },
+        setTimeout: (fn: () => void) => timers.push(fn),
+        clearTimeout: () => undefined,
+      },
       sessionStorage: {
         getItem: (key: string) => storage.get(key) ?? null,
         setItem: (key: string, raw: string) => { storage.set(key, raw); if (key.startsWith("balanz:billing-checkout:")) saved.push(JSON.parse(raw)); },
       },
       require: (name: string) => {
         if (name === "react") return {
-          useState: (initial: unknown) => { const index = stateIndex++; return [index === 0 ? draft : index === 1 ? true : index === 2 && terminalView ? receipt : initial, () => undefined]; },
+          useState: (initial: unknown) => { const index = stateIndex++; return [
+            index === 0 ? draft : index === 1 ? true : index === 2 ? (terminalView ? receipt : displayedAttempt) : initial,
+            (value: unknown) => { if (index === 2) displayedAttempt = value; },
+          ]; },
           useCallback: (fn: unknown) => fn, useRef: () => ({ current: null }), useEffect: (fn: () => unknown) => effects.push(fn),
         };
         if (name === "./api") return {
-          getCheckoutAttempt: async () => {
+          getCheckoutAttempt: async (attemptId: string) => {
+            assert.equal(attemptId, id);
             calls.push("get-old");
             if (lateRecovery && calls.length === 1) return new Promise(resolve => { releaseOld = () => resolve(receipt); });
-            return receipt;
+            return reloading && calls.length > 1 ? { ...receipt, status: "ready", checkoutUrl: approvalUrl } : receipt;
           },
           createCheckoutAttempt: async (payload: typeof input) => {
             calls.push("create-new");
@@ -451,8 +484,27 @@ for (const scenario of ["abandoned", "pending", "stale-abandonment", "wrong-purc
       const el = node as Element;
       return el.type === "button" ? el : button(el.props?.children);
     }
-    const tree = exports.BillingCheckoutAction!({ organizationId: id, userId: id, planCode: "professional", planPriceCode: "monthly",
+    const render = () => exports.BillingCheckoutAction!({ organizationId: id, userId: id, planCode: "professional", planPriceCode: "monthly",
       legalAcceptanceId: id, startImmediately: false, onReviewQuote: () => { quotesReviewed++; } });
+    const tree = render();
+    if (reloading) {
+      effects[1]();
+      await new Promise<void>(resolve => setImmediate(resolve));
+      assert.deepEqual(calls, ["get-old"]);
+      assert.deepEqual(saved, [{ ...draft, attemptId: id }]);
+      effects.length = 0;
+      stateIndex = 0;
+      assert.ok(JSON.stringify(render()).includes("Abriendo PayPal…"));
+      effects[2]();
+      assert.equal(timers.length, 1);
+      timers[0]();
+      await new Promise<void>(resolve => setImmediate(resolve));
+      stateIndex = 0;
+      assert.ok(JSON.stringify(render()).includes("Abriendo PayPal…"));
+      assert.deepEqual(calls, ["get-old", "get-old"]);
+      assert.deepEqual(redirects, [approvalUrl]);
+      return;
+    }
     if (lateRecovery) {
       effects[1]();
       await new Promise<void>(resolve => setImmediate(resolve));
@@ -478,9 +530,96 @@ for (const scenario of ["abandoned", "pending", "stale-abandonment", "wrong-purc
 
 }
 
+test("the catalog preview is limited to the same workspace, user and selected price", async () => {
+  const previous = globalThis.fetch;
+  const plan = { code: "professional", name: "Profesional", prices: [{ code: "monthly" }] };
+  globalThis.fetch = async () => response([plan]);
+  try {
+    await getBillingPlans(new AbortController().signal, "qa:owner");
+    assert.deepEqual(getBillingPlanPreview("qa:owner", "professional", "monthly"), plan);
+    assert.equal(getBillingPlanPreview("another:owner", "professional", "monthly"), undefined);
+    assert.equal(getBillingPlanPreview("qa:another", "professional", "monthly"), undefined);
+    assert.equal(getBillingPlanPreview("qa:owner", "professional", "yearly"), undefined);
+  } finally {
+    globalThis.fetch = previous;
+  }
+});
+
+for (const fromCatalog of [false, true]) {
+  test(fromCatalog
+    ? "checkout starts Legal preparation while current billing data is still loading"
+    : "reloading checkout opens the authoritative pending attempt for the same plan and price", async () => {
+    const { readFileSync } = await import("node:fs");
+    const { resolve } = await import("node:path");
+    const { runInNewContext } = await import("node:vm");
+    const { transpileModule, ModuleKind, JsxEmit } = await import("typescript");
+    const jsxRuntime = await import("react/jsx-runtime");
+    const management = await import("./subscription-management");
+    const currentPlan = await import("./current-plan");
+    const source = readFileSync(resolve(__dirname, "../../../src/features/billing/billing-payment-screen.tsx"), "utf8");
+    const exports: { BillingPaymentScreen?: () => { type: (props: unknown) => unknown; props: unknown } } = {};
+    const routes: string[] = [];
+    const plan = { code: "professional", name: "Profesional", prices: [{ code: "monthly" }] };
+    const initialPreparation = { key: "prepare-key", result: Promise.resolve({ documents: {} }) };
+    let prepared = 0;
+    const renderedStates: unknown[] = [];
+    let finishSubscription: (value: null) => void = () => assert.fail("subscription request did not start");
+    const subscription = new Promise<null>((resolve) => { finishSubscription = resolve; });
+    const effects: Array<() => void> = [];
+    runInNewContext(transpileModule(source, { compilerOptions: { module: ModuleKind.CommonJS, jsx: JsxEmit.ReactJSX } }).outputText, {
+      exports, AbortController, queueMicrotask,
+      require: (name: string) => {
+        if (name === "react") return { useState: (initial: unknown) => [initial, (value: unknown) => { if (initial && typeof initial === "object") renderedStates.push(value); }], useEffect: (fn: () => void) => effects.push(fn) };
+        if (name === "next/navigation") return {
+          useSearchParams: () => new URLSearchParams({ plan: "professional", price: "monthly" }),
+          useRouter: () => ({ replace: (href: string) => routes.push(href) }),
+        };
+        if (name === "./api") return {
+          getBillingPlans: async () => fromCatalog ? [plan] : [],
+          getBillingPlanPreview: () => fromCatalog ? plan : undefined,
+          startLegalPreparation: () => {
+            assert.ok(fromCatalog, "a missing catalog price must not prepare documents");
+            prepared++;
+            return initialPreparation;
+          },
+          getBillingSubscription: async () => fromCatalog ? subscription : ({
+            status: "pending", planCode: "professional", planPriceCode: "monthly", pendingCheckoutAttemptId: id,
+          }),
+          getPlanChangeQuote: () => assert.fail("a pending purchase is not a plan change"),
+        };
+        if (name === "./subscription-management") return management;
+        if (name === "./current-plan") return currentPlan;
+        if (name === "@/components/accounting-context") return { useAccountingContext: () => ({ organization: { id, slug: "qa", name: "QA" }, locale: "es", capabilities: [] }) };
+        if (name === "@/features/session/session-provider") return { useSession: () => ({ session: { userId: id } }) };
+        if (name === "@/lib/permissions") return { hasCapability: () => true };
+        if (name === "@/lib/api-client") return { apiClient: async () => ({ active: false }), ApiError };
+        if (name === "react/jsx-runtime") return jsxRuntime;
+        return new Proxy({}, { get: (_, key) => String(key) });
+      },
+    });
+    const details = exports.BillingPaymentScreen!();
+    details.type(details.props);
+    effects[0]();
+    await new Promise<void>(resolve => setImmediate(resolve));
+    if (fromCatalog) {
+      assert.equal(prepared, 1);
+      assert.equal(renderedStates.length, 0);
+      finishSubscription(null);
+      await new Promise<void>(resolve => setImmediate(resolve));
+      assert.equal((renderedStates.at(-1) as { legalPreparation: unknown }).legalPreparation, initialPreparation);
+      assert.equal(prepared, 1);
+      assert.deepEqual(routes, []);
+    } else {
+      assert.deepEqual(routes, [`/es/organizations/qa/checkout/success?attemptId=${id}&resume=1`]);
+    }
+  });
+}
+
 for (const query of [
   { token: "order-token", PayerID: "buyer" },
   { token: "subscription-token", subscription_id: "I-SANDBOX" },
+  { resume: "1" },
+  { resume: "1", token: "subscription-token", subscription_id: "I-SANDBOX" },
   {},
   { subscription_id: "I-SANDBOX" },
 ]) {
@@ -490,7 +629,7 @@ for (const query of [
     const { runInNewContext } = await import("node:vm");
     const { transpileModule, ModuleKind, JsxEmit } = await import("typescript");
     const jsxRuntime = await import("react/jsx-runtime");
-    const exports: { default?: (props: unknown) => Promise<{ props: { attemptId: string; cancelled: boolean; returnedFromPayment: boolean } }> } = {};
+    const exports: { default?: (props: unknown) => Promise<{ props: { attemptId: string; cancelled: boolean; returnedFromPayment: boolean; resumePayment: boolean } }> } = {};
     const source = readFileSync(resolve(__dirname, "../../../src/app/[lang]/(private)/organizations/[organizationSlug]/checkout/success/page.tsx"), "utf8");
     runInNewContext(transpileModule(source, { compilerOptions: { module: ModuleKind.CommonJS, jsx: JsxEmit.ReactJSX } }).outputText, {
       exports,
@@ -505,10 +644,11 @@ for (const query of [
     assert.equal(page.props.attemptId, id);
     assert.equal(page.props.cancelled, false);
     assert.equal(page.props.returnedFromPayment, "token" in query);
+    assert.equal(page.props.resumePayment, query.resume === "1" && !query.token && !query.PayerID && !query.subscription_id);
   });
 }
 
-for (const scenario of ["purchase", "upgrade", "downgrade", "restoring", "cancelled-change", "stale-cancellation", "failed-change"] as const) {
+for (const scenario of ["purchase", "initial-return", "confirming-payment", "activating-plan", "upgrade", "downgrade", "restoring", "cancelled-change", "stale-cancellation", "failed-change"] as const) {
   test(`return page preserves each payment outcome without mixing cancelled quotes (${scenario})`, async () => {
     const { readFileSync } = await import("node:fs");
     const { resolve } = await import("node:path");
@@ -518,14 +658,17 @@ for (const scenario of ["purchase", "upgrade", "downgrade", "restoring", "cancel
     const recovery = await import("./checkout-recovery");
     const money = await import("../cfdi/exact-decimal");
     const completed = scenario === "purchase" || scenario === "upgrade";
+    const pendingReturn = scenario === "initial-return" || scenario === "confirming-payment" || scenario === "activating-plan";
+    const purchase = scenario === "purchase" || pendingReturn;
     const cancellation = ["restoring", "cancelled-change", "stale-cancellation"].includes(scenario);
     const change = { state: scenario === "upgrade" ? "effective" : scenario === "downgrade" ? "scheduled" : scenario === "restoring" ? "awaiting_approval" : "failed",
       kind: scenario === "downgrade" ? "downgrade" : "upgrade", cancellationRequested: cancellation, effectiveAt: "2026-11-26T10:00:00Z", action: scenario === "restoring" ? "approve_subscription" : "none",
       amountDueNow: "0.00", recurringAmount: "499.00", currency: "MXN", nextBillingAt: "2026-11-26T10:00:00Z" };
-    const saved = { attemptId: id, operation: scenario === "purchase" ? "checkout" : "change_plan", status: "ready",
-      statusFresh: scenario !== "stale-cancellation", subscriptionId: id, subscriptionStatus: "active", planCode: "professional", planPriceCode: "monthly",
-      ...(scenario === "purchase" ? {} : { planChange: change }) };
-    const states: unknown[] = [saved,
+    const saved = { attemptId: id, operation: purchase ? "checkout" : "change_plan", status: "ready",
+      statusFresh: scenario !== "stale-cancellation", subscriptionId: id, subscriptionStatus: scenario === "confirming-payment" ? "pending" : "active", planCode: "professional", planPriceCode: "monthly",
+      ...(pendingReturn ? { checkoutUrl: "https://www.sandbox.paypal.com/approve" } : {}),
+      ...(purchase ? {} : { planChange: change }) };
+    const states: unknown[] = [scenario === "initial-return" ? undefined : saved,
       completed ? { active: true, source: "billing", subscriptionId: id, planCode: "professional", renewalAt: "2026-11-26T10:00:00Z" } : undefined,
       [{ code: "professional", name: "Profesional", prices: [{ code: "monthly", amount: "499.00", currency: "MXN" }], features: [] }]];
     let stateIndex = 0;
@@ -546,11 +689,24 @@ for (const scenario of ["purchase", "upgrade", "downgrade", "restoring", "cancel
         return new Proxy({}, { get: (_, key) => String(key) });
       },
     });
-    const content = JSON.stringify(exports.BillingCheckoutReturn!({ attemptId: id, cancelled: false, returnedFromPayment: true }));
+    const tree = exports.BillingCheckoutReturn!({ attemptId: id, cancelled: false, returnedFromPayment: true });
+    const content = JSON.stringify(tree, (key, value) => key === "_owner" || key === "_store" ? undefined : value);
     assert.deepEqual(calls, []);
     if (scenario === "cancelled-change") {
       for (const text of ["Cambio de plan cancelado", "Resumen del cambio cancelado", "tu plan actual se conserva", "No necesitas volver a pagar", "Ver mi suscripción"]) assert.ok(content.includes(text), text);
-      for (const text of ["Pago no completado", "Precio de catálogo", "Próximo cobro", "Pago único por el cambio", "Retomar pago", "Cerrar no cancela el intento", "499.00"]) assert.ok(!content.includes(text), text);
+      for (const text of ["Pago no completado", "Precio de catálogo", "Próximo cobro", "Pago único por el cambio", "Retomar pago", "Tu contratación queda guardada", "499.00"]) assert.ok(!content.includes(text), text);
+    } else if (pendingReturn) {
+      const label = scenario === "activating-plan" ? "Estamos verificando la activación de tu plan" : "Estamos confirmando tu pago";
+      assert.ok(content.includes(label));
+      assert.ok(content.includes("Puedes salir de esta pantalla"));
+      assert.match(content, /"render":\{"type":"default","key":null,"props":\{"href":"[^"]+\/settings\/billing-plan"\}\},"children":"Volver a Planes y suscripción"/);
+      assert.ok(content.indexOf("Volver a Planes y suscripción") < content.indexOf("Consultar estado"));
+      for (const unsafe of ["Pago confirmado", "Retomar pago", "BillingDiscardCheckout", "Conservar mi plan actual", "sandbox.paypal.com", "Precio de catálogo", "Beneficios del plan"])
+        assert.ok(!content.includes(unsafe), unsafe);
+    } else if (scenario === "purchase") {
+      assert.ok(content.includes("Tu plan Profesional está activo"));
+      assert.ok(content.includes("Ir a mi despacho"));
+      assert.ok(content.includes("/es/organizations/punto-fiscal/home"));
     } else if (completed) {
       assert.ok(content.includes("Tu suscripción está activa"));
       assert.ok(content.includes("Suscripción activa"));

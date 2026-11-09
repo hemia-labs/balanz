@@ -25,10 +25,12 @@ import {
 
 export function BillingSubscriptionActions({
   subscription,
+  confirmingPayment = false,
   plans,
   onChange,
 }: {
   subscription: BillingSubscription;
+  confirmingPayment?: boolean;
   plans?: BillingPlan[];
   onChange: (subscription: BillingSubscription | null) => void;
 }) {
@@ -153,11 +155,13 @@ export function BillingSubscriptionActions({
               <BillingRenewalStatus renewal={renewal} planName={plans?.find(plan => plan.code === (renewal.planCode ?? subscription.planCode))?.name} />
             ) : pendingPayment && !scheduled ? (
               <>
-                <p className="font-semibold">{cancelling ? "Confirmando el descarte del intento" : "Pago pendiente de completar"}</p>
+                <p className="font-semibold">{cancelling ? "Confirmando el descarte del intento" : confirmingPayment ? "Estamos confirmando tu pago" : "Pago pendiente de completar"}</p>
                 <p className="text-muted-foreground">
                   {cancelling
                     ? "El descarte sigue en proceso. Puedes comprobarlo de nuevo; tu plan actual se conserva."
-                    : "Tu plan o prueba mantienen su vigencia actual. Retoma el pago si quieres continuar; descarta el intento si prefieres quedarte como estás."}
+                    : confirmingPayment
+                      ? "Tu plan se activará cuando confirmemos el pago."
+                      : "Tu plan o prueba mantienen su vigencia actual. Retoma el pago si quieres continuar; descarta el intento si prefieres quedarte como estás."}
                 </p>
               </>
             ) : pendingChange && change ? (
@@ -216,7 +220,7 @@ export function BillingSubscriptionActions({
             scheduledChange={renewalChange.state === "scheduled"}
             planChange
           /> : null}
-          {pendingPayment && !scheduled && subscription.pendingCheckoutAttemptId ? <>
+          {pendingPayment && !scheduled && !confirmingPayment && subscription.pendingCheckoutAttemptId ? <>
             {paymentHref ? <Button render={<a href={paymentHref} />}>Retomar pago</Button> : null}
             <BillingDiscardCheckout
               attemptId={subscription.pendingCheckoutAttemptId}

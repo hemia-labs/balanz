@@ -23,6 +23,7 @@ import {
   isCheckoutRetryablePending,
   pendingCheckoutId,
   pendingCheckoutKey,
+  hasReturnedCheckout,
   shouldMonitorBillingAccess,
 } from "./checkout-recovery";
 export type BillingAccessSummary = {
@@ -174,6 +175,10 @@ export function BillingAccessNotice() {
             } else if (attempt.planChange?.state === "awaiting_approval") {
               clearPending(attemptId);
               setNotification(undefined);
+            } else if (attempt.operation === "checkout" &&
+                hasReturnedCheckout(organization.id, userId, attemptId) &&
+                !isCheckoutTerminal(attempt) && attempt.status !== "rejected") {
+              setNotification({ organizationId: organization.id, userId, status: "pending" });
             } else if (attempt.subscriptionStatus === "pending" && checkoutActionUrl(attempt)) {
               pollAfter = Number.POSITIVE_INFINITY;
               setNotification({
@@ -322,7 +327,7 @@ export function BillingAccessNotice() {
                   ? notification.planChange
                     ? "No pudimos iniciar el pago de tu cambio de plan"
                     : "No se pudo iniciar el pago"
-                  : "Estamos revisando el pago"}
+                  : "Estamos confirmando tu pago"}
           </p>
           <p>
             {confirmed

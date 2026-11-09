@@ -20,8 +20,20 @@ export interface BillingPlan {
     value: unknown;
   }[];
 }
-export function getBillingPlans(signal: AbortSignal) {
-  return apiClient<BillingPlan[]>("/payments/plans", { signal });
+let plansPreview: { scope: string; plans: BillingPlan[]; expiresAt: number } | undefined;
+
+export async function getBillingPlans(signal: AbortSignal, previewScope?: string) {
+  const plans = await apiClient<BillingPlan[]>("/payments/plans", { signal });
+  if (previewScope && !signal.aborted)
+    plansPreview = { scope: previewScope, plans, expiresAt: Date.now() + 60_000 };
+  return plans;
+}
+
+export function getBillingPlanPreview(scope: string, planCode: string, priceCode: string) {
+  if (plansPreview?.scope !== scope || plansPreview.expiresAt <= Date.now()) return;
+  return plansPreview.plans.find(
+    (plan) => plan.code === planCode && plan.prices.some((price) => price.code === priceCode),
+  );
 }
 
 export type LegalDocuments = {
@@ -56,6 +68,20 @@ export function prepareLegalAcceptance(
     signal,
   });
 }
+export function startLegalPreparation(signal: AbortSignal) {
+  const key = crypto.randomUUID();
+  const startedAt = globalThis.performance?.now();
+  const result = prepareLegalAcceptance(key, signal).then(
+    (documents) => {
+      if (startedAt !== undefined)
+        globalThis.performance?.measure("balanz.checkout.legal-prepare", { start: startedAt });
+      return { documents };
+    },
+    (error: unknown) => ({ error }),
+  );
+  return { key, result };
+}
+
 export function acceptLegalDocuments(
   documents: LegalDocuments,
   idempotencyKey: string,
@@ -186,7 +212,7 @@ export function createCheckoutAttempt(
     method: "POST",
     body: JSON.stringify(input),
     signal,
-  }));
+  }), true);
 }
 
 export function getCheckoutAttempt(id: string, signal: AbortSignal) {
@@ -237,24 +263,29 @@ export function createPlanChangeAttempt(
   }));
 }
 
-// A 422 is a durable rejection, but the shared HTTP client correctly throws it.
-// Recover only the authoritative receipt for this exact purchase; ambiguous failures
-// retain the original error and idempotency key.
+// Recover only a receipt for the exact attempt. A new purchase can be
+// committed even if the POST response is lost, so look it up without posting again.
 async function recoverRejectedAttempt(
   id: string,
   expected: { planCode: string; planPriceCode: string },
   signal: AbortSignal,
   submit: () => Promise<CheckoutAttempt>,
+  recoverUnconfirmed = false,
 ): Promise<CheckoutAttempt> {
   try { return await submit(); }
   catch (error) {
-    if (!(error instanceof ApiError) || error.status !== 422) throw error;
+    if (!(error instanceof ApiError) || signal.aborted) throw error;
+    const unconfirmed = recoverUnconfirmed &&
+      (error.status === 0 || error.status === 408 || error.status >= 500);
+    if (error.status !== 422 && !unconfirmed) throw error;
     try {
       const receipt = await getCheckoutAttempt(id, signal);
-      if (receipt?.status === "rejected" && receipt.attemptId === id &&
+      if (receipt?.attemptId === id &&
+          (receipt.status === "rejected" || (unconfirmed && receipt.operation === "checkout" &&
+            ["pending", "processing", "ready"].includes(receipt.status))) &&
           receipt.planCode === expected.planCode && receipt.planPriceCode === expected.planPriceCode)
         return receipt;
-    } catch { /* Preserve the original rejection if recovery is unavailable. */ }
+    } catch { /* Preserve the original error if recovery is unavailable. */ }
     throw error;
   }
 }

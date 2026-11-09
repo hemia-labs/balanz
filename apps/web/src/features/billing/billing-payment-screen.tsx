@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { Check, LockKeyhole, Minus, X } from "lucide-react";
 import { useAccountingContext } from "@/components/accounting-context";
@@ -14,6 +14,8 @@ import { apiClient, ApiError } from "@/lib/api-client";
 import { hasCapability } from "@/lib/permissions";
 import {
   getBillingPlans,
+  getBillingPlanPreview,
+  startLegalPreparation,
   getBillingSubscription,
   getPlanChangeQuote,
   type PlanChangeQuote,
@@ -24,7 +26,7 @@ import {
 import { BillingLegalStep } from "./billing-legal-step";
 import { period, featureValue } from "./billing-plan-format";
 import { hasCurrentBillingPlan, type CurrentAccess } from "./current-plan";
-import { billingDate, canChangeSubscription } from "./subscription-management";
+import { billingDate, canChangeSubscription, pendingSubscriptionHref } from "./subscription-management";
 
 export function BillingPaymentScreen() {
   const { organization, locale, capabilities } = useAccountingContext();
@@ -69,14 +71,18 @@ function PaymentDetails({
   planCode: string;
   priceCode: string;
 }) {
+  const { organization, locale } = useAccountingContext();
+  const router = useRouter();
   const [state, setState] = useState<{
     plan?: BillingPlan;
     price?: BillingPlanPrice;
     subscription?: BillingSubscription;
     quote?: PlanChangeQuote;
+    legalPreparation?: ReturnType<typeof startLegalPreparation>;
     error?: string;
   }>({});
   const [retry, setRetry] = useState(0);
+  const [previewName, setPreviewName] = useState<string>();
   useEffect(() => {
     const controller = new AbortController();
     queueMicrotask(() => {
@@ -85,15 +91,32 @@ function PaymentDetails({
         setState({ error: "Selecciona un plan y precio desde Planes y suscripción." });
         return;
       }
+      const preview = getBillingPlanPreview(`${organizationId}:${userId}`, planCode, priceCode);
+      setPreviewName(preview?.name);
+      let legalPreparation = preview ? startLegalPreparation(controller.signal) : undefined;
+      const catalog = getBillingPlans(controller.signal).then((plans) => {
+        const plan = plans.find((item) => item.code === planCode);
+        const price = plan?.prices.find((item) => item.code === priceCode);
+        if (!legalPreparation && !controller.signal.aborted && plan && price)
+          legalPreparation = startLegalPreparation(controller.signal);
+        return { plan, price };
+      });
       void Promise.all([
-        getBillingPlans(controller.signal),
+        catalog,
         getBillingSubscription(controller.signal),
         apiClient<CurrentAccess>("/payments/access", {
           signal: controller.signal,
         }),
       ])
-        .then(async ([plans, subscription, access]) => {
+        .then(async ([{ plan, price }, subscription, access]) => {
           if (controller.signal.aborted) return;
+          if (subscription?.planCode === planCode && subscription.planPriceCode === priceCode) {
+            const pendingHref = pendingSubscriptionHref(subscription, locale, organization.slug);
+            if (pendingHref) {
+              router.replace(`${pendingHref}&resume=1`);
+              return;
+            }
+          }
           const resuming =
             subscription?.pendingPlanChange?.state === "awaiting_approval" &&
             subscription.pendingPlanChange.targetPlanCode === planCode &&
@@ -110,15 +133,13 @@ function PaymentDetails({
             });
             return;
           }
-          const plan = plans.find((item) => item.code === planCode);
-          const price = plan?.prices.find((item) => item.code === priceCode);
           const quote = subscription && plan && price
             ? await getPlanChangeQuote(planCode, priceCode, controller.signal)
             : undefined;
           if (controller.signal.aborted) return;
           setState(
             plan && price
-              ? { plan, price, subscription: subscription ?? undefined, quote }
+              ? { plan, price, subscription: subscription ?? undefined, quote, legalPreparation }
               : {
                   error:
                     "El plan o precio seleccionado ya no está disponible. Regresa a los planes para elegir una opción vigente.",
@@ -142,7 +163,7 @@ function PaymentDetails({
         });
     });
     return () => controller.abort();
-  }, [planCode, priceCode, retry]);
+  }, [locale, organization.slug, organizationId, userId, planCode, priceCode, retry, router]);
 
   return (
     <main
@@ -161,8 +182,7 @@ function PaymentDetails({
         <X aria-hidden="true" />
       </Button>
       <div className="mx-auto w-full max-w-2xl space-y-6">
-        {!state.plan && !state.error ? <BillingPaymentSkeleton /> : null}
-        {state.plan || state.error ? (
+        {state.plan || state.error || previewName ? (
           <header className="min-w-0 space-y-2">
             <p className="flex items-center gap-2 text-body-sm text-muted-foreground">
               <LockKeyhole aria-hidden="true" className="size-4" /> Contratación
@@ -171,10 +191,11 @@ function PaymentDetails({
             <h1 className="text-heading-lg font-bold">
               {state.plan
                 ? `${state.subscription ? "Cambiar a" : "Contratar"} ${state.plan.name}`
-                : "Contratar un plan"}
+                : !state.error && previewName ? `Revisar ${previewName}` : "Contratar un plan"}
             </h1>
           </header>
         ) : null}
+        {!state.plan && !state.error ? <BillingPaymentSkeleton /> : null}
         {state.error ? (
           <Surface>
             <div role="alert" className="space-y-4 p-5">
@@ -307,6 +328,7 @@ function PaymentDetails({
                 userId={userId}
                 planCode={state.plan.code}
                 planPriceCode={state.price.code}
+                initialPreparation={state.legalPreparation}
                 changePlan={Boolean(state.subscription)}
                 expectedSubscriptionId={state.subscription?.id}
                 expectedAmountDueNow={state.quote?.amountDueNow}

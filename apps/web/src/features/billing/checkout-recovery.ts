@@ -124,6 +124,18 @@ export function pendingCheckoutKey(organizationId: string, userId: string) {
   return `balanz:pending-checkout:v1:${organizationId}:${userId}`;
 }
 
+export function returnedCheckoutKey(organizationId: string, userId: string) {
+  return `${pendingCheckoutKey(organizationId, userId)}:returned`;
+}
+
+export function hasReturnedCheckout(organizationId: string, userId: string, attemptId: string): boolean {
+  try {
+    return sessionStorage.getItem(returnedCheckoutKey(organizationId, userId)) === attemptId;
+  } catch {
+    return false;
+  }
+}
+
 export function pendingCheckoutId(value: string | null): string | undefined {
   return value &&
     /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
@@ -209,6 +221,12 @@ export function shouldReadCheckoutAccess(attempt?: CheckoutState): boolean {
   return Boolean(!attempt?.abandoned && (!attempt?.renewalResume || attempt.renewalResume.state === "effective") &&
     (!attempt?.renewalPlanChange || (attempt.renewalPlanChange.state === "effective" && !attempt.renewalPlanChange.cancellationRequested)) && attempt?.subscriptionStatus === "active" &&
     (!attempt.planChange || attempt.planChange.state === "effective"));
+}
+
+export function checkoutPollDelay(elapsedMs: number): number {
+  if (elapsedMs < 5_000) return 1_000;
+  if (elapsedMs < 15_000) return 2_000;
+  return 5_000;
 }
 
 export function shouldPollCheckout(

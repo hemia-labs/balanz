@@ -4,9 +4,9 @@ import { BillingCheckoutReturn } from "@/features/billing/billing-checkout-retur
 export default async function BillingCheckoutSuccessPage({
   searchParams,
 }: {
-  searchParams: Promise<{ attemptId?: string; token?: string; PayerID?: string; subscription_id?: string }>;
+  searchParams: Promise<{ attemptId?: string; token?: string; PayerID?: string; subscription_id?: string; resume?: string }>;
 }) {
-  const { attemptId, token, PayerID, subscription_id } = await searchParams;
+  const { attemptId, token, PayerID, subscription_id, resume } = await searchParams;
   if (
     !attemptId ||
     !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
@@ -14,5 +14,5 @@ export default async function BillingCheckoutSuccessPage({
     )
   )
     notFound();
-  return <BillingCheckoutReturn key={attemptId} attemptId={attemptId} cancelled={false} returnedFromPayment={Boolean(token && (PayerID || subscription_id))} />;
+  return <BillingCheckoutReturn key={attemptId} attemptId={attemptId} cancelled={false} returnedFromPayment={Boolean(token && (PayerID || subscription_id))} resumePayment={resume === "1" && !token && !PayerID && !subscription_id} />;
 }
